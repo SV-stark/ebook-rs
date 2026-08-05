@@ -34,17 +34,17 @@
                           +------------+-------------+
                                        |
         +-------------------+----------+----------+-------------------+
-        |                   |                     |                   |
-        v                   v                     v                   v
- +--------------+   +---------------+     +---------------+   +---------------+
- |  CFI Engine  |   |  Locations    |     | Search Engine |   |  Annotations  |
- | Parser/Range |   |  Progress     |     | Full-Text/CFI |   | Highlights/BM |
- +--------------+   +---------------+     +---------------+   +---------------+
+        |                   |          |          |                   |
+        v                   v          v          v                   v
+ +--------------+   +---------------+ +--------+ +---------------+ +---------------+
+ |  CFI Engine  |   |  Locations    | | WASM   | | Search Engine | |  Annotations  |
+ | Parser/Range |   |  Progress     | | Bindings| | Full-Text/CFI | | Highlights/BM |
+ +--------------+   +---------------+ +--------+ +---------------+ +---------------+
                                        |
                                        v (Optional feature: "server")
                           +--------------------------+
                           | ReaderServer & Web AppUI |
-                          |   (http://localhost:8080)|
+                          | (Double-Spread/Scroll)   |
                           +--------------------------+
 ```
 
@@ -59,27 +59,27 @@ This matrix presents a side-by-side comparison of standard reading capabilities 
 | **1. EPUB 2 Specification Support** | ✅ | ✅ | ✅ | ✅ | 🟢 100% |
 | **2. EPUB 3 Specification Support** | ✅ | ✅ | ✅ | ✅ | 🟢 100% |
 | **3. Non-EPUB Formats (MOBI / FB2 / CBZ)** | ❌ EPUB only | ✅ Multi-format | ❌ EPUB only | 🟡 EPUB (MOBI planned) | 🚧 Phase 3 |
-| **4. Core Viewport Architecture** | Standard `<iframe>` | Shadow DOM `<foliate-view>` | None (Library) | Data URI Frame + `ReaderServer` | 🚀 Data URIs |
-| **5. Zip Extraction & RAM Loader** | ✅ (`JSZip`) | ✅ (`fflate`) | ✅ (`zip`) | ✅ Zero-copy [`EpubArchive`](file:///E:/ebook-rs/src/archive.rs) | 🟢 100% |
-| **6. `container.xml` Rootfile Lookup** | ✅ | ✅ | ✅ | ✅ [`parse_container_xml`](file:///E:/ebook-rs/src/opf.rs) | 🟢 100% |
-| **7. OPF Package & Manifest Parser** | ✅ | ✅ | ✅ | ✅ Fast [`parse_opf`](file:///E:/ebook-rs/src/opf.rs) | 🟢 100% |
-| **8. Metadata & DC Term Extraction** | ✅ | ✅ | ✅ | ✅ Serde [`Metadata`](file:///E:/ebook-rs/src/metadata.rs) struct | 🟢 100% |
-| **9. Automatic Cover Image Extractor** | ✅ | ✅ | ❌ Manual | ✅ Auto binary & MIME resolution | 🟢 100% |
-| **10. Table of Contents (EPUB 2 `toc.ncx`)** | ✅ | ✅ | ✅ | ✅ [`parse_ncx`](file:///E:/ebook-rs/src/nav.rs) tree builder | 🟢 100% |
-| **11. Table of Contents (EPUB 3 `nav.xhtml`)** | ✅ | ✅ | ✅ | ✅ [`parse_nav_xhtml`](file:///E:/ebook-rs/src/nav.rs) tree builder | 🟢 100% |
-| **12. EPUB Canonical Fragment Identifier (CFI)** | ✅ Full IDPF Spec | ✅ Custom `cfi.js` | ❌ None | ✅ Full [`Cfi`](file:///E:/ebook-rs/src/cfi.rs) spec parser | 🟢 100% |
-| **13. Range CFI & Step Indirection (`!`)** | ✅ | ✅ | ❌ None | ✅ Step indirection & range CFI | 🟢 100% |
-| **14. DOM Range & Selection CFI Generation** | ✅ `Range` walker | ✅ Custom DOM Range | ❌ None | ✅ Text node indexer & CFI resolver | 🟢 100% |
-| **15. Location Chunk Generator** | ✅ `locations.generate` | ✅ Granular chunks | ❌ None | ✅ [`Locations`](file:///E:/ebook-rs/src/locations.rs) chunk manager | 🟢 100% |
-| **16. `CFI <-> Location <-> Progress %` Mapping** | ✅ | ✅ | ❌ None | ✅ Precise location progress engine | 🟢 100% |
-| **17. Full-Text Search Engine Across Spine** | ✅ | ✅ | ❌ None | ✅ [`SearchEngine`](file:///E:/ebook-rs/src/search.rs) across sections | 🟢 100% |
-| **18. Search Match CFI Target Generation** | ✅ | ✅ | ❌ None | ✅ Exact target CFI for every result | 🟢 100% |
-| **19. Annotations Engine (Highlights/Bookmarks)**| ✅ | ✅ | ❌ None | ✅ [`AnnotationManager`](file:///E:/ebook-rs/src/annotations.rs) | 🟢 100% |
-| **20. Highlight Rendering Implementation** | SVG Overlay | CSS Custom Highlight API | ❌ None | Inlined HTML Spans & Struct | 🚀 Native |
-| **21. Asset Resolution Mechanism** | Network Blobs | Blob URLs | Raw HTML | Self-contained Base64 Data URIs | 🚀 Zero external links |
+| **4. WebAssembly (WASM) Client Bindings** | ❌ JS Runtime | ❌ JS Runtime | ⚠️ Basic | ✅ `wasm-bindgen` (`WasmBook`) | 🟢 100% |
+| **5. Core Viewport Architecture** | Standard `<iframe>` | Shadow DOM `<foliate-view>` | None (Library) | Data URI Frame + `ReaderServer` | 🟢 100% |
+| **6. Zip Extraction & RAM Loader** | ✅ (`JSZip`) | ✅ (`fflate`) | ✅ (`zip`) | ✅ Zero-copy [`EpubArchive`](file:///E:/ebook-rs/src/archive.rs) | 🟢 100% |
+| **7. `container.xml` Rootfile Lookup** | ✅ | ✅ | ✅ | ✅ [`parse_container_xml`](file:///E:/ebook-rs/src/opf.rs) | 🟢 100% |
+| **8. OPF Package & Manifest Parser** | ✅ | ✅ | ✅ | ✅ Fast [`parse_opf`](file:///E:/ebook-rs/src/opf.rs) | 🟢 100% |
+| **9. Metadata & DC Term Extraction** | ✅ | ✅ | ✅ | ✅ Serde [`Metadata`](file:///E:/ebook-rs/src/metadata.rs) struct | 🟢 100% |
+| **10. Automatic Cover Image Extractor** | ✅ | ✅ | ❌ Manual | ✅ Auto binary & MIME resolution | 🟢 100% |
+| **11. Table of Contents (EPUB 2 `toc.ncx`)** | ✅ | ✅ | ✅ | ✅ [`parse_ncx`](file:///E:/ebook-rs/src/nav.rs) tree builder | 🟢 100% |
+| **12. Table of Contents (EPUB 3 `nav.xhtml`)** | ✅ | ✅ | ✅ | ✅ [`parse_nav_xhtml`](file:///E:/ebook-rs/src/nav.rs) tree builder | 🟢 100% |
+| **13. EPUB Canonical Fragment Identifier (CFI)** | ✅ Full IDPF Spec | ✅ Custom `cfi.js` | ❌ None | ✅ Full [`Cfi`](file:///E:/ebook-rs/src/cfi.rs) spec parser | 🟢 100% |
+| **14. Range CFI & Step Indirection (`!`)** | ✅ | ✅ | ❌ None | ✅ Step indirection & range CFI | 🟢 100% |
+| **15. DOM Range & Selection CFI Generation** | ✅ `Range` walker | ✅ Custom DOM Range | ❌ None | ✅ Live DOM Selection <-> CFI Bridge | 🟢 100% |
+| **16. Location Chunk Generator** | ✅ `locations.generate` | ✅ Granular chunks | ❌ None | ✅ [`Locations`](file:///E:/ebook-rs/src/locations.rs) chunk manager | 🟢 100% |
+| **17. `CFI <-> Location <-> Progress %` Mapping** | ✅ | ✅ | ❌ None | ✅ Precise location progress engine | 🟢 100% |
+| **18. Full-Text Search Engine Across Spine** | ✅ | ✅ | ❌ None | ✅ [`SearchEngine`](file:///E:/ebook-rs/src/search.rs) across sections | 🟢 100% |
+| **19. Search Match CFI Target Generation** | ✅ | ✅ | ❌ None | ✅ Exact target CFI for every result | 🟢 100% |
+| **20. Annotations Engine (Highlights/Bookmarks)**| ✅ | ✅ | ❌ None | ✅ [`AnnotationManager`](file:///E:/ebook-rs/src/annotations.rs) | 🟢 100% |
+| **21. Asset Resolution Mechanism** | Network Blobs | Blob URLs | Raw HTML | Self-contained Base64 Data URIs | 🚀 Superior |
 | **22. SMIL Audio Sync / Media Overlays**| ✅ `book.media` | ✅ SMIL Audio Sync | ❌ None | 🟡 Planned (Phase 3) | 🚧 Phase 3 |
-| **23. RTL & CJK Vertical Writing Modes** | ⚠️ Partial | ✅ Full Support | ❌ None | ✅ `PageProgressionDirection` (RTL/LTR) | 🟢 100% |
-| **24. Reflowable & Fixed Layout Modes** | ✅ Iframe viewport | ✅ SVG Scaling | ❌ None | ✅ [`RenditionLayout`](file:///E:/ebook-rs/src/layout.rs) & themes | 🟢 100% |
+| **23. Double-Spread & Column Pagination** | ✅ Iframe columns | ✅ Multi-column | ❌ None | ✅ Single & Double Page Spread Engine | 🟢 100% |
+| **24. Continuous Vertical Scroll (`scrolled-doc`)**| ✅ Scrolled flow | ✅ Vertical scroll | ❌ None | ✅ `scrolled-doc` Continuous Scroll | 🟢 100% |
 | **25. Embedded Zero-Dependency HTTP Reader Server**| ❌ Browser | ❌ Browser | ❌ Library | ⚙️ **Optional `server` feature** | 🚀 Superior |
 | **26. Zero-Dependency Headless Engine Option** | ❌ JS runtime | ❌ JS runtime | ✅ Library | ✅ `default-features = false` | 🟢 100% |
 
@@ -91,6 +91,7 @@ This matrix presents a side-by-side comparison of standard reading capabilities 
 |---|---|---|:---:|
 | **`default`** | Includes `server` (headless parser + embedded web server & UI) | `zip`, `roxmltree`, `serde`, `base64`, `tiny_http`, `url` | ✅ Enabled |
 | **`server`** | Enables `ReaderServer` HTTP server & embedded browser reader UI | `tiny_http`, `url` | ✅ Enabled |
+| **`wasm`** | Enables WebAssembly client bindings (`WasmBook`) for browser JS apps | `wasm-bindgen` | ⚪ Optional |
 | *(None)* (`default-features = false`) | Minimal, lightweight headless EPUB parser & core reader engine | `zip`, `roxmltree`, `serde`, `base64` | ⚪ Headless |
 
 ---
@@ -174,18 +175,19 @@ println!("Formatted: {}", cfi.to_string());
 - [x] Full-text search engine with snippet extraction and CFI generation.
 - [x] Annotation manager for highlights, bookmarks, underlines, and notes.
 - [x] Self-contained section resource inliner (converting images/CSS/fonts to Data URIs).
-- [x] Optional `server` feature for built-in `ReaderServer` and responsive HTML5 web interface.
+- [x] WebAssembly (`wasm-bindgen`) client bindings for JS browser integration.
+- [x] Live DOM selection to CFI range converter and highlight toolbar.
+- [x] Double-page spread multi-column pagination engine.
+- [x] Continuous vertical scroll (`scrolled-doc`) flow mode.
 
-### 🚀 Phase 2: WebAssembly & Frontend Bindings (v0.2)
-- [ ] Export `wasm-bindgen` JS wrappers for direct client-side web browser integration.
+### 🚀 Phase 2: WebAssembly & Frontend Enhancements (v0.2)
+- [ ] Export full npm package for `WasmBook`.
 - [ ] Add direct canvas/SVG rendering options for pre-paginated fixed layout EPUBs.
-- [ ] Implement text node DOM range resolution in browser iframe environment.
 
 ### 🎨 Phase 3: Advanced Reader Capabilities (v0.3)
 - [ ] Media Overlays (EPUB 3 Synchronized Audio & SMIL XML parsing).
 - [ ] Multi-format ebook loader (Kindle MOBI / AZW3 & FB2 parsers).
 - [ ] Encrypted EPUB / DRM extension hook interfaces.
-- [ ] Multi-column reflow CSS column engine for double-spread layout rendering.
 
 ### 💎 Phase 4: Native GUI & TUI Applications (v1.0)
 - [ ] Built-in Terminal User Interface (TUI) reader using `ratatui`.

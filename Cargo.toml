@@ -3,7 +3,7 @@ name = "ebook-rs"
 version = "0.1.0"
 edition = "2021"
 authors = ["Antigravity Team"]
-description = "Pure Rust EPUB parser and reader with feature parity to epub.js"
+description = "Pure Rust EPUB parser and reader with feature parity to epub.js and foliate-js"
 
 [lib]
 name = "ebook_rs"
@@ -17,6 +17,7 @@ required-features = ["server"]
 [features]
 default = ["server"]
 server = ["dep:tiny_http", "dep:url"]
+wasm = ["dep:wasm-bindgen"]
 
 [dependencies]
 zip = "2.2"
@@ -27,3 +28,4 @@ base64 = "0.22"
 percent-encoding = "2.3"
 tiny_http = { version = "0.12", optional = true }
 url = { version = "2.5", optional = true }
+wasm-bindgen = { version = "0.2", optional = true }

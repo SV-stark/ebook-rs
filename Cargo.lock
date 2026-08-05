@@ -225,6 +225,7 @@ dependencies = [
  "serde_json",
  "tiny_http",
  "url",
+ "wasm-bindgen",
  "zip",
 ]
 

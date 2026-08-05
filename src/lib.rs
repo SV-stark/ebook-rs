@@ -10,6 +10,7 @@ pub mod opf;
 pub mod sample_builder;
 pub mod search;
 pub mod section;
+pub mod wasm;
 
 #[cfg(feature = "server")]
 pub mod server;
@@ -30,3 +31,6 @@ pub use section::Section;
 
 #[cfg(feature = "server")]
 pub use server::ReaderServer;
+
+#[cfg(feature = "wasm")]
+pub use wasm::WasmBook;

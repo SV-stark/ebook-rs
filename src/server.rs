@@ -1,3 +1,4 @@
+use crate::annotations::Annotation;
 use crate::book::Book;
 use crate::web_ui::READER_HTML;
 use std::sync::{Arc, Mutex};
@@ -29,7 +30,7 @@ impl ReaderServer {
         );
         println!("Press Ctrl+C to exit.");
 
-        for request in server.incoming_requests() {
+        for mut request in server.incoming_requests() {
             let url_str = format!("http://localhost{}", request.url());
             let parsed_url =
                 Url::parse(&url_str).unwrap_or_else(|_| Url::parse("http://localhost/").unwrap());
@@ -122,11 +123,33 @@ impl ReaderServer {
                     }
                 }
                 "/api/annotations" => {
-                    let book = self.book.lock().unwrap();
-                    let json = serde_json::to_string(&book.annotations.list()).unwrap_or_default();
-                    let header =
-                        Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap();
-                    let _ = request.respond(Response::from_string(json).with_header(header));
+                    if request.method() == &tiny_http::Method::Post {
+                        let mut body_str = String::new();
+                        let _ = request.as_reader().read_to_string(&mut body_str);
+                        if let Ok(ann) = serde_json::from_str::<Annotation>(&body_str) {
+                            let mut book = self.book.lock().unwrap();
+                            book.annotations.add(ann);
+                            let header =
+                                Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
+                                    .unwrap();
+                            let _ = request.respond(
+                                Response::from_string("{\"status\":\"ok\"}").with_header(header),
+                            );
+                        } else {
+                            let _ = request.respond(
+                                Response::from_string("Invalid JSON")
+                                    .with_status_code(StatusCode(400)),
+                            );
+                        }
+                    } else {
+                        let book = self.book.lock().unwrap();
+                        let json =
+                            serde_json::to_string(&book.annotations.list()).unwrap_or_default();
+                        let header =
+                            Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
+                                .unwrap();
+                        let _ = request.respond(Response::from_string(json).with_header(header));
+                    }
                 }
                 _ => {
                     let _ = request.respond(
