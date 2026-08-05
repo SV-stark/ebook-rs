@@ -1,0 +1,29 @@
+[package]
+name = "ebook-rs"
+version = "0.1.0"
+edition = "2021"
+authors = ["Antigravity Team"]
+description = "Pure Rust EPUB parser and reader with feature parity to epub.js"
+
+[lib]
+name = "ebook_rs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ebook-rs"
+path = "src/main.rs"
+required-features = ["server"]
+
+[features]
+default = ["server"]
+server = ["dep:tiny_http", "dep:url"]
+
+[dependencies]
+zip = "2.2"
+roxmltree = "0.20"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+base64 = "0.22"
+percent-encoding = "2.3"
+tiny_http = { version = "0.12", optional = true }
+url = { version = "2.5", optional = true }
