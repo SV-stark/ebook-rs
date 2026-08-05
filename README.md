@@ -1,4 +1,4 @@
-# 📖 EBook-RS: Multi-Format Rust EBook Parser and Reader Engine (v0.2.0)
+# 📖 EBook-RS: Multi-Format Rust EBook Parser and Reader Engine (v0.2.5)
 
 `ebook-rs` is a high-performance, 100% pure Rust parser and reader engine for **EPUB 2**, **EPUB 3**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, and **LIT (Microsoft Reader)** formats, designed for full feature parity with **epub.js** and **foliate-js**.
 
@@ -6,7 +6,7 @@
 
 ## ⚡ Feature Parity Matrix
 
-| Feature | 🚀 `ebook-rs` (v0.2.0) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.2.5) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **EPUB 2 & 3 Support** | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes |
 | **MOBI & AZW3 Support** | ✅ Native PalmDOC LZ77 | ❌ No | ✅ Yes | ❌ No |
@@ -22,8 +22,8 @@
 | **WebAssembly Browser Support** | ✅ `wasm-bindgen` | ❌ JS Only | ❌ JS Only | ❌ No |
 | **Embedded HTTP Reader App** | ✅ Built-in Server | ❌ No | ❌ No | ❌ No |
 | **Double-Spread & Continuous Scroll** | ✅ CSS Column / Vertical | ✅ Yes | ✅ Yes | ❌ No |
+| **Readium Webpub Manifest Export** | ✅ `to_webpub_manifest` | ❌ No | ✅ Yes | ❌ No |
 | **CBZ / CBR Comic Archive Support** | ❌ Planned v0.3.0 | ❌ No | ✅ Yes | ❌ No |
-| **Readium Webpub Manifest Export** | ❌ Planned v0.3.0 | ❌ No | ✅ Yes | ❌ No |
 | **PDF Document Rendering Bridge** | ❌ Planned v0.3.0 | ❌ No | ✅ Yes | ❌ No |
 
 ---
@@ -31,8 +31,9 @@
 ## 🗺️ Project Roadmap
 
 - [x] **v0.1.0**: Core EPUB 2/3 parser, CFI Engine, Location Progress, Annotations, Web UI Server, WASM Bindings.
-- [x] **v0.2.0**: Native Multi-Format Support (**MOBI**, **AZW3**, **FB2**, **KEPUB**, **LIT**), IDPF & Adobe Font De-obfuscation, EPUB 3 Landmarks & Page List, Pre-Display Transformation Hooks, 100% Audit Bug Fixes.
-- [ ] **v0.3.0** *(Planned)*: PDF Rendering Bridge, CBZ/CBR Comic Archive Parser, Readium Webpub Manifest Export.
+- [x] **v0.2.0**: Native Multi-Format Support (**MOBI**, **AZW3**, **FB2**, **KEPUB**, **LIT**), IDPF & Adobe Font De-obfuscation, EPUB 3 Landmarks & Page List, Pre-Display Transformation Hooks.
+- [x] **v0.2.5**: **Readium Webpub Manifest Export** (`application/webpub+json`), PalmDOC LZ77 distance fallback, FB2 image reference matching fix, complex CFI range assertion safety.
+- [ ] **v0.3.0** *(Planned)*: PDF Rendering Bridge, CBZ/CBR Comic Archive Parser.
 
 ---
 
