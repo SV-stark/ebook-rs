@@ -45,6 +45,9 @@ pub fn decompress_palmdoc(data: &[u8]) -> Vec<u8> {
                             let val = out[start + (j % distance)];
                             out.push(val);
                         }
+                    } else {
+                        out.push(byte);
+                        out.push(next);
                     }
                 }
             }

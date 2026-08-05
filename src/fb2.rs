@@ -244,8 +244,12 @@ fn convert_fb2_section_to_html(
             "image" => {
                 if let Some(href) = node.attribute("href").or_else(|| node.attribute("l:href")) {
                     let key = href.trim_start_matches('#');
-                    if let Some(data_uri) = binary_map.get(key) {
-                        html.push_str(&format!("<img src=\"{}\"/>", data_uri));
+                    let data_uri = binary_map
+                        .get(key)
+                        .or_else(|| binary_map.get(&format!("#{}", key)))
+                        .or_else(|| binary_map.get(href));
+                    if let Some(uri) = data_uri {
+                        html.push_str(&format!("<img src=\"{}\"/>", uri));
                     }
                 }
             }

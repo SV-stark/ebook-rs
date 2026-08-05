@@ -17,6 +17,7 @@ pub mod sample_builder;
 pub mod search;
 pub mod section;
 pub mod wasm;
+pub mod webpub;
 
 #[cfg(feature = "server")]
 pub mod server;
@@ -38,6 +39,7 @@ pub use nav::{Landmark, NavPoint, PageListItem};
 pub use sample_builder::generate_sample_epub;
 pub use search::{SearchEngine, SearchResult};
 pub use section::Section;
+pub use webpub::{WebpubLink, WebpubManifest, WebpubMetadata};
 
 #[cfg(feature = "server")]
 pub use server::ReaderServer;
