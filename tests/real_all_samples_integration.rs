@@ -1,3 +1,4 @@
+// Integration test for all sample files (v0.3.0)
 use ebook_rs::Book;
 use std::fs;
 
@@ -13,13 +14,14 @@ fn test_all_sample_files_parsing_and_verification() {
         if path.is_file() {
             println!("🧪 Testing Real Sample File: {}", path_str);
 
-            if path_str.ends_with(".cbz") || path_str.ends_with(".cbr") {
-                println!("   - Skipping text parsing for binary comic archive: {}", path_str);
+            if path_str.ends_with(".cbr") {
+                println!("   - Skipping text parsing for CBR archive: {}", path_str);
                 tested_count += 1;
                 continue;
             }
 
-            let book = Book::from_file(&path_str).expect(&format!("Should parse {}", path_str));
+            let book = Book::from_file(&path_str)
+                .unwrap_or_else(|_| panic!("Should parse {}", path_str));
 
             // Verify Metadata
             assert!(

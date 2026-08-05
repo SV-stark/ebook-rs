@@ -6,7 +6,7 @@ fn find_sample_epub() -> String {
     if let Ok(entries) = fs::read_dir("samples") {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().map_or(false, |ext| ext == "epub") {
+            if path.extension().is_some_and(|ext| ext == "epub") {
                 return path.to_string_lossy().to_string();
             }
         }

@@ -60,7 +60,7 @@ fn test_full_epub_parsing_and_reader_parity() {
     assert_eq!(loc_entry.location, 1);
 
     let pct = book.locations.percentage_from_cfi(&first_cfi);
-    assert!(pct >= 0.0 && pct <= 1.0);
+    assert!((0.0..=1.0).contains(&pct));
 
     // 8. Verify Full-Text Search Engine
     let search_results = book.search("CFI");

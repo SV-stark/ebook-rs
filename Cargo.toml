@@ -1,6 +1,6 @@
 [package]
 name = "ebook-rs"
-version = "0.2.5"
+version = "0.3.0"
 edition = "2024"
 authors = ["SV-Stark"]
 description = "Pure Rust EPUB parser and reader engine with CFI location mapping, full-text search, font de-obfuscation, and WASM/HTTP reader support."

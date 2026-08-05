@@ -3,6 +3,7 @@
 pub mod annotations;
 pub mod archive;
 pub mod book;
+pub mod cbz;
 pub mod cfi;
 pub mod deobfuscate;
 pub mod fb2;
@@ -27,6 +28,7 @@ pub mod web_ui;
 pub use annotations::{Annotation, AnnotationManager, AnnotationType};
 pub use archive::EpubArchive;
 pub use book::Book;
+pub use cbz::CbzBook;
 pub use cfi::{Cfi, CfiOffset, CfiPath, CfiStep};
 pub use deobfuscate::FontDeobfuscator;
 pub use fb2::Fb2Book;

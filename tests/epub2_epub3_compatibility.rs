@@ -12,12 +12,12 @@ fn test_epub2_compatibility() {
     println!("   - TOC Points:  {}", book.toc().len());
 
     assert_eq!(book.opf.version, "2.0");
-    assert!(book.spine().len() > 0);
+    assert!(!book.spine().is_empty());
     assert!(!book.toc().is_empty(), "EPUB 2 NCX TOC should be parsed");
 
     let matches = book.search("Rabbit");
     assert!(
-        matches.len() > 0,
+        !matches.is_empty(),
         "Full-text search should find matches in EPUB 2"
     );
     println!(
@@ -40,7 +40,7 @@ fn test_epub3_compatibility() {
     println!("   - Page List:   {}", book.page_list().len());
 
     assert!(book.opf.version.starts_with("3"));
-    assert!(book.spine().len() > 0);
+    assert!(!book.spine().is_empty());
     assert!(
         !book.toc().is_empty(),
         "EPUB 3 NAV XHTML TOC should be parsed"
@@ -48,7 +48,7 @@ fn test_epub3_compatibility() {
 
     let matches = book.search("Rabbit");
     assert!(
-        matches.len() > 0,
+        !matches.is_empty(),
         "Full-text search should find matches in EPUB 3"
     );
     println!(

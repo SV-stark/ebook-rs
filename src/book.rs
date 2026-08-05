@@ -30,24 +30,44 @@ pub struct Book {
 }
 
 impl Book {
-    /// Load an EPUB, KEPUB, MOBI, AZW3, FB2, or LIT book from a file path.
+    /// Load an EPUB, KEPUB, MOBI, AZW3, FB2, LIT, CBZ, or CBR book from a file path.
     pub fn from_file(path: &str) -> Result<Self, String> {
         let bytes = std::fs::read(path)
             .map_err(|e| format!("Failed to read ebook file {}: {}", path, e))?;
-        Self::from_bytes(&bytes)
+        let filename = std::path::Path::new(path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Comic Book");
+        Self::from_bytes_with_title(&bytes, filename)
     }
 
-    /// Open an EPUB, KEPUB, MOBI, AZW3, FB2, or LIT ebook from an in-memory byte slice.
+    /// Open an EPUB, KEPUB, MOBI, AZW3, FB2, LIT, CBZ, or CBR ebook from an in-memory byte slice.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
+        Self::from_bytes_with_title(bytes, "eBook")
+    }
+
+    /// Open an eBook from an in-memory byte slice with a title fallback.
+    pub fn from_bytes_with_title(bytes: &[u8], title_fallback: &str) -> Result<Self, String> {
+        if bytes.starts_with(b"Rar!\x1a\x07") {
+            return Err("CBR (RAR format) is not supported in pure-Rust mode. Please convert the file to CBZ (ZIP format).".to_string());
+        }
         if bytes.starts_with(b"PK\x03\x04") {
-            let archive = EpubArchive::from_bytes(bytes)?;
-            Self::from_archive(archive)
+            if let Ok(archive) = EpubArchive::from_bytes(bytes) {
+                if archive.contains("META-INF/container.xml") {
+                    if let Ok(book) = Self::from_archive(archive) {
+                        return Ok(book);
+                    }
+                }
+            }
+            crate::cbz::CbzBook::parse(bytes, title_fallback)
         } else if let Ok(mobi) = crate::mobi::MobiBook::parse(bytes) {
             Ok(mobi)
         } else if let Ok(fb2) = crate::fb2::Fb2Book::parse(bytes) {
             Ok(fb2)
         } else if let Ok(lit) = crate::lit::LitBook::parse(bytes) {
             Ok(lit)
+        } else if let Ok(cbz) = crate::cbz::CbzBook::parse(bytes, title_fallback) {
+            Ok(cbz)
         } else {
             Err("Unsupported or corrupted eBook format".to_string())
         }

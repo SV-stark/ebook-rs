@@ -112,6 +112,12 @@ impl EpubArchive {
         Ok(String::from_utf8_lossy(&bytes).to_string())
     }
 
+    /// Check if a file exists in the archive.
+    pub fn contains(&self, path: &str) -> bool {
+        let clean = normalize_path(path);
+        self.files.contains_key(&clean) || self.files.contains_key(&clean.to_lowercase())
+    }
+
     /// List all unique file entry paths inside the archive.
     pub fn list_files(&self) -> Vec<String> {
         // P2 Fix: Iterate keys directly without double allocation into a HashSet

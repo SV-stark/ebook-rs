@@ -2,10 +2,10 @@ use ebook_rs::{Book, Cfi, FlowMode, RenditionLayout, SpreadMode, Theme, generate
 
 #[test]
 fn test_rendition_spread_and_flow_modes() {
-    let mut layout = RenditionLayout::default();
-
-    // Test Double Spread Mode (Feature 4)
-    layout.spread_mode = SpreadMode::Double;
+    let mut layout = RenditionLayout {
+        spread_mode: SpreadMode::Double,
+        ..Default::default()
+    };
     assert_eq!(layout.spread_mode, SpreadMode::Double);
 
     // Test Continuous Scroll Mode (Feature 6)
