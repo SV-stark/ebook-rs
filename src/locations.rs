@@ -82,7 +82,8 @@ impl Locations {
 
         for entry in &self.entries {
             if entry.spine_index == target_cfi.spine_index() {
-                let diff = (entry.char_offset as isize - target_cfi.char_offset() as isize).abs() as usize;
+                let diff =
+                    (entry.char_offset as isize - target_cfi.char_offset() as isize).unsigned_abs();
                 if diff < min_diff {
                     min_diff = diff;
                     best = Some(entry);

@@ -12,24 +12,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "parse" => {
             let path = args.get(2).ok_or("Usage: ebook-rs parse <path.epub>")?;
             let book = Book::from_file(path)?;
-            println!("📖 Metadata:\n{}", serde_json::to_string_pretty(book.metadata())?);
-            println!("\n📌 Table of Contents:\n{}", serde_json::to_string_pretty(book.toc())?);
-            println!("\n📚 Spine Items ({} total):\n{}", book.spine().len(), serde_json::to_string_pretty(book.spine())?);
+            println!(
+                "📖 Metadata:\n{}",
+                serde_json::to_string_pretty(book.metadata())?
+            );
+            println!(
+                "\n📌 Table of Contents:\n{}",
+                serde_json::to_string_pretty(book.toc())?
+            );
+            println!(
+                "\n📚 Spine Items ({} total):\n{}",
+                book.spine().len(),
+                serde_json::to_string_pretty(book.spine())?
+            );
         }
         "search" => {
-            let path = args.get(2).ok_or("Usage: ebook-rs search <path.epub> <query>")?;
-            let query = args.get(3).ok_or("Usage: ebook-rs search <path.epub> <query>")?;
+            let path = args
+                .get(2)
+                .ok_or("Usage: ebook-rs search <path.epub> <query>")?;
+            let query = args
+                .get(3)
+                .ok_or("Usage: ebook-rs search <path.epub> <query>")?;
             let book = Book::from_file(path)?;
             let results = book.search(query);
-            println!("🔍 Search results for '{}' ({} found):", query, results.len());
+            println!(
+                "🔍 Search results for '{}' ({} found):",
+                query,
+                results.len()
+            );
             for r in results {
-                println!("[Spine {}] CFI: {}\n    Snippet: {}\n", r.spine_index, r.cfi, r.snippet);
+                println!(
+                    "[Spine {}] CFI: {}\n    Snippet: {}\n",
+                    r.spine_index, r.cfi, r.snippet
+                );
             }
         }
         "locations" => {
             let path = args.get(2).ok_or("Usage: ebook-rs locations <path.epub>")?;
             let book = Book::from_file(path)?;
-            println!("📍 Generated Locations ({} total):", book.locations.total_locations);
+            println!(
+                "📍 Generated Locations ({} total):",
+                book.locations.total_locations
+            );
             println!("{}", serde_json::to_string_pretty(&book.locations.entries)?);
         }
         "sample" => {
@@ -38,7 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             fs::write(out_path, bytes)?;
             println!("✅ Generated sample EPUB file at: {}", out_path);
         }
-        "serve" | _ => {
+        _ => {
             let file_arg = if args.len() > 1 && !args[1].starts_with('-') && mode != "serve" {
                 Some(&args[1])
             } else if args.len() > 2 {
@@ -47,14 +71,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 None
             };
 
-            let port: u16 = env::var("PORT").unwrap_or_else(|_| "8080".to_string()).parse().unwrap_or(8080);
+            let port: u16 = env::var("PORT")
+                .unwrap_or_else(|_| "8080".to_string())
+                .parse()
+                .unwrap_or(8080);
 
             let book = if let Some(p) = file_arg {
                 if Path::new(p).exists() {
                     println!("📖 Loading EPUB from file: {}", p);
                     Book::from_file(p)?
                 } else {
-                    println!("⚠️ Specified file '{}' not found. Generating sample EPUB in memory...", p);
+                    println!(
+                        "⚠️ Specified file '{}' not found. Generating sample EPUB in memory...",
+                        p
+                    );
                     let bytes = generate_sample_epub()?;
                     Book::from_bytes(&bytes)?
                 }

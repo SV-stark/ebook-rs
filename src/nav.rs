@@ -1,6 +1,6 @@
+use crate::archive::resolve_relative_path;
 use roxmltree::Document;
 use serde::{Deserialize, Serialize};
-use crate::archive::resolve_relative_path;
 
 /// A node in the Table of Contents tree.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,7 +79,11 @@ fn parse_ncx_navpoint(node: &roxmltree::Node, base_dir: &str) -> Option<NavPoint
 
     Some(NavPoint {
         id,
-        label: if label.is_empty() { "Untitled".to_string() } else { label },
+        label: if label.is_empty() {
+            "Untitled".to_string()
+        } else {
+            label
+        },
         href,
         full_path,
         subitems,
@@ -100,8 +104,14 @@ pub fn parse_nav_xhtml(html_content: &str, nav_path: &str) -> Result<Vec<NavPoin
     // Look for <nav epub:type="toc"> or <nav id="toc"> or any <nav>
     for node in doc.descendants() {
         if node.has_tag_name("nav") {
-            let is_toc = node.attribute("type").map(|t| t.contains("toc")).unwrap_or(false)
-                || node.attribute("epub:type").map(|t| t.contains("toc")).unwrap_or(false)
+            let is_toc = node
+                .attribute("type")
+                .map(|t| t.contains("toc"))
+                .unwrap_or(false)
+                || node
+                    .attribute("epub:type")
+                    .map(|t| t.contains("toc"))
+                    .unwrap_or(false)
                 || node.attribute("id").map(|i| i == "toc").unwrap_or(false)
                 || points.is_empty(); // Fallback to first nav element if none explicit
 
@@ -173,7 +183,11 @@ fn parse_nav_list(ol_node: &roxmltree::Node, base_dir: &str) -> Vec<NavPoint> {
                 let full_path = resolve_relative_path(base_dir, &href);
                 points.push(NavPoint {
                     id,
-                    label: if label.is_empty() { "Untitled".to_string() } else { label },
+                    label: if label.is_empty() {
+                        "Untitled".to_string()
+                    } else {
+                        label
+                    },
                     href,
                     full_path,
                     subitems,

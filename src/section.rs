@@ -1,4 +1,4 @@
-use crate::archive::{EpubArchive, resolve_relative_path};
+use crate::archive::{resolve_relative_path, EpubArchive};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 
@@ -46,9 +46,7 @@ impl Section {
 pub fn extract_plain_text(html: &str) -> String {
     let mut in_tag = false;
     let mut text = String::with_capacity(html.len());
-    let mut chars = html.chars().peekable();
-
-    while let Some(ch) = chars.next() {
+    for ch in html.chars() {
         if ch == '<' {
             in_tag = true;
             text.push(' ');
@@ -90,7 +88,10 @@ pub fn process_section_resources(html: &str, section_path: &str, archive: &EpubA
     // Replace image src attributes
     let img_src_regex = regex_find_attr(html, "src");
     for (orig_attr, src_val) in img_src_regex {
-        if src_val.starts_with("data:") || src_val.starts_with("http://") || src_val.starts_with("https://") {
+        if src_val.starts_with("data:")
+            || src_val.starts_with("http://")
+            || src_val.starts_with("https://")
+        {
             continue;
         }
         let res_path = resolve_relative_path(section_dir, &src_val);
@@ -109,7 +110,8 @@ pub fn process_section_resources(html: &str, section_path: &str, archive: &EpubA
             let res_path = resolve_relative_path(section_dir, &href_val);
             if let Ok(css_text) = archive.read_string(&res_path) {
                 let processed_css = process_css_resources(&css_text, &res_path, archive);
-                let b64 = base64::engine::general_purpose::STANDARD.encode(processed_css.as_bytes());
+                let b64 =
+                    base64::engine::general_purpose::STANDARD.encode(processed_css.as_bytes());
                 let data_uri = format!("data:text/css;base64,{}", b64);
                 output = output.replace(&orig_attr, &format!("href=\"{}\"", data_uri));
             }
@@ -158,7 +160,10 @@ fn process_css_resources(css: &str, css_path: &str, archive: &EpubArchive) -> St
         let val_start = abs_url + 4;
         if let Some(close_idx) = output[val_start..].find(')') {
             let abs_close = val_start + close_idx;
-            let raw_url = output[val_start..abs_close].trim().trim_matches('\'').trim_matches('"');
+            let raw_url = output[val_start..abs_close]
+                .trim()
+                .trim_matches('\'')
+                .trim_matches('"');
             if !raw_url.starts_with("data:") && !raw_url.starts_with("http") {
                 let res_path = resolve_relative_path(css_dir, raw_url);
                 if let Ok(bytes) = archive.read_bytes(&res_path) {

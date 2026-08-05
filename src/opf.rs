@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use roxmltree::Document;
 use crate::archive::resolve_relative_path;
 use crate::metadata::{GuideItem, ManifestItem, Metadata, PageProgressionDirection, SpineItem};
+use roxmltree::Document;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct OpfPackage {
@@ -18,8 +18,9 @@ pub struct OpfPackage {
 
 /// Parse `META-INF/container.xml` to get the rootfile path to `.opf`.
 pub fn parse_container_xml(xml_content: &str) -> Result<String, String> {
-    let doc = Document::parse(xml_content).map_err(|e| format!("XML parse error in container.xml: {}", e))?;
-    
+    let doc = Document::parse(xml_content)
+        .map_err(|e| format!("XML parse error in container.xml: {}", e))?;
+
     for node in doc.descendants() {
         if node.has_tag_name("rootfile") {
             if let Some(full_path) = node.attribute("full-path") {
@@ -33,7 +34,8 @@ pub fn parse_container_xml(xml_content: &str) -> Result<String, String> {
 
 /// Parse the `.opf` package file into `OpfPackage`.
 pub fn parse_opf(xml_content: &str, opf_path: &str) -> Result<OpfPackage, String> {
-    let doc = Document::parse(xml_content).map_err(|e| format!("XML parse error in OPF file: {}", e))?;
+    let doc =
+        Document::parse(xml_content).map_err(|e| format!("XML parse error in OPF file: {}", e))?;
     let root = doc.root_element();
 
     if root.tag_name().name() != "package" {
@@ -97,7 +99,9 @@ pub fn parse_opf(xml_content: &str, opf_path: &str) -> Result<OpfPackage, String
                                 media_type: media_type.to_string(),
                                 properties,
                                 fallback: item_node.attribute("fallback").map(|s| s.to_string()),
-                                media_overlay: item_node.attribute("media-overlay").map(|s| s.to_string()),
+                                media_overlay: item_node
+                                    .attribute("media-overlay")
+                                    .map(|s| s.to_string()),
                             };
                             manifest.insert(id.to_string(), item);
                         }
@@ -146,7 +150,9 @@ pub fn parse_opf(xml_content: &str, opf_path: &str) -> Result<OpfPackage, String
             "guide" => {
                 for reference in child.children() {
                     if reference.has_tag_name("reference") {
-                        if let (Some(type_), Some(href)) = (reference.attribute("type"), reference.attribute("href")) {
+                        if let (Some(type_), Some(href)) =
+                            (reference.attribute("type"), reference.attribute("href"))
+                        {
                             let title = reference.attribute("title").unwrap_or("").to_string();
                             let full_path = resolve_relative_path(opf_dir, href);
 
@@ -234,7 +240,9 @@ fn parse_metadata_node(node: &roxmltree::Node, metadata: &mut Metadata) -> Resul
                     }
                 }
                 if let Some(property) = child.attribute("property") {
-                    metadata.meta_properties.insert(property.to_string(), text.clone());
+                    metadata
+                        .meta_properties
+                        .insert(property.to_string(), text.clone());
                     if property == "dcterms:modified" {
                         metadata.modified_date = Some(text);
                     }

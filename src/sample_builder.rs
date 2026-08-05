@@ -10,22 +10,29 @@ pub fn generate_sample_epub() -> Result<Vec<u8>, String> {
     let options = SimpleFileOptions::default();
 
     // 1. mimetype (must be uncompressed)
-    let stored_options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    let stored_options =
+        SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
     zip.start_file("mimetype", stored_options)
         .map_err(|e| e.to_string())?;
-    zip.write_all(b"application/epub+zip").map_err(|e| e.to_string())?;
+    zip.write_all(b"application/epub+zip")
+        .map_err(|e| e.to_string())?;
 
     // 2. META-INF/container.xml
-    zip.start_file("META-INF/container.xml", options).map_err(|e| e.to_string())?;
-    zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+    zip.start_file("META-INF/container.xml", options)
+        .map_err(|e| e.to_string())?;
+    zip.write_all(
+        br#"<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
     <rootfiles>
         <rootfile full-path="OEBPS/package.opf" media-type="application/oebps-package+xml"/>
     </rootfiles>
-</container>"#).map_err(|e| e.to_string())?;
+</container>"#,
+    )
+    .map_err(|e| e.to_string())?;
 
     // 3. OEBPS/package.opf
-    zip.start_file("OEBPS/package.opf", options).map_err(|e| e.to_string())?;
+    zip.start_file("OEBPS/package.opf", options)
+        .map_err(|e| e.to_string())?;
     zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id">
     <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
@@ -53,8 +60,10 @@ pub fn generate_sample_epub() -> Result<Vec<u8>, String> {
 </package>"#).map_err(|e| e.to_string())?;
 
     // 4. OEBPS/toc.ncx
-    zip.start_file("OEBPS/toc.ncx", options).map_err(|e| e.to_string())?;
-    zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+    zip.start_file("OEBPS/toc.ncx", options)
+        .map_err(|e| e.to_string())?;
+    zip.write_all(
+        br#"<?xml version="1.0" encoding="UTF-8"?>
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
     <head>
         <meta name="dtb:uid" content="urn:uuid:12345678-abcd-efgh-1234-56789abcdef0"/>
@@ -74,11 +83,15 @@ pub fn generate_sample_epub() -> Result<Vec<u8>, String> {
             <content src="ch3.xhtml"/>
         </navPoint>
     </navMap>
-</ncx>"#).map_err(|e| e.to_string())?;
+</ncx>"#,
+    )
+    .map_err(|e| e.to_string())?;
 
     // 5. OEBPS/nav.xhtml
-    zip.start_file("OEBPS/nav.xhtml", options).map_err(|e| e.to_string())?;
-    zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+    zip.start_file("OEBPS/nav.xhtml", options)
+        .map_err(|e| e.to_string())?;
+    zip.write_all(
+        br#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
 <head>
@@ -95,18 +108,25 @@ pub fn generate_sample_epub() -> Result<Vec<u8>, String> {
         </ol>
     </nav>
 </body>
-</html>"#).map_err(|e| e.to_string())?;
+</html>"#,
+    )
+    .map_err(|e| e.to_string())?;
 
     // 6. OEBPS/style.css
-    zip.start_file("OEBPS/style.css", options).map_err(|e| e.to_string())?;
-    zip.write_all(br#"
+    zip.start_file("OEBPS/style.css", options)
+        .map_err(|e| e.to_string())?;
+    zip.write_all(
+        br#"
         body { font-family: sans-serif; line-height: 1.6; padding: 20px; }
         h1 { color: #2563eb; }
         p { margin-bottom: 1rem; }
-    "#).map_err(|e| e.to_string())?;
+    "#,
+    )
+    .map_err(|e| e.to_string())?;
 
     // 7. OEBPS/ch1.xhtml
-    zip.start_file("OEBPS/ch1.xhtml", options).map_err(|e| e.to_string())?;
+    zip.start_file("OEBPS/ch1.xhtml", options)
+        .map_err(|e| e.to_string())?;
     zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml">
@@ -119,7 +139,8 @@ pub fn generate_sample_epub() -> Result<Vec<u8>, String> {
 </html>"#).map_err(|e| e.to_string())?;
 
     // 8. OEBPS/ch2.xhtml
-    zip.start_file("OEBPS/ch2.xhtml", options).map_err(|e| e.to_string())?;
+    zip.start_file("OEBPS/ch2.xhtml", options)
+        .map_err(|e| e.to_string())?;
     zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml">
@@ -132,7 +153,8 @@ pub fn generate_sample_epub() -> Result<Vec<u8>, String> {
 </html>"#).map_err(|e| e.to_string())?;
 
     // 9. OEBPS/ch3.xhtml
-    zip.start_file("OEBPS/ch3.xhtml", options).map_err(|e| e.to_string())?;
+    zip.start_file("OEBPS/ch3.xhtml", options)
+        .map_err(|e| e.to_string())?;
     zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml">

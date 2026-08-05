@@ -42,7 +42,13 @@ impl AnnotationManager {
     }
 
     /// Create a new highlight.
-    pub fn create_highlight(&mut self, cfi_range: &str, color: &str, text: Option<&str>, note: Option<&str>) -> Annotation {
+    pub fn create_highlight(
+        &mut self,
+        cfi_range: &str,
+        color: &str,
+        text: Option<&str>,
+        note: Option<&str>,
+    ) -> Annotation {
         let id = format!("ann-{}", uuid_simple());
         let ann = Annotation {
             id: id.clone(),

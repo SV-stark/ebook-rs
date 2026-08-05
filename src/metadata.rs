@@ -2,18 +2,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Page progression direction (LTR, RTL, Default).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PageProgressionDirection {
+    #[default]
     Ltr,
     Rtl,
     Default,
-}
-
-impl Default for PageProgressionDirection {
-    fn default() -> Self {
-        Self::Ltr
-    }
 }
 
 /// Metadata extracted from the EPUB package document (.opf).

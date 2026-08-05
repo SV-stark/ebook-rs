@@ -1,6 +1,4 @@
-use ebook_rs::{
-    generate_sample_epub, AnnotationType, Book, Cfi, Theme,
-};
+use ebook_rs::{generate_sample_epub, AnnotationType, Book, Cfi, Theme};
 
 #[test]
 fn test_full_epub_parsing_and_reader_parity() {
@@ -22,7 +20,10 @@ fn test_full_epub_parsing_and_reader_parity() {
     let toc = book.toc();
     assert_eq!(toc.len(), 3);
     assert_eq!(toc[0].label, "Chapter 1: Welcome to EBook-RS");
-    assert_eq!(toc[1].label, "Chapter 2: Canonical Fragment Identifiers (CFI)");
+    assert_eq!(
+        toc[1].label,
+        "Chapter 2: Canonical Fragment Identifiers (CFI)"
+    );
     assert_eq!(toc[2].label, "Chapter 3: Full-Text Search and Annotations");
 
     // 5. Verify Section Loading & Processing
@@ -30,8 +31,12 @@ fn test_full_epub_parsing_and_reader_parity() {
     assert!(section1.plain_text.contains("Welcome to ebook-rs"));
     assert!(section1.char_count > 0);
 
-    let section2 = book.get_section_by_href("ch2.xhtml").expect("Should find ch2");
-    assert!(section2.plain_text.contains("Canonical Fragment Identifiers"));
+    let section2 = book
+        .get_section_by_href("ch2.xhtml")
+        .expect("Should find ch2");
+    assert!(section2
+        .plain_text
+        .contains("Canonical Fragment Identifiers"));
 
     // 6. Verify EPUB CFI Engine
     let cfi_str = "epubcfi(/6/4[chap01ref]!/4/2/10/1:5)";
@@ -42,8 +47,14 @@ fn test_full_epub_parsing_and_reader_parity() {
 
     // 7. Verify Locations & Progress Engine
     assert!(book.locations.total_locations > 0);
-    let first_cfi = book.locations.cfi_from_location(1).expect("Should have CFI for loc 1");
-    let loc_entry = book.locations.location_from_cfi(&first_cfi).expect("Should map back to location");
+    let first_cfi = book
+        .locations
+        .cfi_from_location(1)
+        .expect("Should have CFI for loc 1");
+    let loc_entry = book
+        .locations
+        .location_from_cfi(&first_cfi)
+        .expect("Should map back to location");
     assert_eq!(loc_entry.location, 1);
 
     let pct = book.locations.percentage_from_cfi(&first_cfi);
@@ -56,9 +67,12 @@ fn test_full_epub_parsing_and_reader_parity() {
     assert!(search_results[0].cfi.starts_with("epubcfi("));
 
     // 9. Verify Annotations Manager
-    let ann = book
-        .annotations
-        .create_highlight("epubcfi(/6/2!/4/2/1:0)", "#fef08a", Some("Highlighted text"), Some("Test note"));
+    let ann = book.annotations.create_highlight(
+        "epubcfi(/6/2!/4/2/1:0)",
+        "#fef08a",
+        Some("Highlighted text"),
+        Some("Test note"),
+    );
     assert_eq!(ann.type_, AnnotationType::Highlight);
     assert_eq!(ann.color, "#fef08a");
     assert_eq!(book.annotations.list().len(), 1);

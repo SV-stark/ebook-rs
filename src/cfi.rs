@@ -97,7 +97,11 @@ pub struct Cfi {
 
 impl Cfi {
     /// Construct a standard CFI from spine index and optional character offset.
-    pub fn from_spine_index(spine_index: usize, element_id: Option<&str>, char_offset: usize) -> Self {
+    pub fn from_spine_index(
+        spine_index: usize,
+        element_id: Option<&str>,
+        char_offset: usize,
+    ) -> Self {
         // Spine steps standard: /6/2 is root/spine container. Spine index 0 -> step 2, index 1 -> step 4...
         let spine_step = (spine_index + 1) * 2;
         let mut spine_steps = vec![CfiStep::element(6), CfiStep::element(spine_step)];
@@ -286,8 +290,10 @@ fn parse_cfi_path_str(input: &str) -> Result<CfiPath, String> {
             if num_str.is_empty() {
                 continue;
             }
-            let step_num: usize = num_str.parse().map_err(|e| format!("Invalid step number: {}", e))?;
-            
+            let step_num: usize = num_str
+                .parse()
+                .map_err(|e| format!("Invalid step number: {}", e))?;
+
             let id_assertion = if chars.peek() == Some(&'[') {
                 chars.next(); // consume '['
                 let mut bracket_content = String::new();
@@ -321,7 +327,9 @@ fn parse_cfi_path_str(input: &str) -> Result<CfiPath, String> {
                 }
             }
             if !num_str.is_empty() {
-                let off: usize = num_str.parse().map_err(|e| format!("Invalid offset: {}", e))?;
+                let off: usize = num_str
+                    .parse()
+                    .map_err(|e| format!("Invalid offset: {}", e))?;
                 offset = Some(CfiOffset::Character(off));
             }
         } else {

@@ -158,7 +158,10 @@ impl Book {
         let target = clean.split('#').next().unwrap_or(&clean);
 
         for section in &self.sections {
-            if section.href == target || section.full_path == target || section.href.ends_with(target) {
+            if section.href == target
+                || section.full_path == target
+                || section.href.ends_with(target)
+            {
                 return Ok(section);
             }
         }

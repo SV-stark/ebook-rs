@@ -12,11 +12,14 @@ impl EpubArchive {
     /// Create an `EpubArchive` from raw ZIP byte data.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
         let cursor = Cursor::new(bytes);
-        let mut zip = ZipArchive::new(cursor).map_err(|e| format!("Failed to parse ZIP archive: {}", e))?;
+        let mut zip =
+            ZipArchive::new(cursor).map_err(|e| format!("Failed to parse ZIP archive: {}", e))?;
         let mut files = HashMap::new();
 
         for i in 0..zip.len() {
-            let mut file = zip.by_index(i).map_err(|e| format!("Failed to read file index {}: {}", i, e))?;
+            let mut file = zip
+                .by_index(i)
+                .map_err(|e| format!("Failed to read file index {}: {}", i, e))?;
             let name = file.name().to_string();
             // Ignore directories
             if name.ends_with('/') {
@@ -25,15 +28,11 @@ impl EpubArchive {
             let mut content = Vec::new();
             file.read_to_end(&mut content)
                 .map_err(|e| format!("Failed to read entry content {}: {}", name, e))?;
-            
-            // Normalize path slashes to forward slashes and store clean path
+
             let normalized = normalize_path(&name);
-            files.insert(normalized.clone(), content.clone());
-            // Also store lowercased key for case-insensitive fallback lookup
             let lower = normalized.to_lowercase();
-            if !files.contains_key(&lower) {
-                files.insert(lower, content);
-            }
+            files.insert(normalized, content.clone());
+            files.entry(lower).or_insert(content);
         }
 
         Ok(Self { files })
@@ -133,7 +132,10 @@ pub fn normalize_path(path: &str) -> String {
 /// Resolve relative path against a base directory path.
 pub fn resolve_relative_path(base_dir: &str, relative_path: &str) -> String {
     // If relative_path starts with http/https or data:, return as is
-    if relative_path.starts_with("http://") || relative_path.starts_with("https://") || relative_path.starts_with("data:") {
+    if relative_path.starts_with("http://")
+        || relative_path.starts_with("https://")
+        || relative_path.starts_with("data:")
+    {
         return relative_path.to_string();
     }
 
@@ -172,7 +174,13 @@ mod tests {
     #[test]
     fn test_normalize_and_resolve() {
         assert_eq!(normalize_path("./OEBPS//content.opf"), "OEBPS/content.opf");
-        assert_eq!(resolve_relative_path("OEBPS", "ch1.xhtml"), "OEBPS/ch1.xhtml");
-        assert_eq!(resolve_relative_path("OEBPS/text", "../images/img.png"), "OEBPS/images/img.png");
+        assert_eq!(
+            resolve_relative_path("OEBPS", "ch1.xhtml"),
+            "OEBPS/ch1.xhtml"
+        );
+        assert_eq!(
+            resolve_relative_path("OEBPS/text", "../images/img.png"),
+            "OEBPS/images/img.png"
+        );
     }
 }
