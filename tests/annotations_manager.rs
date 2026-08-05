@@ -24,7 +24,7 @@ fn test_annotations_crud_and_serialization() {
 
     // Remove
     let removed = manager.remove(&h.id);
-    assert!(removed.is_some());
+    assert!(removed);
     assert_eq!(manager.list().len(), 1);
 
     // JSON serialization

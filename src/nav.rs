@@ -12,6 +12,22 @@ pub struct NavPoint {
     pub subitems: Vec<NavPoint>,
 }
 
+/// EPUB 3 Landmark reference (e.g. cover, titlepage, toc, bodymatter).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Landmark {
+    pub epub_type: String,
+    pub label: String,
+    pub href: String,
+}
+
+/// EPUB 3 Page List item (mapping physical print page numbers to EPUB target hrefs).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PageListItem {
+    pub page: String,
+    pub label: String,
+    pub href: String,
+}
+
 /// Parse EPUB 2 NCX document (`toc.ncx`).
 pub fn parse_ncx(xml_content: &str, ncx_path: &str) -> Result<Vec<NavPoint>, String> {
     let doc = Document::parse(xml_content).map_err(|e| format!("NCX XML parse error: {}", e))?;
@@ -101,19 +117,13 @@ pub fn parse_nav_xhtml(html_content: &str, nav_path: &str) -> Result<Vec<NavPoin
 
     let mut points = Vec::new();
 
-    // Look for <nav epub:type="toc"> or <nav id="toc"> or any <nav>
     for node in doc.descendants() {
         if node.has_tag_name("nav") {
-            let is_toc = node
-                .attribute("type")
+            // B4 Fix: Strict TOC nav element matching without points.is_empty() fallback
+            let is_toc = get_attr_val(&node, "type")
                 .map(|t| t.contains("toc"))
                 .unwrap_or(false)
-                || node
-                    .attribute("epub:type")
-                    .map(|t| t.contains("toc"))
-                    .unwrap_or(false)
-                || node.attribute("id").map(|i| i == "toc").unwrap_or(false)
-                || points.is_empty(); // Fallback to first nav element if none explicit
+                || node.attribute("id").map(|i| i == "toc").unwrap_or(false);
 
             if is_toc {
                 for child in node.children() {
@@ -129,6 +139,78 @@ pub fn parse_nav_xhtml(html_content: &str, nav_path: &str) -> Result<Vec<NavPoin
     }
 
     Ok(points)
+}
+
+/// Parse EPUB 3 Landmarks navigation (`<nav epub:type="landmarks">`).
+pub fn parse_landmarks(html_content: &str) -> Vec<Landmark> {
+    let mut list = Vec::new();
+    if let Ok(doc) = Document::parse(html_content) {
+        for node in doc.descendants() {
+            if node.has_tag_name("nav") {
+                let is_landmarks = get_attr_val(&node, "type")
+                    .map(|t| t.contains("landmarks"))
+                    .unwrap_or(false);
+
+                if is_landmarks {
+                    for a in node.descendants() {
+                        if a.has_tag_name("a") {
+                            let epub_type = get_attr_val(&a, "type").unwrap_or_default();
+                            let href = a.attribute("href").unwrap_or("").to_string();
+                            let label = a.text().unwrap_or("").trim().to_string();
+                            if !href.is_empty() {
+                                list.push(Landmark {
+                                    epub_type,
+                                    label,
+                                    href,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    list
+}
+
+/// Parse EPUB 3 Page List navigation (`<nav epub:type="page-list">`).
+pub fn parse_page_list(html_content: &str) -> Vec<PageListItem> {
+    let mut list = Vec::new();
+    if let Ok(doc) = Document::parse(html_content) {
+        for node in doc.descendants() {
+            if node.has_tag_name("nav") {
+                let is_pagelist = get_attr_val(&node, "type")
+                    .map(|t| t.contains("page-list"))
+                    .unwrap_or(false);
+
+                if is_pagelist {
+                    for a in node.descendants() {
+                        if a.has_tag_name("a") {
+                            let href = a.attribute("href").unwrap_or("").to_string();
+                            let label = a.text().unwrap_or("").trim().to_string();
+                            if !href.is_empty() {
+                                list.push(PageListItem {
+                                    page: label.clone(),
+                                    label,
+                                    href,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    list
+}
+
+fn get_attr_val(node: &roxmltree::Node, name: &str) -> Option<String> {
+    for attr in node.attributes() {
+        if attr.name() == name || attr.name().ends_with(&format!(":{}", name)) {
+            return Some(attr.value().to_string());
+        }
+    }
+    None
 }
 
 fn parse_nav_list(ol_node: &roxmltree::Node, base_dir: &str) -> Vec<NavPoint> {
@@ -154,7 +236,6 @@ fn parse_nav_list(ol_node: &roxmltree::Node, base_dir: &str) -> Vec<NavPoint> {
                             id = i.to_string();
                         }
                         label = child.text().unwrap_or("").trim().to_string();
-                        // If <a> contains nested span/text
                         if label.is_empty() {
                             let mut texts = Vec::new();
                             for sub in child.descendants() {

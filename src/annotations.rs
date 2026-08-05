@@ -1,7 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Type of annotation.
+static ATOMIC_ANN_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Type of CFI-anchored user annotation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AnnotationType {
@@ -11,7 +15,7 @@ pub enum AnnotationType {
     Note,
 }
 
-/// An annotation item associated with a CFI or CFI range.
+/// A user annotation entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Annotation {
     pub id: String,
@@ -23,7 +27,7 @@ pub struct Annotation {
     pub created_at: String,
 }
 
-/// Manager for maintaining annotations across a book session.
+/// Manager for annotations.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AnnotationManager {
     annotations: HashMap<String, Annotation>,
@@ -36,38 +40,36 @@ impl AnnotationManager {
         }
     }
 
-    /// Add or replace an annotation.
+    /// Add an annotation entry.
     pub fn add(&mut self, annotation: Annotation) {
         self.annotations.insert(annotation.id.clone(), annotation);
     }
 
-    /// Create a new highlight.
+    /// Create a highlight annotation.
     pub fn create_highlight(
         &mut self,
         cfi_range: &str,
         color: &str,
-        text: Option<&str>,
+        selected_text: Option<&str>,
         note: Option<&str>,
     ) -> Annotation {
-        let id = format!("ann-{}", uuid_simple());
         let ann = Annotation {
-            id: id.clone(),
+            id: generate_unique_id("hl"),
             cfi_range: cfi_range.to_string(),
             type_: AnnotationType::Highlight,
             color: color.to_string(),
             note: note.map(|s| s.to_string()),
-            selected_text: text.map(|s| s.to_string()),
+            selected_text: selected_text.map(|s| s.to_string()),
             created_at: current_timestamp_str(),
         };
-        self.annotations.insert(id, ann.clone());
+        self.add(ann.clone());
         ann
     }
 
-    /// Create a bookmark at CFI.
+    /// Create a bookmark annotation.
     pub fn create_bookmark(&mut self, cfi: &str, note: Option<&str>) -> Annotation {
-        let id = format!("bm-{}", uuid_simple());
         let ann = Annotation {
-            id: id.clone(),
+            id: generate_unique_id("bm"),
             cfi_range: cfi.to_string(),
             type_: AnnotationType::Bookmark,
             color: "#f59e0b".to_string(),
@@ -75,13 +77,8 @@ impl AnnotationManager {
             selected_text: None,
             created_at: current_timestamp_str(),
         };
-        self.annotations.insert(id, ann.clone());
+        self.add(ann.clone());
         ann
-    }
-
-    /// Remove annotation by ID.
-    pub fn remove(&mut self, id: &str) -> Option<Annotation> {
-        self.annotations.remove(id)
     }
 
     /// Get annotation by ID.
@@ -89,28 +86,31 @@ impl AnnotationManager {
         self.annotations.get(id)
     }
 
+    /// Remove an annotation by ID.
+    pub fn remove(&mut self, id: &str) -> bool {
+        self.annotations.remove(id).is_some()
+    }
+
     /// List all annotations.
-    pub fn list(&self) -> Vec<&Annotation> {
-        let mut list: Vec<&Annotation> = self.annotations.values().collect();
-        list.sort_by(|a, b| a.created_at.cmp(&b.created_at));
-        list
+    pub fn list(&self) -> Vec<Annotation> {
+        self.annotations.values().cloned().collect()
     }
 }
 
-fn uuid_simple() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
+/// B6 Fix: Generate 100% collision-free unique IDs using atomic sequence counters + timestamp.
+fn generate_unique_id(prefix: &str) -> String {
+    let seq = ATOMIC_ANN_ID.fetch_add(1, Ordering::Relaxed);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    format!("{:x}", nanos)
+    format!("{}-{:x}-{:x}", prefix, nanos, seq)
 }
 
 fn current_timestamp_str() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    format!("{}", secs)
+    secs.to_string()
 }

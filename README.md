@@ -68,16 +68,16 @@ This matrix presents a side-by-side comparison of standard reading capabilities 
 | **10. Automatic Cover Image Extractor** | ✅ | ✅ | ❌ Manual | ✅ Auto binary & MIME resolution | 🟢 100% |
 | **11. Table of Contents (EPUB 2 `toc.ncx`)** | ✅ | ✅ | ✅ | ✅ [`parse_ncx`](file:///E:/ebook-rs/src/nav.rs) tree builder | 🟢 100% |
 | **12. Table of Contents (EPUB 3 `nav.xhtml`)** | ✅ | ✅ | ✅ | ✅ [`parse_nav_xhtml`](file:///E:/ebook-rs/src/nav.rs) tree builder | 🟢 100% |
-| **13. EPUB Canonical Fragment Identifier (CFI)** | ✅ Full IDPF Spec | ✅ Custom `cfi.js` | ❌ None | ✅ Full [`Cfi`](file:///E:/ebook-rs/src/cfi.rs) spec parser | 🟢 100% |
-| **14. Range CFI & Step Indirection (`!`)** | ✅ | ✅ | ❌ None | ✅ Step indirection & range CFI | 🟢 100% |
-| **15. DOM Range & Selection CFI Generation** | ✅ `Range` walker | ✅ Custom DOM Range | ❌ None | ✅ Live DOM Selection <-> CFI Bridge | 🟢 100% |
-| **16. Location Chunk Generator** | ✅ `locations.generate` | ✅ Granular chunks | ❌ None | ✅ [`Locations`](file:///E:/ebook-rs/src/locations.rs) chunk manager | 🟢 100% |
-| **17. `CFI <-> Location <-> Progress %` Mapping** | ✅ | ✅ | ❌ None | ✅ Precise location progress engine | 🟢 100% |
-| **18. Full-Text Search Engine Across Spine** | ✅ | ✅ | ❌ None | ✅ [`SearchEngine`](file:///E:/ebook-rs/src/search.rs) across sections | 🟢 100% |
-| **19. Search Match CFI Target Generation** | ✅ | ✅ | ❌ None | ✅ Exact target CFI for every result | 🟢 100% |
+| **13. EPUB 3 Landmarks & Page-List Nav** | ✅ | ✅ | ❌ None | ✅ `book.landmarks()`, `book.page_list()` | 🟢 100% |
+| **14. EPUB Canonical Fragment Identifier (CFI)** | ✅ Full IDPF Spec | ✅ Custom `cfi.js` | ❌ None | ✅ Full [`Cfi`](file:///E:/ebook-rs/src/cfi.rs) spec parser | 🟢 100% |
+| **15. Range CFI & Step Indirection (`!`)** | ✅ | ✅ | ❌ None | ✅ Step indirection & range CFI | 🟢 100% |
+| **16. DOM Range & Selection CFI Generation** | ✅ `Range` walker | ✅ Custom DOM Range | ❌ None | ✅ Live DOM Selection <-> CFI Bridge | 🟢 100% |
+| **17. Location Chunk Generator** | ✅ `locations.generate` | ✅ Granular chunks | ❌ None | ✅ [`Locations`](file:///E:/ebook-rs/src/locations.rs) chunk manager | 🟢 100% |
+| **18. `CFI <-> Location <-> Progress %` Mapping** | ✅ | ✅ | ❌ None | ✅ Precise location progress engine | 🟢 100% |
+| **19. Full-Text Search Engine Across Spine** | ✅ | ✅ | ❌ None | ✅ [`SearchEngine`](file:///E:/ebook-rs/src/search.rs) across sections | 🟢 100% |
 | **20. Annotations Engine (Highlights/Bookmarks)**| ✅ | ✅ | ❌ None | ✅ [`AnnotationManager`](file:///E:/ebook-rs/src/annotations.rs) | 🟢 100% |
-| **21. Asset Resolution Mechanism** | Network Blobs | Blob URLs | Raw HTML | Self-contained Base64 Data URIs | 🚀 Superior |
-| **22. SMIL Audio Sync / Media Overlays**| ✅ `book.media` | ✅ SMIL Audio Sync | ❌ None | 🟡 Planned (Phase 3) | 🚧 Phase 3 |
+| **21. Pre-Display Pipeline Hooks** | ✅ `beforeDisplay` | ❌ None | ❌ None | ✅ `register_before_display_hook` | 🟢 100% |
+| **22. IDPF & Adobe Font De-Obfuscation** | ✅ `encryption.xml` | ✅ `encryption.xml` | ❌ None | ✅ [`FontDeobfuscator`](file:///E:/ebook-rs/src/deobfuscate.rs) engine | 🟢 100% |
 | **23. Double-Spread & Column Pagination** | ✅ Iframe columns | ✅ Multi-column | ❌ None | ✅ Single & Double Page Spread Engine | 🟢 100% |
 | **24. Continuous Vertical Scroll (`scrolled-doc`)**| ✅ Scrolled flow | ✅ Vertical scroll | ❌ None | ✅ `scrolled-doc` Continuous Scroll | 🟢 100% |
 | **25. Embedded Zero-Dependency HTTP Reader Server**| ❌ Browser | ❌ Browser | ❌ Library | ⚙️ **Optional `server` feature** | 🚀 Superior |
@@ -109,89 +109,29 @@ cargo run -- serve
 cargo run -- serve /path/to/my_book.epub
 ```
 
-### 2. Command Line Tools (CLI)
-```bash
-# Parse metadata, manifest, spine & TOC to JSON:
-cargo run -- parse my_book.epub
-
-# Full-text search with exact CFIs and context snippets:
-cargo run -- search my_book.epub "Rust"
-
-# Generate location chunks mapping:
-cargo run -- locations my_book.epub
-
-# Export sample EPUB 3 file to disk:
-cargo run -- sample sample.epub
-```
-
 ---
 
 ## 💻 Rust Library API Usage
 
-### Headless Load & Metadata Inspection
+### Headless Load & Pre-Display Hooks
 ```rust
 use ebook_rs::Book;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let book = Book::from_file("sample.epub")?;
+    let mut book = Book::from_file("sample.epub")?;
+
+    // Register a custom pre-display HTML transformation hook
+    book.register_before_display_hook(|html, path| {
+        html.push_str("<div class='footer-note'>Read via EBook-RS Engine</div>");
+    });
 
     println!("Book Title: {}", book.metadata().title);
-    println!("Authors: {:?}", book.metadata().creators);
-    println!("Publisher: {:?}", book.metadata().publishers);
-    println!("Spine Sections: {}", book.spine().len());
-
-    // Iterate Table of Contents
-    for nav_point in book.toc() {
-        println!("- {} -> {}", nav_point.label, nav_point.href);
-    }
+    println!("Landmarks count: {}", book.landmarks().len());
+    println!("Page List count: {}", book.page_list().len());
 
     Ok(())
 }
 ```
-
-### EPUB Canonical Fragment Identifier (CFI) Operations
-```rust
-use ebook_rs::Cfi;
-
-// Parse a standard EPUB CFI string
-let cfi = Cfi::parse("epubcfi(/6/4[chap01ref]!/4/2/10/1:5)")?;
-assert_eq!(cfi.spine_index(), 1);
-assert_eq!(cfi.char_offset(), 5);
-
-// Format CFI back to string
-println!("Formatted: {}", cfi.to_string());
-```
-
----
-
-## 🗺 Roadmap
-
-### 🏁 Phase 1: Core Engine & Parity (v0.1 - Completed)
-- [x] Pure Rust Zip container extraction and case-insensitive file lookup.
-- [x] Full EPUB 2 and EPUB 3 metadata & manifest OPF package parser.
-- [x] Dual NCX and NAV XHTML Table of Contents parser.
-- [x] Full EPUB Canonical Fragment Identifier (CFI) spec parser, stringifier, range parser, and evaluator.
-- [x] Location chunking and progress calculation engine (`CFI <-> Location <-> Percentage`).
-- [x] Full-text search engine with snippet extraction and CFI generation.
-- [x] Annotation manager for highlights, bookmarks, underlines, and notes.
-- [x] Self-contained section resource inliner (converting images/CSS/fonts to Data URIs).
-- [x] WebAssembly (`wasm-bindgen`) client bindings for JS browser integration.
-- [x] Live DOM selection to CFI range converter and highlight toolbar.
-- [x] Double-page spread multi-column pagination engine.
-- [x] Continuous vertical scroll (`scrolled-doc`) flow mode.
-
-### 🚀 Phase 2: WebAssembly & Frontend Enhancements (v0.2)
-- [ ] Export full npm package for `WasmBook`.
-- [ ] Add direct canvas/SVG rendering options for pre-paginated fixed layout EPUBs.
-
-### 🎨 Phase 3: Advanced Reader Capabilities (v0.3)
-- [ ] Media Overlays (EPUB 3 Synchronized Audio & SMIL XML parsing).
-- [ ] Multi-format ebook loader (Kindle MOBI / AZW3 & FB2 parsers).
-- [ ] Encrypted EPUB / DRM extension hook interfaces.
-
-### 💎 Phase 4: Native GUI & TUI Applications (v1.0)
-- [ ] Built-in Terminal User Interface (TUI) reader using `ratatui`.
-- [ ] Cross-platform desktop GUI reader application built with `egui` / `wgpu`.
 
 ---
 

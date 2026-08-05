@@ -1,142 +1,172 @@
 use crate::annotations::AnnotationManager;
 use crate::archive::EpubArchive;
-use crate::cfi::Cfi;
+use crate::deobfuscate::FontDeobfuscator;
 use crate::layout::RenditionLayout;
 use crate::locations::Locations;
-use crate::metadata::{GuideItem, Metadata, SpineItem};
-use crate::nav::{parse_nav_xhtml, parse_ncx, NavPoint};
-use crate::opf::{parse_container_xml, parse_opf, OpfPackage};
+use crate::metadata::{ManifestItem, Metadata, SpineItem};
+use crate::nav::{parse_landmarks, parse_nav_xhtml, parse_ncx, Landmark, NavPoint, PageListItem};
+use crate::opf::parse_opf;
 use crate::search::{SearchEngine, SearchResult};
 use crate::section::Section;
+use crate::Cfi;
 use std::collections::HashMap;
-use std::fs;
-use std::path::Path;
+use std::sync::Arc;
 
-/// Core Book struct representing an EPUB publication.
+pub type BeforeDisplayHook = Arc<dyn Fn(&mut String, &str) + Send + Sync>;
+
+/// Main Book Core API engine.
 pub struct Book {
     pub archive: EpubArchive,
-    pub opf: OpfPackage,
+    pub opf: crate::opf::OpfPackage,
     pub toc: Vec<NavPoint>,
+    pub landmarks: Vec<Landmark>,
+    pub page_list: Vec<PageListItem>,
     pub sections: Vec<Section>,
     pub locations: Locations,
     pub annotations: AnnotationManager,
     pub layout: RenditionLayout,
+    pub font_deobfuscator: FontDeobfuscator,
+    pub before_display_hooks: Vec<BeforeDisplayHook>,
 }
 
 impl Book {
-    /// Load an EPUB book from in-memory ZIP raw bytes.
+    /// Load an EPUB book from a file path.
+    pub fn from_file(path: &str) -> Result<Self, String> {
+        let archive = EpubArchive::open(path)?;
+        Self::from_archive(archive)
+    }
+
+    /// Load an EPUB book from byte slice in memory.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
         let archive = EpubArchive::from_bytes(bytes)?;
+        Self::from_archive(archive)
+    }
 
-        // 1. Locate OPF rootfile path from META-INF/container.xml
-        let container_xml = archive.read_string("META-INF/container.xml")?;
-        let opf_path = parse_container_xml(&container_xml)?;
-
-        // 2. Parse OPF document
+    /// Internal builder from an initialized archive.
+    fn from_archive(archive: EpubArchive) -> Result<Self, String> {
+        let opf_path = archive.get_opf_path()?;
         let opf_xml = archive.read_string(&opf_path)?;
         let opf = parse_opf(&opf_xml, &opf_path)?;
 
-        // 3. Parse Table of Contents (NCX or NAV XHTML)
         let mut toc = Vec::new();
-        if let Some(ref nav_id) = opf.nav_item_id {
-            if let Some(nav_item) = opf.manifest.get(nav_id) {
-                if let Ok(nav_html) = archive.read_string(&nav_item.full_path) {
-                    if let Ok(parsed_toc) = parse_nav_xhtml(&nav_html, &nav_item.full_path) {
-                        toc = parsed_toc;
+        let mut landmarks = Vec::new();
+        let mut page_list = Vec::new();
+
+        // 1. Try NCX TOC
+        if let Some(ncx_item) = opf.manifest.values().find(|i| {
+            i.media_type == "application/x-dtbncx+xml" || i.href.ends_with(".ncx") || i.id == "ncx"
+        }) {
+            if let Ok(ncx_xml) = archive.read_string(&ncx_item.full_path) {
+                if let Ok(points) = parse_ncx(&ncx_xml, &ncx_item.full_path) {
+                    toc = points;
+                }
+            }
+        }
+
+        // 2. Try NAV XHTML TOC (EPUB 3) & Landmarks & PageList
+        if let Some(nav_item) = opf.manifest.values().find(|i| {
+            i.properties.contains(&"nav".to_string())
+                || i.href.contains("nav.xhtml")
+                || i.href.contains("nav.html")
+        }) {
+            if let Ok(nav_html) = archive.read_string(&nav_item.full_path) {
+                if let Ok(points) = parse_nav_xhtml(&nav_html, &nav_item.full_path) {
+                    if toc.is_empty() || !points.is_empty() {
+                        toc = points;
+                    }
+                }
+                landmarks = parse_landmarks(&nav_html);
+                page_list = crate::nav::parse_page_list(&nav_html);
+            }
+        }
+
+        // Parse META-INF/encryption.xml if present
+        let font_deobfuscator = if let Ok(xml) = archive.read_string("META-INF/encryption.xml") {
+            FontDeobfuscator::parse_encryption_xml(&xml)
+        } else {
+            FontDeobfuscator::parse_encryption_xml("")
+        };
+
+        // Load spine sections
+        let mut sections = Vec::new();
+        let mut locations = Locations::default();
+
+        for (idx, spine_item) in opf.spine.iter().enumerate() {
+            if let Some(man_item) = opf.manifest.get(&spine_item.idref) {
+                match Section::new(
+                    idx,
+                    spine_item.idref.clone(),
+                    man_item.href.clone(),
+                    man_item.full_path.clone(),
+                    &archive,
+                ) {
+                    Ok(section) => {
+                        locations.add_spine_section(section.index, &section.plain_text);
+                        sections.push(section);
+                    }
+                    Err(err) => {
+                        eprintln!(
+                            "Warning: Failed to load section {} ({}): {}",
+                            idx, man_item.full_path, err
+                        );
                     }
                 }
             }
         }
 
-        if toc.is_empty() {
-            if let Some(ref toc_id) = opf.toc_item_id {
-                if let Some(toc_item) = opf.manifest.get(toc_id) {
-                    if let Ok(ncx_xml) = archive.read_string(&toc_item.full_path) {
-                        if let Ok(parsed_toc) = parse_ncx(&ncx_xml, &toc_item.full_path) {
-                            toc = parsed_toc;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Fallback: check any .ncx file in archive if toc is still empty
-        if toc.is_empty() {
-            for path in archive.list_files() {
-                if path.ends_with(".ncx") {
-                    if let Ok(ncx_xml) = archive.read_string(&path) {
-                        if let Ok(parsed_toc) = parse_ncx(&ncx_xml, &path) {
-                            toc = parsed_toc;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        // 4. Load all spine sections into memory and process resources
-        let mut sections = Vec::with_capacity(opf.spine.len());
-        let mut locations = Locations::new(150);
-
-        for item in &opf.spine {
-            match Section::new(
-                item.index,
-                item.idref.clone(),
-                item.href.clone(),
-                item.href.clone(),
-                &archive,
-            ) {
-                Ok(section) => {
-                    locations.add_spine_section(section.index, &section.plain_text);
-                    sections.push(section);
-                }
-                Err(err) => {
-                    eprintln!("⚠️ Failed to load section {}: {}", item.href, err);
-                }
-            }
-        }
         locations.finalize();
 
         Ok(Self {
             archive,
             opf,
             toc,
+            landmarks,
+            page_list,
             sections,
             locations,
             annotations: AnnotationManager::new(),
             layout: RenditionLayout::default(),
+            font_deobfuscator,
+            before_display_hooks: Vec::new(),
         })
     }
 
-    /// Load an EPUB book from a file system path.
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, String> {
-        let bytes = fs::read(path).map_err(|e| format!("Failed to read file: {}", e))?;
-        Self::from_bytes(&bytes)
+    /// Register a pre-display HTML transformation hook (Feature 2).
+    pub fn register_before_display_hook<F>(&mut self, hook: F)
+    where
+        F: Fn(&mut String, &str) + Send + Sync + 'static,
+    {
+        self.before_display_hooks.push(Arc::new(hook));
     }
 
-    /// Get book metadata.
+    /// Metadata of the publication.
     pub fn metadata(&self) -> &Metadata {
         &self.opf.metadata
     }
 
-    /// Get manifest items.
-    pub fn manifest(&self) -> &HashMap<String, crate::metadata::ManifestItem> {
-        &self.opf.manifest
-    }
-
-    /// Get spine itemrefs list.
+    /// Spine items list.
     pub fn spine(&self) -> &[SpineItem] {
         &self.opf.spine
     }
 
-    /// Get Table of Contents.
+    /// Manifest map.
+    pub fn manifest(&self) -> &HashMap<String, ManifestItem> {
+        &self.opf.manifest
+    }
+
+    /// Table of Contents.
     pub fn toc(&self) -> &[NavPoint] {
         &self.toc
     }
 
-    /// Get landmarks / guide references.
-    pub fn landmarks(&self) -> &[GuideItem] {
-        &self.opf.guide
+    /// EPUB 3 Landmarks navigation.
+    pub fn landmarks(&self) -> &[Landmark] {
+        &self.landmarks
+    }
+
+    /// EPUB 3 Page List navigation.
+    pub fn page_list(&self) -> &[PageListItem] {
+        &self.page_list
     }
 
     /// Retrieve cover image bytes and mime type.
@@ -167,31 +197,40 @@ impl Book {
         None
     }
 
-    /// Retrieve section by spine index (0..N).
-    pub fn get_section(&self, index: usize) -> Result<&Section, String> {
-        self.sections
+    /// Retrieve a section by spine index (applying pre-display hooks).
+    pub fn get_section(&self, index: usize) -> Result<Section, String> {
+        let mut section = self
+            .sections
             .get(index)
-            .ok_or_else(|| format!("Spine index out of bounds: {}", index))
+            .cloned()
+            .ok_or_else(|| format!("Section index out of bounds: {}", index))?;
+
+        // Apply registered before_display hooks
+        for hook in &self.before_display_hooks {
+            hook(&mut section.processed_html, &section.full_path);
+        }
+
+        Ok(section)
     }
 
-    /// Retrieve section by href or full path.
-    pub fn get_section_by_href(&self, href: &str) -> Result<&Section, String> {
-        let clean = crate::archive::normalize_path(href);
-        let target = clean.split('#').next().unwrap_or(&clean);
+    /// Retrieve section by relative href string.
+    pub fn get_section_by_href(&self, href: &str) -> Result<Section, String> {
+        let clean = href.trim();
+        let target = clean.split('#').next().unwrap_or(clean);
 
         for section in &self.sections {
             if section.href == target
                 || section.full_path == target
                 || section.href.ends_with(target)
             {
-                return Ok(section);
+                return self.get_section(section.index);
             }
         }
         Err(format!("Section not found for href: {}", href))
     }
 
     /// Retrieve section for a given CFI string.
-    pub fn get_section_by_cfi(&self, cfi_str: &str) -> Result<&Section, String> {
+    pub fn get_section_by_cfi(&self, cfi_str: &str) -> Result<Section, String> {
         let cfi = Cfi::parse(cfi_str)?;
         let spine_idx = cfi.spine_index();
         self.get_section(spine_idx)

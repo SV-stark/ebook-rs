@@ -2,76 +2,101 @@ use crate::cfi::Cfi;
 use crate::section::Section;
 use serde::{Deserialize, Serialize};
 
-/// Search match result item with CFI and snippet context.
+/// A single search result item.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
     pub spine_index: usize,
-    pub href: String,
-    pub section_title: String,
-    pub cfi: String,
     pub snippet: String,
-    pub match_start: usize,
-    pub match_end: usize,
+    pub cfi: String,
+    pub char_offset: usize,
 }
 
-/// Search engine for searching full-text content across EPUB sections.
+/// Full-text search engine across chapter sections.
 pub struct SearchEngine;
 
 impl SearchEngine {
-    /// Perform full-text search across sections.
+    /// Perform full-text search over a slice of sections.
+    /// P4 Fix: Reuses pre-computed section.plain_text_lower for zero-allocation searching.
     pub fn search(sections: &[Section], query: &str, case_sensitive: bool) -> Vec<SearchResult> {
         let mut results = Vec::new();
-        let trimmed = query.trim();
-        if trimmed.is_empty() {
+        if query.trim().is_empty() {
             return results;
         }
 
         let query_cmp = if case_sensitive {
-            trimmed.to_string()
+            query.to_string()
         } else {
-            trimmed.to_lowercase()
+            query.to_lowercase()
         };
 
         for section in sections {
-            let text = &section.plain_text;
-            let text_cmp = if case_sensitive {
-                text.clone()
+            let text_ref = if case_sensitive {
+                &section.plain_text
             } else {
-                text.to_lowercase()
+                &section.plain_text_lower
             };
 
             let mut search_idx = 0;
-            while let Some(pos) = text_cmp[search_idx..].find(&query_cmp) {
-                let abs_start = search_idx + pos;
-                let abs_end = abs_start + query_cmp.len();
+            while let Some(match_idx) = text_ref[search_idx..].find(&query_cmp) {
+                let abs_idx = search_idx + match_idx;
 
-                // Build context snippet (~40 chars before and after)
-                let snippet_start = abs_start.saturating_sub(40);
-                let snippet_end = (abs_end + 40).min(text.len());
+                // Extract context snippet
+                let snippet_start = abs_idx.saturating_sub(40);
+                let snippet_end = (abs_idx + query.len() + 40).min(section.plain_text.len());
 
                 let prefix = if snippet_start > 0 { "..." } else { "" };
-                let suffix = if snippet_end < text.len() { "..." } else { "" };
+                let suffix = if snippet_end < section.plain_text.len() {
+                    "..."
+                } else {
+                    ""
+                };
 
-                let raw_snippet = &text[snippet_start..snippet_end];
-                let snippet = format!("{}{}{}", prefix, raw_snippet, suffix);
+                let snippet = format!(
+                    "{}{}{}",
+                    prefix,
+                    &section.plain_text[snippet_start..snippet_end],
+                    suffix
+                );
 
-                // Generate exact CFI for match start position
-                let cfi = Cfi::from_spine_index(section.index, None, abs_start).to_string();
+                // Generate target CFI for search match
+                let cfi = Cfi::from_spine_index(section.index, None, abs_idx).to_string();
 
                 results.push(SearchResult {
                     spine_index: section.index,
-                    href: section.href.clone(),
-                    section_title: format!("Section {}", section.index + 1),
-                    cfi,
                     snippet,
-                    match_start: abs_start,
-                    match_end: abs_end,
+                    cfi,
+                    char_offset: abs_idx,
                 });
 
-                search_idx = abs_end;
+                search_idx = abs_idx + query.len().max(1);
             }
         }
 
         results
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_search() {
+        let sec = Section {
+            index: 0,
+            idref: "ch1".to_string(),
+            href: "ch1.xhtml".to_string(),
+            full_path: "OEBPS/ch1.xhtml".to_string(),
+            raw_html: "<p>Hello Rust Reader</p>".to_string(),
+            processed_html: "<p>Hello Rust Reader</p>".to_string(),
+            plain_text: "Hello Rust Reader".to_string(),
+            plain_text_lower: "hello rust reader".to_string(),
+            char_count: 17,
+        };
+
+        let results = SearchEngine::search(&[sec], "Rust", false);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].spine_index, 0);
+        assert!(results[0].snippet.contains("Rust"));
     }
 }

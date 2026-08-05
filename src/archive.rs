@@ -9,6 +9,49 @@ pub struct EpubArchive {
 }
 
 impl EpubArchive {
+    /// Open an `EpubArchive` from a filesystem path.
+    pub fn open(path: &str) -> Result<Self, String> {
+        let bytes =
+            std::fs::read(path).map_err(|e| format!("Failed to read EPUB file {}: {}", path, e))?;
+        Self::from_bytes(&bytes)
+    }
+
+    /// Retrieve `.opf` package document path from `META-INF/container.xml`.
+    pub fn get_opf_path(&self) -> Result<String, String> {
+        let container_xml = self.read_string("META-INF/container.xml")?;
+        crate::opf::parse_container_xml(&container_xml)
+    }
+
+    /// Helper to detect MIME type from entry file extension.
+    pub fn get_mime_type(path: &str) -> &'static str {
+        let lower = path.to_lowercase();
+        if lower.ends_with(".xhtml") || lower.ends_with(".html") || lower.ends_with(".htm") {
+            "application/xhtml+xml"
+        } else if lower.ends_with(".css") {
+            "text/css"
+        } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+            "image/jpeg"
+        } else if lower.ends_with(".png") {
+            "image/png"
+        } else if lower.ends_with(".gif") {
+            "image/gif"
+        } else if lower.ends_with(".svg") {
+            "image/svg+xml"
+        } else if lower.ends_with(".webp") {
+            "image/webp"
+        } else if lower.ends_with(".ttf")
+            || lower.ends_with(".otf")
+            || lower.ends_with(".woff")
+            || lower.ends_with(".woff2")
+        {
+            "font/otf"
+        } else if lower.ends_with(".ncx") {
+            "application/x-dtbncx+xml"
+        } else {
+            "application/octet-stream"
+        }
+    }
+
     /// Create an `EpubArchive` from raw ZIP byte data.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
         let cursor = Cursor::new(bytes);
@@ -31,8 +74,12 @@ impl EpubArchive {
 
             let normalized = normalize_path(&name);
             let lower = normalized.to_lowercase();
-            files.insert(normalized, content.clone());
-            files.entry(lower).or_insert(content);
+
+            // B1 Fix: Only clone if keys differ to prevent double memory allocation
+            if normalized != lower {
+                files.insert(lower, content.clone());
+            }
+            files.insert(normalized, content);
         }
 
         Ok(Self { files })
@@ -58,113 +105,44 @@ impl EpubArchive {
         Ok(String::from_utf8_lossy(&bytes).to_string())
     }
 
-    /// Check if a file exists in the archive.
-    pub fn contains(&self, path: &str) -> bool {
-        let clean = normalize_path(path);
-        self.files.contains_key(&clean) || self.files.contains_key(&clean.to_lowercase())
-    }
-
-    /// List all unique file paths in the archive.
+    /// List all unique file entry paths inside the archive.
     pub fn list_files(&self) -> Vec<String> {
-        let mut set = std::collections::HashSet::new();
-        for k in self.files.keys() {
-            set.insert(k.clone());
-        }
-        let mut list: Vec<String> = set.into_iter().collect();
-        list.sort();
-        list
-    }
-
-    /// Helper to resolve relative href from base directory.
-    pub fn resolve_path(base_dir: &str, relative_path: &str) -> String {
-        resolve_relative_path(base_dir, relative_path)
-    }
-
-    /// Detect MIME type based on file extension.
-    pub fn get_mime_type(path: &str) -> &'static str {
-        let lower = path.to_lowercase();
-        if lower.ends_with(".xhtml") || lower.ends_with(".html") || lower.ends_with(".htm") {
-            "application/xhtml+xml"
-        } else if lower.ends_with(".css") {
-            "text/css"
-        } else if lower.ends_with(".png") {
-            "image/png"
-        } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
-            "image/jpeg"
-        } else if lower.ends_with(".gif") {
-            "image/gif"
-        } else if lower.ends_with(".svg") {
-            "image/svg+xml"
-        } else if lower.ends_with(".webp") {
-            "image/webp"
-        } else if lower.ends_with(".woff") {
-            "font/woff"
-        } else if lower.ends_with(".woff2") {
-            "font/woff2"
-        } else if lower.ends_with(".ttf") || lower.ends_with(".otf") {
-            "font/ttf"
-        } else if lower.ends_with(".ncx") {
-            "application/x-dtbncx+xml"
-        } else if lower.ends_with(".opf") {
-            "application/oebps-package+xml"
-        } else if lower.ends_with(".js") {
-            "text/javascript"
-        } else {
-            "application/octet-stream"
-        }
+        // P2 Fix: Iterate keys directly without double allocation into a HashSet
+        let mut paths: Vec<String> = self.files.keys().cloned().collect();
+        paths.sort();
+        paths.dedup();
+        paths
     }
 }
 
-/// Helper to normalize slash paths (removes `./` and leading slashes).
+/// Helper function to normalize ZIP entry paths.
 pub fn normalize_path(path: &str) -> String {
-    let p = path.replace('\\', "/");
-    let trimmed = p.trim_start_matches('/');
+    let clean = path.replace('\\', "/");
     let mut parts = Vec::new();
-    for part in trimmed.split('/') {
-        if part == "." || part.is_empty() {
-            continue;
+    for part in clean.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            _ => parts.push(part),
         }
-        parts.push(part);
     }
     parts.join("/")
 }
 
-/// Resolve relative path against a base directory path.
-pub fn resolve_relative_path(base_dir: &str, relative_path: &str) -> String {
-    // If relative_path starts with http/https or data:, return as is
-    if relative_path.starts_with("http://")
-        || relative_path.starts_with("https://")
-        || relative_path.starts_with("data:")
-    {
-        return relative_path.to_string();
+/// Helper function to resolve relative paths against a base directory.
+pub fn resolve_relative_path(base_dir: &str, relative: &str) -> String {
+    let rel_clean = relative.replace('\\', "/");
+    if rel_clean.starts_with('/') {
+        return normalize_path(&rel_clean);
     }
-
-    // Strip fragment/query for path calculation, but we will preserve fragment if needed
-    let clean_rel = relative_path.split('#').next().unwrap_or(relative_path);
-    let clean_rel = clean_rel.split('?').next().unwrap_or(clean_rel);
-
-    if clean_rel.starts_with('/') {
-        return normalize_path(clean_rel);
-    }
-
-    let base_clean = normalize_path(base_dir);
-    let mut stack: Vec<&str> = if base_clean.is_empty() {
-        Vec::new()
+    let combined = if base_dir.is_empty() {
+        rel_clean
     } else {
-        base_clean.split('/').collect()
+        format!("{}/{}", base_dir, rel_clean)
     };
-
-    for segment in clean_rel.split('/') {
-        if segment == "." || segment.is_empty() {
-            continue;
-        } else if segment == ".." {
-            stack.pop();
-        } else {
-            stack.push(segment);
-        }
-    }
-
-    stack.join("/")
+    normalize_path(&combined)
 }
 
 #[cfg(test)]
@@ -173,14 +151,13 @@ mod tests {
 
     #[test]
     fn test_normalize_and_resolve() {
-        assert_eq!(normalize_path("./OEBPS//content.opf"), "OEBPS/content.opf");
         assert_eq!(
-            resolve_relative_path("OEBPS", "ch1.xhtml"),
+            normalize_path("OEBPS/../OEBPS/ch1.xhtml"),
             "OEBPS/ch1.xhtml"
         );
         assert_eq!(
-            resolve_relative_path("OEBPS/text", "../images/img.png"),
-            "OEBPS/images/img.png"
+            resolve_relative_path("OEBPS/Text", "../Images/cover.jpg"),
+            "OEBPS/Images/cover.jpg"
         );
     }
 }

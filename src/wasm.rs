@@ -1,4 +1,6 @@
+#[cfg(feature = "wasm")]
 use crate::book::Book;
+#[cfg(feature = "wasm")]
 use crate::cfi::Cfi;
 #[cfg(feature = "wasm")]
 use wasm_bindgen::prelude::*;

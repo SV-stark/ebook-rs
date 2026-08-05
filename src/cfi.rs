@@ -1,335 +1,255 @@
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
-use std::fmt;
 
-/// Offset in a CFI step (Character offset in text, Spatial, Temporal).
+/// A parsed EPUB Canonical Fragment Identifier (CFI).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum CfiOffset {
-    Character(usize),
-    Spatial(f32, f32),
-    Temporal(f32),
+pub struct Cfi {
+    pub raw: String,
+    pub path: CfiPath,
+    pub range_start: Option<CfiPath>,
+    pub range_end: Option<CfiPath>,
 }
 
-impl fmt::Display for CfiOffset {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            CfiOffset::Character(c) => write!(f, ":{}", c),
-            CfiOffset::Spatial(x, y) => write!(f, "~{},{}", x, y),
-            CfiOffset::Temporal(t) => write!(f, "~{}", t),
-        }
-    }
-}
-
-/// A single step in a CFI path (e.g., `/6/4[chap01ref]`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CfiStep {
-    pub step: usize, // Even = Element, Odd = Text
-    pub id_assertion: Option<String>,
-    pub text_assertion: Option<String>,
-}
-
-impl CfiStep {
-    pub fn element(step: usize) -> Self {
-        Self {
-            step,
-            id_assertion: None,
-            text_assertion: None,
-        }
-    }
-
-    pub fn element_with_id(step: usize, id: &str) -> Self {
-        Self {
-            step,
-            id_assertion: Some(id.to_string()),
-            text_assertion: None,
-        }
-    }
-
-    pub fn text(step: usize) -> Self {
-        Self {
-            step,
-            id_assertion: None,
-            text_assertion: None,
-        }
-    }
-}
-
-impl fmt::Display for CfiStep {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "/{}", self.step)?;
-        if let Some(ref id) = self.id_assertion {
-            write!(f, "[{}]", id)?;
-        }
-        if let Some(ref txt) = self.text_assertion {
-            write!(f, "[{}]", txt)?;
-        }
-        Ok(())
-    }
-}
-
-/// A path component in CFI (sequence of steps and optional offset).
+/// A path component inside a CFI.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CfiPath {
     pub steps: Vec<CfiStep>,
     pub offset: Option<CfiOffset>,
 }
 
-impl fmt::Display for CfiPath {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for step in &self.steps {
-            write!(f, "{}", step)?;
-        }
-        if let Some(ref offset) = self.offset {
-            write!(f, "{}", offset)?;
-        }
-        Ok(())
-    }
+/// A single step in a CFI path (e.g. /6/4[chap01ref]!).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CfiStep {
+    pub index: usize,
+    pub indirection: bool,
+    pub element_id: Option<String>,
 }
 
-/// Parsed EPUB Canonical Fragment Identifier (CFI).
+/// Character or temporal offset at the end of a CFI path.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Cfi {
-    pub spine_path: CfiPath,
-    pub dom_path: Option<CfiPath>,
-    pub range_start: Option<CfiPath>,
-    pub range_end: Option<CfiPath>,
+pub enum CfiOffset {
+    Character(usize),
+    Temporal(f64),
+    Spatial(f64, f64),
 }
 
 impl Cfi {
-    /// Construct a standard CFI from spine index and optional character offset.
+    /// Parse a CFI string representation into a structured `Cfi`.
+    pub fn parse(cfi_str: &str) -> Result<Self, String> {
+        let clean = cfi_str.trim();
+        let payload = if clean.starts_with("epubcfi(") && clean.ends_with(')') {
+            &clean[8..clean.len() - 1]
+        } else {
+            clean
+        };
+
+        if payload.contains(',') {
+            // Range CFI: /6/2!/4/2/1, :10, :45
+            let parts: Vec<&str> = payload.split(',').collect();
+            if parts.len() < 3 {
+                return Err("Invalid range CFI: expected 3 comma-separated components".to_string());
+            }
+            let parent_str = parts[0];
+            let start_str = parts[1];
+            let end_str = parts[2];
+
+            let parent_path = parse_single_path(parent_str)?;
+            let mut start_path = parse_single_path(start_str)?;
+            let mut end_path = parse_single_path(end_str)?;
+
+            // Combine parent steps into range endpoints
+            let mut full_start_steps = parent_path.steps.clone();
+            full_start_steps.append(&mut start_path.steps);
+            let combined_start = CfiPath {
+                steps: full_start_steps,
+                offset: start_path.offset,
+            };
+
+            let mut full_end_steps = parent_path.steps.clone();
+            full_end_steps.append(&mut end_path.steps);
+            let combined_end = CfiPath {
+                steps: full_end_steps,
+                offset: end_path.offset,
+            };
+
+            Ok(Self {
+                raw: cfi_str.to_string(),
+                path: combined_start.clone(),
+                range_start: Some(combined_start),
+                range_end: Some(combined_end),
+            })
+        } else {
+            let path = parse_single_path(payload)?;
+            Ok(Self {
+                raw: cfi_str.to_string(),
+                path,
+                range_start: None,
+                range_end: None,
+            })
+        }
+    }
+
+    /// Helper constructor: Create a simple CFI pointing to a spine index and character offset.
+    /// B5 Fix: Support optional element_id assertion to preserve CFI id assertions on roundtrip.
     pub fn from_spine_index(
         spine_index: usize,
         element_id: Option<&str>,
         char_offset: usize,
     ) -> Self {
-        // Spine steps standard: /6/2 is root/spine container. Spine index 0 -> step 2, index 1 -> step 4...
-        let spine_step = (spine_index + 1) * 2;
-        let mut spine_steps = vec![CfiStep::element(6), CfiStep::element(spine_step)];
-        if let Some(id) = element_id {
-            spine_steps[1].id_assertion = Some(id.to_string());
-        }
-
-        let spine_path = CfiPath {
-            steps: spine_steps,
-            offset: None,
-        };
-
-        let dom_steps = vec![
-            CfiStep::element(4), // body
-            CfiStep::element(2), // section/div
-            CfiStep::text(1),    // text node
+        let spine_step_idx = (spine_index + 1) * 2;
+        let steps = vec![
+            CfiStep {
+                index: 6,
+                indirection: false,
+                element_id: None,
+            },
+            CfiStep {
+                index: spine_step_idx,
+                indirection: true,
+                element_id: element_id.map(|s| s.to_string()),
+            },
+            CfiStep {
+                index: 4,
+                indirection: false,
+                element_id: None,
+            },
+            CfiStep {
+                index: 2,
+                indirection: false,
+                element_id: None,
+            },
+            CfiStep {
+                index: 1,
+                indirection: false,
+                element_id: None,
+            },
         ];
 
-        let dom_path = CfiPath {
-            steps: dom_steps,
+        let id_str = element_id.map(|s| format!("[{}]", s)).unwrap_or_default();
+        let raw = format!(
+            "epubcfi(/6/{}{}!/4/2/1:{})",
+            spine_step_idx, id_str, char_offset
+        );
+        let path = CfiPath {
+            steps: steps.clone(),
             offset: Some(CfiOffset::Character(char_offset)),
         };
 
         Self {
-            spine_path,
-            dom_path: Some(dom_path),
+            raw,
+            path,
             range_start: None,
             range_end: None,
         }
     }
 
-    /// Extract spine index from CFI.
+    /// Extract the 0-based spine item index from this CFI.
     pub fn spine_index(&self) -> usize {
-        if self.spine_path.steps.len() >= 2 {
-            let step = self.spine_path.steps[1].step;
-            if step >= 2 {
-                return (step / 2) - 1;
+        for step in &self.path.steps {
+            if step.indirection && step.index >= 2 {
+                return (step.index / 2) - 1;
             }
         }
         0
     }
 
-    /// Extract character offset from CFI.
+    /// Extract character offset.
     pub fn char_offset(&self) -> usize {
-        if let Some(ref dom) = self.dom_path {
-            if let Some(CfiOffset::Character(c)) = dom.offset {
-                return c;
-            }
+        match self.path.offset {
+            Some(CfiOffset::Character(off)) => off,
+            _ => 0,
         }
-        0
     }
 
-    /// Parse CFI string format (e.g. `epubcfi(/6/4[chap01]!/4/2/1:5)`).
-    pub fn parse(input: &str) -> Result<Self, String> {
-        let raw = input.trim();
-        let content = if raw.starts_with("epubcfi(") && raw.ends_with(')') {
-            &raw[8..raw.len() - 1]
-        } else {
-            raw
-        };
-
-        // Check if it's a range CFI containing commas (outside of brackets)
-        let parts = split_cfi_range(content);
-        if parts.len() == 3 {
-            // Parent path, start path, end path
-            let parent_cfi = Self::parse_single_path(parts[0])?;
-            let start_path = parse_cfi_path_str(parts[1])?;
-            let end_path = parse_cfi_path_str(parts[2])?;
-
-            return Ok(Self {
-                spine_path: parent_cfi.spine_path,
-                dom_path: parent_cfi.dom_path,
-                range_start: Some(start_path),
-                range_end: Some(end_path),
-            });
-        }
-
-        Self::parse_single_path(content)
-    }
-
-    fn parse_single_path(content: &str) -> Result<Self, String> {
-        let (spine_str, dom_str) = if let Some(idx) = content.find('!') {
-            (&content[..idx], Some(&content[idx + 1..]))
-        } else {
-            (content, None)
-        };
-
-        let spine_path = parse_cfi_path_str(spine_str)?;
-        let dom_path = if let Some(ds) = dom_str {
-            Some(parse_cfi_path_str(ds)?)
-        } else {
-            None
-        };
-
-        Ok(Self {
-            spine_path,
-            dom_path,
-            range_start: None,
-            range_end: None,
-        })
-    }
-
-    /// Compare two CFIs in document order.
-    pub fn compare(&self, other: &Cfi) -> Ordering {
-        // First compare spine index
+    /// Compare two CFIs by spine index and character offset.
+    pub fn compare(&self, other: &Self) -> std::cmp::Ordering {
         let s1 = self.spine_index();
         let s2 = other.spine_index();
         if s1 != s2 {
             return s1.cmp(&s2);
         }
+        let o1 = self.char_offset();
+        let o2 = other.char_offset();
+        o1.cmp(&o2)
+    }
 
-        // Compare DOM steps if both present
-        if let (Some(d1), Some(d2)) = (&self.dom_path, &other.dom_path) {
-            let min_len = d1.steps.len().min(d2.steps.len());
-            for i in 0..min_len {
-                if d1.steps[i].step != d2.steps[i].step {
-                    return d1.steps[i].step.cmp(&d2.steps[i].step);
-                }
-            }
-            if d1.steps.len() != d2.steps.len() {
-                return d1.steps.len().cmp(&d2.steps.len());
-            }
-            // Compare offsets
-            let c1 = self.char_offset();
-            let c2 = other.char_offset();
-            return c1.cmp(&c2);
-        }
-
-        Ordering::Equal
+    /// Convert back to formatted `epubcfi(...)` string.
+    pub fn to_cfi_string(&self) -> String {
+        format!("epubcfi({})", format_path(&self.path))
     }
 }
 
-impl fmt::Display for Cfi {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "epubcfi(")?;
-        write!(f, "{}", self.spine_path)?;
-        if let Some(ref dom) = self.dom_path {
-            write!(f, "!{}", dom)?;
-        }
-        if let (Some(start), Some(end)) = (&self.range_start, &self.range_end) {
-            write!(f, ",{},{}", start, end)?;
-        }
-        write!(f, ")")
+impl std::fmt::Display for Cfi {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "epubcfi({})", format_path(&self.path))
     }
 }
 
-fn split_cfi_range(input: &str) -> Vec<&str> {
-    let mut parts = Vec::new();
-    let mut in_bracket = false;
-    let mut last_idx = 0;
-
-    for (i, ch) in input.char_indices() {
-        match ch {
-            '[' => in_bracket = true,
-            ']' => in_bracket = false,
-            ',' if !in_bracket => {
-                parts.push(&input[last_idx..i]);
-                last_idx = i + 1;
-            }
-            _ => {}
-        }
-    }
-    if last_idx < input.len() {
-        parts.push(&input[last_idx..]);
-    }
-    parts
-}
-
-fn parse_cfi_path_str(input: &str) -> Result<CfiPath, String> {
+fn parse_single_path(s: &str) -> Result<CfiPath, String> {
     let mut steps = Vec::new();
     let mut offset = None;
-    let mut chars = input.chars().peekable();
+
+    let mut chars = s.chars().peekable();
+    let mut current_num = String::new();
+    let mut indirection;
 
     while let Some(&ch) = chars.peek() {
         if ch == '/' {
-            chars.next(); // consume '/'
-            let mut num_str = String::new();
-            while let Some(&digit) = chars.peek() {
-                if digit.is_ascii_digit() {
-                    num_str.push(digit);
+            chars.next();
+            current_num.clear();
+            while let Some(&c) = chars.peek() {
+                if c.is_ascii_digit() {
+                    current_num.push(c);
                     chars.next();
                 } else {
                     break;
                 }
             }
-            if num_str.is_empty() {
-                continue;
-            }
-            let step_num: usize = num_str
-                .parse()
-                .map_err(|e| format!("Invalid step number: {}", e))?;
 
-            let id_assertion = if chars.peek() == Some(&'[') {
-                chars.next(); // consume '['
-                let mut bracket_content = String::new();
-                while let Some(&b_ch) = chars.peek() {
+            if !current_num.is_empty() {
+                let idx: usize = current_num.parse().unwrap_or(0);
+
+                // Check for element_id assertion [id]
+                let mut element_id = None;
+                if let Some(&'[') = chars.peek() {
                     chars.next();
-                    if b_ch == ']' {
-                        break;
+                    let mut id_str = String::new();
+                    while let Some(&c) = chars.peek() {
+                        if c == ']' {
+                            chars.next();
+                            break;
+                        }
+                        id_str.push(c);
+                        chars.next();
                     }
-                    bracket_content.push(b_ch);
+                    element_id = Some(id_str);
                 }
-                Some(bracket_content)
-            } else {
-                None
-            };
-            let text_assertion = None;
 
-            steps.push(CfiStep {
-                step: step_num,
-                id_assertion,
-                text_assertion,
-            });
+                // Check for indirection !
+                if let Some(&'!') = chars.peek() {
+                    indirection = true;
+                    chars.next();
+                } else {
+                    indirection = false;
+                }
+
+                steps.push(CfiStep {
+                    index: idx,
+                    indirection,
+                    element_id,
+                });
+            }
         } else if ch == ':' {
-            chars.next(); // consume ':'
-            let mut num_str = String::new();
-            while let Some(&digit) = chars.peek() {
-                if digit.is_ascii_digit() {
-                    num_str.push(digit);
+            chars.next();
+            let mut off_num = String::new();
+            while let Some(&c) = chars.peek() {
+                if c.is_ascii_digit() {
+                    off_num.push(c);
                     chars.next();
                 } else {
                     break;
                 }
             }
-            if !num_str.is_empty() {
-                let off: usize = num_str
-                    .parse()
-                    .map_err(|e| format!("Invalid offset: {}", e))?;
+            if let Ok(off) = off_num.parse::<usize>() {
                 offset = Some(CfiOffset::Character(off));
             }
         } else {
@@ -340,16 +260,34 @@ fn parse_cfi_path_str(input: &str) -> Result<CfiPath, String> {
     Ok(CfiPath { steps, offset })
 }
 
+fn format_path(path: &CfiPath) -> String {
+    let mut out = String::new();
+    for step in &path.steps {
+        out.push_str(&format!("/{}", step.index));
+        if let Some(ref id) = step.element_id {
+            out.push_str(&format!("[{}]", id));
+        }
+        if step.indirection {
+            out.push('!');
+        }
+    }
+    if let Some(CfiOffset::Character(off)) = path.offset {
+        out.push_str(&format!(":{}", off));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_cfi_parsing_and_formatting() {
-        let cfi_str = "epubcfi(/6/4[chap01ref]!/4/2/10/1:5)";
-        let parsed = Cfi::parse(cfi_str).unwrap();
-        assert_eq!(parsed.spine_index(), 1); // step 4 -> index 1
-        assert_eq!(parsed.char_offset(), 5);
-        assert_eq!(parsed.to_string(), cfi_str);
+        let cfi_str = "epubcfi(/6/4[chap01ref]!/4/2/10/1:42)";
+        let cfi = Cfi::parse(cfi_str).unwrap();
+
+        assert_eq!(cfi.spine_index(), 1);
+        assert_eq!(cfi.char_offset(), 42);
+        assert_eq!(cfi.to_string(), cfi_str);
     }
 }

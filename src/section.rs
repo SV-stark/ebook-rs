@@ -12,6 +12,7 @@ pub struct Section {
     pub raw_html: String,
     pub processed_html: String,
     pub plain_text: String,
+    pub plain_text_lower: String, // P4: Pre-computed lowercased text for zero-alloc search
     pub char_count: usize,
 }
 
@@ -26,6 +27,7 @@ impl Section {
     ) -> Result<Self, String> {
         let raw_html = archive.read_string(&full_path)?;
         let plain_text = extract_plain_text(&raw_html);
+        let plain_text_lower = plain_text.to_lowercase();
         let char_count = plain_text.chars().count();
         let processed_html = process_section_resources(&raw_html, &full_path, archive);
 
@@ -37,12 +39,14 @@ impl Section {
             raw_html,
             processed_html,
             plain_text,
+            plain_text_lower,
             char_count,
         })
     }
 }
 
 /// Extract clean plain text from HTML content by stripping tags, styles, and scripts.
+/// B2 Fix: Multibyte UTF-8 aware extraction.
 pub fn extract_plain_text(html: &str) -> String {
     let mut in_tag = false;
     let mut text = String::with_capacity(html.len());
@@ -85,7 +89,12 @@ pub fn extract_plain_text(html: &str) -> String {
         }
 
         if skipping_tag.is_none() {
-            text.push(html_bytes[i] as char);
+            // B2 Fix: Extract valid multibyte UTF-8 char instead of casting u8 as char
+            if let Some(ch) = html[i..].chars().next() {
+                text.push(ch);
+                i += ch.len_utf8();
+                continue;
+            }
         }
         i += 1;
     }
@@ -136,22 +145,56 @@ pub fn process_section_resources(html: &str, section_path: &str, archive: &EpubA
         }
     }
 
-    // Replace css href attributes
-    let css_href_regex = regex_find_attr(html, "href");
+    // B3 Fix: Replace ONLY <link href="*.css"> stylesheet links, avoiding <a href="*.css"> hyperlinks
+    let css_href_regex = regex_find_link_css(html);
     for (orig_attr, href_val) in css_href_regex {
-        if href_val.ends_with(".css") {
-            let res_path = resolve_relative_path(section_dir, &href_val);
-            if let Ok(css_text) = archive.read_string(&res_path) {
-                let processed_css = process_css_resources(&css_text, &res_path, archive);
-                let b64 =
-                    base64::engine::general_purpose::STANDARD.encode(processed_css.as_bytes());
-                let data_uri = format!("data:text/css;base64,{}", b64);
-                output = output.replace(&orig_attr, &format!("href=\"{}\"", data_uri));
-            }
+        let res_path = resolve_relative_path(section_dir, &href_val);
+        if let Ok(css_text) = archive.read_string(&res_path) {
+            let processed_css = process_css_resources(&css_text, &res_path, archive);
+            let b64 = base64::engine::general_purpose::STANDARD.encode(processed_css.as_bytes());
+            let data_uri = format!("data:text/css;base64,{}", b64);
+            output = output.replace(&orig_attr, &format!("href=\"{}\"", data_uri));
         }
     }
 
     output
+}
+
+/// Helper to find ONLY `<link ... href="...">` tags for CSS inlining (B3 Fix).
+fn regex_find_link_css(html: &str) -> Vec<(String, String)> {
+    let mut list = Vec::new();
+    let lower = html.to_lowercase();
+    let mut search_idx = 0;
+
+    while let Some(link_idx) = lower[search_idx..].find("<link") {
+        let abs_link = search_idx + link_idx;
+        if let Some(close_idx) = html[abs_link..].find('>') {
+            let tag_str = &html[abs_link..=abs_link + close_idx];
+            if let Some((orig_href, val)) = extract_attr(tag_str, "href") {
+                if val.ends_with(".css") {
+                    list.push((orig_href, val));
+                }
+            }
+            search_idx = abs_link + close_idx + 1;
+        } else {
+            break;
+        }
+    }
+
+    list
+}
+
+fn extract_attr(tag_str: &str, attr: &str) -> Option<(String, String)> {
+    let pattern = format!("{}=\"", attr);
+    if let Some(start) = tag_str.to_lowercase().find(&pattern) {
+        let val_start = start + pattern.len();
+        if let Some(end) = tag_str[val_start..].find('"') {
+            let val = &tag_str[val_start..val_start + end];
+            let orig = &tag_str[start..=val_start + end];
+            return Some((orig.to_string(), val.to_string()));
+        }
+    }
+    None
 }
 
 /// Simple helper to find attributes like `src="..."` or `href="..."`.
@@ -185,15 +228,15 @@ fn process_css_resources(css: &str, css_path: &str, archive: &EpubArchive) -> St
         ""
     };
 
-    let mut output = css.to_string();
+    let mut replacements = Vec::new();
     let mut search_idx = 0;
 
-    while let Some(url_idx) = output[search_idx..].find("url(") {
+    while let Some(url_idx) = css[search_idx..].find("url(") {
         let abs_url = search_idx + url_idx;
         let val_start = abs_url + 4;
-        if let Some(close_idx) = output[val_start..].find(')') {
+        if let Some(close_idx) = css[val_start..].find(')') {
             let abs_close = val_start + close_idx;
-            let raw_url = output[val_start..abs_close]
+            let raw_url = css[val_start..abs_close]
                 .trim()
                 .trim_matches('\'')
                 .trim_matches('"');
@@ -203,16 +246,20 @@ fn process_css_resources(css: &str, css_path: &str, archive: &EpubArchive) -> St
                     let mime = EpubArchive::get_mime_type(&res_path);
                     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
                     let data_uri = format!("data:{};base64,{}", mime, b64);
-                    let target_str = &output[abs_url..=abs_close];
+                    let target_str = css[abs_url..=abs_close].to_string();
                     let replacement = format!("url(\"{}\")", data_uri);
-                    output = output.replace(target_str, &replacement);
+                    replacements.push((target_str, replacement));
                 }
             }
-            search_idx = abs_url + 10;
+            search_idx = abs_close + 1;
         } else {
             break;
         }
     }
 
+    let mut output = css.to_string();
+    for (target, repl) in replacements {
+        output = output.replace(&target, &repl);
+    }
     output
 }

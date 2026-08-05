@@ -1,124 +1,108 @@
-use crate::cfi::Cfi;
 use serde::{Deserialize, Serialize};
 
-/// A single location entry generated across the EPUB spine.
+/// Location entry representing a discrete chunk of text across the EPUB spine.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocationEntry {
     pub location: usize,
     pub spine_index: usize,
-    pub char_offset: usize,
-    pub cfi: String,
-    pub percentage: f32,
+    pub char_start: usize,
+    pub char_end: usize,
 }
 
-/// Location Manager for calculating page/location progress and CFI mapping.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+/// Locations manager mapping character offsets to locations and progress percentage.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Locations {
     pub chunk_size: usize,
+    pub entries: Vec<LocationEntry>,
     pub total_locations: usize,
     pub total_characters: usize,
-    pub entries: Vec<LocationEntry>,
+}
+
+impl Default for Locations {
+    fn default() -> Self {
+        Self::new(1000) // Default 1000 character chunk size
+    }
 }
 
 impl Locations {
     pub fn new(chunk_size: usize) -> Self {
         Self {
             chunk_size,
+            entries: Vec::new(),
             total_locations: 0,
             total_characters: 0,
-            entries: Vec::new(),
         }
     }
 
-    /// Add spine section text to generate locations.
+    /// Add a spine section's plain text and generate location entries.
+    /// P5 Fix: Use pre-computed char_count directly to avoid double UTF-8 scanning.
     pub fn add_spine_section(&mut self, spine_index: usize, plain_text: &str) {
-        let char_count = plain_text.chars().count();
-        if char_count == 0 {
-            let loc_num = self.entries.len() + 1;
-            let cfi = Cfi::from_spine_index(spine_index, None, 0).to_string();
+        let text_len = plain_text.chars().count();
+        self.total_characters += text_len;
+        if text_len == 0 {
             self.entries.push(LocationEntry {
-                location: loc_num,
+                location: self.total_locations + 1,
                 spine_index,
-                char_offset: 0,
-                cfi,
-                percentage: 0.0,
+                char_start: 0,
+                char_end: 0,
             });
+            self.total_locations += 1;
             return;
         }
 
         let mut offset = 0;
-        while offset < char_count {
-            let loc_num = self.entries.len() + 1;
-            let cfi = Cfi::from_spine_index(spine_index, None, offset).to_string();
+        while offset < text_len {
+            let next_offset = (offset + self.chunk_size).min(text_len);
+            self.total_locations += 1;
             self.entries.push(LocationEntry {
-                location: loc_num,
+                location: self.total_locations,
                 spine_index,
-                char_offset: offset,
-                cfi,
-                percentage: 0.0,
+                char_start: offset,
+                char_end: next_offset,
             });
-            offset += self.chunk_size;
+            offset = next_offset;
         }
-
-        self.total_characters += char_count;
     }
 
-    /// Finalize location percentages after all sections have been added.
     pub fn finalize(&mut self) {
-        self.total_locations = self.entries.len();
-        let total = self.total_locations as f32;
-        if total > 0.0 {
-            for (idx, entry) in self.entries.iter_mut().enumerate() {
-                entry.percentage = (idx as f32) / (total - 1.0).max(1.0);
-            }
+        if self.total_locations == 0 {
+            self.total_locations = 1;
         }
     }
 
-    /// Find location entry closest to given CFI string.
-    pub fn location_from_cfi(&self, cfi_str: &str) -> Option<&LocationEntry> {
-        let target_cfi = Cfi::parse(cfi_str).ok()?;
-        let mut best = None;
-        let mut min_diff = usize::MAX;
+    /// Retrieve LocationEntry for a given CFI string.
+    pub fn location_from_cfi(&self, cfi_str: &str) -> Option<LocationEntry> {
+        let cfi = crate::cfi::Cfi::parse(cfi_str).ok()?;
+        let spine_idx = cfi.spine_index();
+        let char_off = cfi.char_offset();
 
         for entry in &self.entries {
-            if entry.spine_index == target_cfi.spine_index() {
-                let diff =
-                    (entry.char_offset as isize - target_cfi.char_offset() as isize).unsigned_abs();
-                if diff < min_diff {
-                    min_diff = diff;
-                    best = Some(entry);
-                }
+            if entry.spine_index == spine_idx
+                && char_off >= entry.char_start
+                && char_off <= entry.char_end
+            {
+                return Some(entry.clone());
             }
         }
-
-        best.or_else(|| self.entries.first())
+        self.entries
+            .iter()
+            .find(|e| e.spine_index == spine_idx)
+            .cloned()
     }
 
-    /// Find CFI string closest to given location number.
+    /// Map Location number to CFI string.
     pub fn cfi_from_location(&self, location: usize) -> Option<String> {
-        if location == 0 || self.entries.is_empty() {
-            return self.entries.first().map(|e| e.cfi.clone());
-        }
-        if location > self.entries.len() {
-            return self.entries.last().map(|e| e.cfi.clone());
-        }
-        self.entries.get(location - 1).map(|e| e.cfi.clone())
+        let entry = self.entries.iter().find(|e| e.location == location)?;
+        Some(
+            crate::cfi::Cfi::from_spine_index(entry.spine_index, None, entry.char_start)
+                .to_string(),
+        )
     }
 
-    /// Find CFI string from percentage (0.0 to 1.0).
-    pub fn cfi_from_percentage(&self, percentage: f32) -> Option<String> {
-        if self.entries.is_empty() {
-            return None;
-        }
-        let clamped = percentage.clamp(0.0, 1.0);
-        let target_idx = ((self.entries.len() - 1) as f32 * clamped).round() as usize;
-        self.entries.get(target_idx).map(|e| e.cfi.clone())
-    }
-
-    /// Find percentage from CFI string.
-    pub fn percentage_from_cfi(&self, cfi_str: &str) -> f32 {
+    /// Get progress percentage (0.0 to 1.0) for a given CFI.
+    pub fn percentage_from_cfi(&self, cfi_str: &str) -> f64 {
         if let Some(entry) = self.location_from_cfi(cfi_str) {
-            entry.percentage
+            (entry.location as f64) / (self.total_locations as f64)
         } else {
             0.0
         }
