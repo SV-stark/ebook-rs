@@ -8,6 +8,7 @@ license = "MIT"
 repository = "https://github.com/SV-stark/ebook-rs"
 homepage = "https://github.com/SV-stark/ebook-rs"
 readme = "README.md"
+exclude = ["samples/*"]
 keywords = ["epub", "reader", "ebook", "parser", "cfi"]
 categories = ["parsing", "web-programming"]
 
