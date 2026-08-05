@@ -3,7 +3,13 @@ name = "ebook-rs"
 version = "0.1.0"
 edition = "2021"
 authors = ["Antigravity Team"]
-description = "Pure Rust EPUB parser and reader with feature parity to epub.js and foliate-js"
+description = "Pure Rust EPUB parser and reader engine with CFI location mapping, full-text search, font de-obfuscation, and WASM/HTTP reader support."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/SV-stark/ebook-rs"
+homepage = "https://github.com/SV-stark/ebook-rs"
+readme = "README.md"
+keywords = ["epub", "reader", "ebook", "parser", "cfi"]
+categories = ["parsing", "web-programming"]
 
 [lib]
 name = "ebook_rs"
