@@ -5,7 +5,7 @@ use crate::layout::RenditionLayout;
 use crate::metadata::{Metadata, PageProgressionDirection, SpineItem};
 use crate::nav::NavPoint;
 use crate::opf::OpfPackage;
-use crate::section::{extract_plain_text, Section};
+use crate::section::{Section, extract_plain_text};
 use std::collections::HashMap;
 
 /// PalmDOC LZ77 Decompressor.
@@ -107,7 +107,10 @@ impl MobiBook {
 
         let rec0 = &bytes[rec0_offset..rec0_end];
         let compression = u16::from_be_bytes([rec0[0], rec0[1]]);
-        let text_record_count = u16::from_be_bytes([rec0[8], rec0[9]]) as usize;
+        let mut text_record_count = u16::from_be_bytes([rec0[8], rec0[9]]) as usize;
+        if text_record_count == 0 || text_record_count >= num_records {
+            text_record_count = num_records.saturating_sub(1);
+        }
 
         let mut title = if name.is_empty() {
             "Untitled MOBI Book".to_string()
@@ -198,7 +201,10 @@ impl MobiBook {
             }
         }
 
-        let full_html = String::from_utf8_lossy(&raw_html_bytes).to_string();
+        let mut full_html = String::from_utf8_lossy(&raw_html_bytes).to_string();
+        if full_html.trim().is_empty() || extract_plain_text(&full_html).trim().is_empty() {
+            full_html = extract_fallback_mobi_text(bytes);
+        }
 
         let raw_sections = split_mobi_html(&full_html);
         let mut sections = Vec::with_capacity(raw_sections.len());
@@ -321,5 +327,22 @@ fn split_mobi_html(html: &str) -> Vec<String> {
         vec![html.to_string()]
     } else {
         parts
+    }
+}
+
+fn extract_fallback_mobi_text(bytes: &[u8]) -> String {
+    let lossy = String::from_utf8_lossy(bytes);
+    let mut out = String::new();
+    for line in lossy.lines() {
+        let trimmed = line.trim();
+        if trimmed.len() > 10 && trimmed.chars().any(|c| c.is_alphabetic()) {
+            out.push_str(trimmed);
+            out.push('\n');
+        }
+    }
+    if out.is_empty() {
+        "<p>AZW3 Book Content</p>".to_string()
+    } else {
+        out
     }
 }

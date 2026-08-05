@@ -30,29 +30,26 @@ pub struct Book {
 }
 
 impl Book {
-    /// Load an EPUB book from a file path.
+    /// Load an EPUB, KEPUB, MOBI, AZW3, FB2, or LIT book from a file path.
     pub fn from_file(path: &str) -> Result<Self, String> {
-        let archive = EpubArchive::open(path)?;
-        Self::from_archive(archive)
+        let bytes = std::fs::read(path)
+            .map_err(|e| format!("Failed to read ebook file {}: {}", path, e))?;
+        Self::from_bytes(&bytes)
     }
 
-    /// Open an EPUB, MOBI, or AZW3 ebook from an in-memory byte slice.
+    /// Open an EPUB, KEPUB, MOBI, AZW3, FB2, or LIT ebook from an in-memory byte slice.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
-        if bytes.len() >= 68 && &bytes[60..68] == b"BOOKMOBI"
-            || (bytes.len() >= 68 && &bytes[60..68] == b"TEXtREDR")
-        {
-            crate::mobi::MobiBook::parse(bytes)
-        } else if bytes.starts_with(b"PK\x03\x04") {
+        if bytes.starts_with(b"PK\x03\x04") {
             let archive = EpubArchive::from_bytes(bytes)?;
             Self::from_archive(archive)
+        } else if let Ok(mobi) = crate::mobi::MobiBook::parse(bytes) {
+            Ok(mobi)
+        } else if let Ok(fb2) = crate::fb2::Fb2Book::parse(bytes) {
+            Ok(fb2)
+        } else if let Ok(lit) = crate::lit::LitBook::parse(bytes) {
+            Ok(lit)
         } else {
-            // Attempt MOBI/AZW3 fallback parsing first, then EPUB archive fallback
-            if let Ok(mobi_book) = crate::mobi::MobiBook::parse(bytes) {
-                Ok(mobi_book)
-            } else {
-                let archive = EpubArchive::from_bytes(bytes)?;
-                Self::from_archive(archive)
-            }
+            Err("Unsupported or corrupted eBook format".to_string())
         }
     }
 

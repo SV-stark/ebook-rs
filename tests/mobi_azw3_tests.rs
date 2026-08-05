@@ -1,4 +1,4 @@
-use ebook_rs::{decompress_palmdoc, Book, MobiBook};
+use ebook_rs::{Book, MobiBook, decompress_palmdoc};
 
 #[test]
 fn test_palmdoc_lz77_decompression() {
