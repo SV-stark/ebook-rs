@@ -22,6 +22,9 @@
 | **WebAssembly Browser Support** | ✅ `wasm-bindgen` | ❌ JS Only | ❌ JS Only | ❌ No |
 | **Embedded HTTP Reader App** | ✅ Built-in Server | ❌ No | ❌ No | ❌ No |
 | **Double-Spread & Continuous Scroll** | ✅ CSS Column / Vertical | ✅ Yes | ✅ Yes | ❌ No |
+| **CBZ / CBR Comic Archive Support** | ❌ Planned v0.3.0 | ❌ No | ✅ Yes | ❌ No |
+| **Readium Webpub Manifest Export** | ❌ Planned v0.3.0 | ❌ No | ✅ Yes | ❌ No |
+| **PDF Document Rendering Bridge** | ❌ Planned v0.3.0 | ❌ No | ✅ Yes | ❌ No |
 
 ---
 
