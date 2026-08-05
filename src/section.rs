@@ -42,19 +42,52 @@ impl Section {
     }
 }
 
-/// Extract clean plain text from HTML content by stripping tags.
+/// Extract clean plain text from HTML content by stripping tags, styles, and scripts.
 pub fn extract_plain_text(html: &str) -> String {
     let mut in_tag = false;
     let mut text = String::with_capacity(html.len());
-    for ch in html.chars() {
-        if ch == '<' {
+    let mut skipping_tag: Option<&'static str> = None;
+
+    let lower = html.to_lowercase();
+    let lower_bytes = lower.as_bytes();
+    let html_bytes = html.as_bytes();
+    let len = html_bytes.len();
+
+    let mut i = 0;
+    while i < len {
+        if !in_tag && html_bytes[i] == b'<' {
             in_tag = true;
+            let slice = &lower_bytes[i..];
+            if skipping_tag.is_none() {
+                if slice.starts_with(b"<style") {
+                    skipping_tag = Some("style");
+                } else if slice.starts_with(b"<script") {
+                    skipping_tag = Some("script");
+                }
+            } else if let Some(tag) = skipping_tag {
+                if (tag == "style" && slice.starts_with(b"</style"))
+                    || (tag == "script" && slice.starts_with(b"</script"))
+                {
+                    skipping_tag = None;
+                }
+            }
             text.push(' ');
-        } else if ch == '>' {
-            in_tag = false;
-        } else if !in_tag {
-            text.push(ch);
+            i += 1;
+            continue;
         }
+
+        if in_tag {
+            if html_bytes[i] == b'>' {
+                in_tag = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if skipping_tag.is_none() {
+            text.push(html_bytes[i] as char);
+        }
+        i += 1;
     }
 
     // Collapse multiple whitespace spaces into single space

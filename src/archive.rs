@@ -55,7 +55,7 @@ impl EpubArchive {
     /// Read text content of a file in the archive.
     pub fn read_string(&self, path: &str) -> Result<String, String> {
         let bytes = self.read_bytes(path)?;
-        String::from_utf8(bytes).map_err(|e| format!("UTF-8 decode error for {}: {}", path, e))
+        Ok(String::from_utf8_lossy(&bytes).to_string())
     }
 
     /// Check if a file exists in the archive.

@@ -79,15 +79,20 @@ impl Book {
         let mut locations = Locations::new(150);
 
         for item in &opf.spine {
-            if let Ok(section) = Section::new(
+            match Section::new(
                 item.index,
                 item.idref.clone(),
                 item.href.clone(),
                 item.href.clone(),
                 &archive,
             ) {
-                locations.add_spine_section(section.index, &section.plain_text);
-                sections.push(section);
+                Ok(section) => {
+                    locations.add_spine_section(section.index, &section.plain_text);
+                    sections.push(section);
+                }
+                Err(err) => {
+                    eprintln!("⚠️ Failed to load section {}: {}", item.href, err);
+                }
             }
         }
         locations.finalize();
