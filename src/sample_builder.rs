@@ -1,6 +1,6 @@
 use std::io::{Cursor, Write};
-use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
+use zip::write::SimpleFileOptions;
 
 /// Creates a valid sample EPUB 3 file with TOC, OPF, NCX, NAV, and chapters for testing.
 pub fn generate_sample_epub() -> Result<Vec<u8>, String> {

@@ -16,10 +16,7 @@ fn test_cfi_parsing_complex_with_assertions() {
     let cfi = Cfi::parse(raw).expect("Should parse complex CFI");
     assert_eq!(cfi.spine_index(), 1); // step 4 -> index 1
     assert_eq!(cfi.char_offset(), 5);
-    assert_eq!(
-        cfi.path.steps[1].element_id,
-        Some("chap01ref".to_string())
-    );
+    assert_eq!(cfi.path.steps[1].element_id, Some("chap01ref".to_string()));
     assert_eq!(cfi.to_string(), raw);
 }
 
@@ -37,10 +34,7 @@ fn test_cfi_from_spine_index() {
     let cfi = Cfi::from_spine_index(2, Some("sec3"), 42);
     assert_eq!(cfi.spine_index(), 2);
     assert_eq!(cfi.char_offset(), 42);
-    assert_eq!(
-        cfi.path.steps[1].element_id,
-        Some("sec3".to_string())
-    );
+    assert_eq!(cfi.path.steps[1].element_id, Some("sec3".to_string()));
 }
 
 #[test]

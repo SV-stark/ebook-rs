@@ -1,4 +1,4 @@
-use crate::archive::{resolve_relative_path, EpubArchive};
+use crate::archive::{EpubArchive, resolve_relative_path};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 

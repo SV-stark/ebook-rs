@@ -1,4 +1,4 @@
-use ebook_rs::{generate_sample_epub, AnnotationType, Book, Cfi, Theme};
+use ebook_rs::{AnnotationType, Book, Cfi, Theme, generate_sample_epub};
 
 #[test]
 fn test_full_epub_parsing_and_reader_parity() {
@@ -34,9 +34,11 @@ fn test_full_epub_parsing_and_reader_parity() {
     let section2 = book
         .get_section_by_href("ch2.xhtml")
         .expect("Should find ch2");
-    assert!(section2
-        .plain_text
-        .contains("Canonical Fragment Identifiers"));
+    assert!(
+        section2
+            .plain_text
+            .contains("Canonical Fragment Identifiers")
+    );
 
     // 6. Verify EPUB CFI Engine
     let cfi_str = "epubcfi(/6/4[chap01ref]!/4/2/10/1:5)";

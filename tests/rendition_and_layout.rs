@@ -1,4 +1,4 @@
-use ebook_rs::{generate_sample_epub, Book, Cfi, FlowMode, RenditionLayout, SpreadMode, Theme};
+use ebook_rs::{Book, Cfi, FlowMode, RenditionLayout, SpreadMode, Theme, generate_sample_epub};
 
 #[test]
 fn test_rendition_spread_and_flow_modes() {

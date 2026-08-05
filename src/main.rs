@@ -1,4 +1,4 @@
-use ebook_rs::{generate_sample_epub, Book, ReaderServer};
+use ebook_rs::{Book, ReaderServer, generate_sample_epub};
 use std::env;
 use std::fs;
 use std::path::Path;

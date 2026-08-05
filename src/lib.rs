@@ -1,3 +1,5 @@
+#![allow(clippy::collapsible_if, clippy::collapsible_match)]
+
 pub mod annotations;
 pub mod archive;
 pub mod book;
@@ -6,6 +8,7 @@ pub mod deobfuscate;
 pub mod layout;
 pub mod locations;
 pub mod metadata;
+pub mod mobi;
 pub mod nav;
 pub mod opf;
 pub mod sample_builder;
@@ -26,6 +29,7 @@ pub use deobfuscate::FontDeobfuscator;
 pub use layout::{FlowMode, LayoutMode, RenditionLayout, SpreadMode, Theme};
 pub use locations::{LocationEntry, Locations};
 pub use metadata::{GuideItem, ManifestItem, Metadata, PageProgressionDirection, SpineItem};
+pub use mobi::{decompress_palmdoc, MobiBook};
 pub use nav::{Landmark, NavPoint, PageListItem};
 pub use sample_builder::generate_sample_epub;
 pub use search::{SearchEngine, SearchResult};

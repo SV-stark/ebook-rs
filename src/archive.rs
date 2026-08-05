@@ -16,6 +16,13 @@ impl EpubArchive {
         Self::from_bytes(&bytes)
     }
 
+    /// Create an empty `EpubArchive` instance.
+    pub fn empty() -> Self {
+        Self {
+            files: HashMap::new(),
+        }
+    }
+
     /// Retrieve `.opf` package document path from `META-INF/container.xml`.
     pub fn get_opf_path(&self) -> Result<String, String> {
         let container_xml = self.read_string("META-INF/container.xml")?;

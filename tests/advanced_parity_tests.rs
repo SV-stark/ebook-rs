@@ -1,8 +1,8 @@
 use ebook_rs::{
-    deobfuscate::{deobfuscate_adobe, deobfuscate_idpf, FontDeobfuscator},
+    Book,
+    deobfuscate::{FontDeobfuscator, deobfuscate_adobe, deobfuscate_idpf},
     generate_sample_epub,
     nav::{parse_landmarks, parse_page_list},
-    Book,
 };
 
 #[test]

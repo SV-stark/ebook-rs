@@ -1,6 +1,6 @@
-# 📖 EBook-RS: Pure Rust EPUB Parser and Reader Engine
+# 📖 EBook-RS: Pure Rust EPUB, MOBI & AZW3 Reader Engine
 
-`ebook-rs` is a high-performance, 100% pure Rust EPUB 2 & EPUB 3 parser and reader engine designed for feature parity with **epub.js** and **foliate-js**.
+`ebook-rs` is a high-performance, 100% pure Rust EPUB 2, EPUB 3, MOBI, and AZW3 parser and reader engine designed for feature parity with **epub.js** and **foliate-js**.
 
 ---
 

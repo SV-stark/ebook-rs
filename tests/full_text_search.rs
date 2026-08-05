@@ -1,4 +1,4 @@
-use ebook_rs::{generate_sample_epub, Book};
+use ebook_rs::{Book, generate_sample_epub};
 
 #[test]
 fn test_full_text_search() {

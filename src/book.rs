@@ -1,14 +1,14 @@
+use crate::Cfi;
 use crate::annotations::AnnotationManager;
 use crate::archive::EpubArchive;
 use crate::deobfuscate::FontDeobfuscator;
 use crate::layout::RenditionLayout;
 use crate::locations::Locations;
 use crate::metadata::{ManifestItem, Metadata, SpineItem};
-use crate::nav::{parse_landmarks, parse_nav_xhtml, parse_ncx, Landmark, NavPoint, PageListItem};
+use crate::nav::{Landmark, NavPoint, PageListItem, parse_landmarks, parse_nav_xhtml, parse_ncx};
 use crate::opf::parse_opf;
 use crate::search::{SearchEngine, SearchResult};
 use crate::section::Section;
-use crate::Cfi;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -36,10 +36,24 @@ impl Book {
         Self::from_archive(archive)
     }
 
-    /// Load an EPUB book from byte slice in memory.
+    /// Open an EPUB, MOBI, or AZW3 ebook from an in-memory byte slice.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
-        let archive = EpubArchive::from_bytes(bytes)?;
-        Self::from_archive(archive)
+        if bytes.len() >= 68 && &bytes[60..68] == b"BOOKMOBI"
+            || (bytes.len() >= 68 && &bytes[60..68] == b"TEXtREDR")
+        {
+            crate::mobi::MobiBook::parse(bytes)
+        } else if bytes.starts_with(b"PK\x03\x04") {
+            let archive = EpubArchive::from_bytes(bytes)?;
+            Self::from_archive(archive)
+        } else {
+            // Attempt MOBI/AZW3 fallback parsing first, then EPUB archive fallback
+            if let Ok(mobi_book) = crate::mobi::MobiBook::parse(bytes) {
+                Ok(mobi_book)
+            } else {
+                let archive = EpubArchive::from_bytes(bytes)?;
+                Self::from_archive(archive)
+            }
+        }
     }
 
     /// Internal builder from an initialized archive.
