@@ -142,9 +142,26 @@ impl Book {
     /// Retrieve cover image bytes and mime type.
     pub fn cover_image(&self) -> Option<(Vec<u8>, &'static str)> {
         if let Some(ref href) = self.opf.metadata.cover_href {
-            if let Ok(bytes) = self.archive.read_bytes(href) {
-                let mime = EpubArchive::get_mime_type(href);
-                return Some((bytes, mime));
+            let mime = EpubArchive::get_mime_type(href);
+            if mime.starts_with("image/") {
+                if let Ok(bytes) = self.archive.read_bytes(href) {
+                    return Some((bytes, mime));
+                }
+            } else if mime == "application/xhtml+xml" {
+                if let Ok(html) = self.archive.read_string(href) {
+                    let base_dir = if let Some(idx) = href.rfind('/') {
+                        &href[..idx]
+                    } else {
+                        ""
+                    };
+                    if let Some(img_src) = extract_first_img_src(&html) {
+                        let img_path = crate::archive::resolve_relative_path(base_dir, &img_src);
+                        if let Ok(bytes) = self.archive.read_bytes(&img_path) {
+                            let img_mime = EpubArchive::get_mime_type(&img_path);
+                            return Some((bytes, img_mime));
+                        }
+                    }
+                }
             }
         }
         None
@@ -194,4 +211,19 @@ impl Book {
         new_locations.finalize();
         self.locations = new_locations;
     }
+}
+
+fn extract_first_img_src(html: &str) -> Option<String> {
+    let lower = html.to_lowercase();
+    if let Some(img_idx) = lower.find("<img") {
+        let rem = &html[img_idx..];
+        let lower_rem = &lower[img_idx..];
+        if let Some(src_idx) = lower_rem.find("src=\"") {
+            let val_start = src_idx + 5;
+            if let Some(end_idx) = rem[val_start..].find('"') {
+                return Some(rem[val_start..val_start + end_idx].to_string());
+            }
+        }
+    }
+    None
 }
