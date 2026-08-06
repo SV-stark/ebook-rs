@@ -46,7 +46,9 @@ pub use layout::{
 };
 pub use lit::LitBook;
 pub use locations::{LocationEntry, Locations};
-pub use metadata::{GuideItem, ManifestItem, Metadata, PageProgressionDirection, SpineItem};
+pub use metadata::{
+    AccessibilityMetadata, GuideItem, ManifestItem, Metadata, PageProgressionDirection, SpineItem,
+};
 pub use mobi::{MobiBook, decompress_palmdoc};
 pub use nav::{Landmark, NavPoint, PageListItem};
 #[cfg(feature = "opds")]

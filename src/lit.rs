@@ -82,6 +82,7 @@ impl LitBook {
             cover_href: None,
             direction: PageProgressionDirection::Ltr,
             meta_properties: HashMap::new(),
+            accessibility: Default::default(),
         };
 
         let opf = OpfPackage {

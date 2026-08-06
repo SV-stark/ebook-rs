@@ -252,8 +252,9 @@ fn parse_metadata_node(node: &roxmltree::Node, metadata: &mut Metadata) -> Resul
                         .meta_properties
                         .insert(property.to_string(), text.clone());
                     if property == "dcterms:modified" {
-                        metadata.modified_date = Some(text);
+                        metadata.modified_date = Some(text.clone());
                     }
+                    parse_a11y_property(property, &text, &mut metadata.accessibility);
                 }
             }
             _ => {}
@@ -261,4 +262,42 @@ fn parse_metadata_node(node: &roxmltree::Node, metadata: &mut Metadata) -> Resul
     }
 
     Ok(())
+}
+
+fn parse_a11y_property(
+    property: &str,
+    text: &str,
+    a11y: &mut crate::metadata::AccessibilityMetadata,
+) {
+    let prop = property.trim();
+    if prop == "schema:accessMode" || prop == "accessMode" {
+        if !text.is_empty() && !a11y.access_modes.contains(&text.to_string()) {
+            a11y.access_modes.push(text.to_string());
+        }
+    } else if prop == "schema:accessModeSufficient" || prop == "accessModeSufficient" {
+        let modes: Vec<String> = text.split(',').map(|s| s.trim().to_string()).collect();
+        if !modes.is_empty() {
+            a11y.access_modes_sufficient.push(modes);
+        }
+    } else if prop == "schema:accessibilityFeature" || prop == "accessibilityFeature" {
+        if !text.is_empty() && !a11y.accessibility_features.contains(&text.to_string()) {
+            a11y.accessibility_features.push(text.to_string());
+        }
+    } else if prop == "schema:accessibilityHazard" || prop == "accessibilityHazard" {
+        if !text.is_empty() && !a11y.accessibility_hazards.contains(&text.to_string()) {
+            a11y.accessibility_hazards.push(text.to_string());
+        }
+    } else if prop == "schema:accessibilitySummary" || prop == "accessibilitySummary" {
+        a11y.accessibility_summary = Some(text.to_string());
+    } else if prop == "a11y:certifiedBy" || prop == "certifiedBy" {
+        a11y.certified_by = Some(text.to_string());
+    } else if prop == "a11y:certifierCredential" || prop == "certifierCredential" {
+        a11y.certifier_credential = Some(text.to_string());
+    } else if prop == "a11y:certifierReport" || prop == "certifierReport" {
+        a11y.certifier_report = Some(text.to_string());
+    }
+
+    if !a11y.access_modes.is_empty() || !a11y.accessibility_features.is_empty() {
+        a11y.is_accessible = true;
+    }
 }

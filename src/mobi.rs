@@ -286,6 +286,7 @@ impl MobiBook {
             cover_href: None,
             direction,
             meta_properties: HashMap::new(),
+            accessibility: Default::default(),
         };
 
         let opf = OpfPackage {
