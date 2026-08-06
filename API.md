@@ -56,6 +56,10 @@ let mut book = Book::from_bytes(&bytes)?;
 | `.fb2` | FictionBook 2 XML | `<FictionBook>` XML | Embedded Base64 Images |
 | `.lit` | Microsoft Reader | `ITOLITLS` Header | Multi-section HTML Conversion |
 | `.cbz` | Comic Book ZIP | `PK\x03\x04` Archive | Sequential Image Page HTML Reader |
+| `.pdf` | PDF Document | `%PDF-` Signature | Plain Text / Markdown Page Extraction |
+| `.odt` | OpenDocument Text | `PK\x03\x04` (`content.xml`) | Heading & Paragraph Section Extraction |
+| `.txt` | Plain Text | UTF-8 Text | Paragraph HTML Formatting |
+| `.md` | Markdown Document | UTF-8 (`# Heading`) | Heading-based Sectioning & TOC |
 
 ---
 
@@ -66,6 +70,9 @@ In addition to `Book::from_file()`, format-specific parsers are available:
 - `ebook_rs::MobiBook::parse(bytes)` — Parses MOBI / AZW3 PalmDOC PDB containers.
 - `ebook_rs::Fb2Book::parse(bytes)` — Parses FictionBook 2 XML documents.
 - `ebook_rs::LitBook::parse(bytes)` — Parses Microsoft Reader LIT files.
+- `ebook_rs::OdtBook::parse(bytes, title_fallback)` — Parses OpenDocument Text (.odt) archives.
+- `ebook_rs::TxtBook::parse(bytes, title_fallback, is_markdown)` — Parses Plain Text (.txt) or Markdown (.md) documents.
+- `ebook_rs::PdfBook::parse(bytes, title_fallback)` — Parses pre-OCR PDF documents (`pdf` feature).
 
 ---
 
@@ -187,4 +194,103 @@ let json = SearchEngine::to_readium_search_json(&results, "Alice")?;
 // }
 
 println!("{}", json);
+```
+
+---
+
+## 10. Full-Text & Regex Search Engine (`ebook_rs::SearchEngine`)
+
+`ebook-rs` provides literal string search and regular expression pattern search with `<mark>` context highlighting:
+
+```rust
+use ebook_rs::Book;
+
+let book = Book::from_file("sample.epub")?;
+
+// 1. Literal Search
+let literal_results = book.search("quantum");
+
+// 2. Regular Expression Search (case-insensitive regex)
+let regex_results = book.search_regex("(?i)quantum|physics|particle")?;
+
+for match_item in regex_results {
+    println!("Spine Index: {}", match_item.spine_index);
+    println!("CFI: {}", match_item.cfi);
+    println!("Context Snippet: {}", match_item.snippet); // "...<mark>quantum</mark> physics..."
+}
+```
+
+---
+
+## 11. Structural EPUB Validator (`ebook_rs::EpubValidator`)
+
+Validate eBook package structure, OPF metadata, spine items, and navigation hierarchy:
+
+```rust
+use ebook_rs::{Book, EpubValidator, ValidationSeverity};
+
+let book = Book::from_file("sample.epub")?;
+
+let report = book.validate(); // or EpubValidator::validate(&book)
+
+if report.is_valid {
+    println!("✅ Book passed validation with 0 errors!");
+} else {
+    println!("❌ Book contains {} validation errors:", report.errors_count);
+    for err in report.errors {
+        match err.severity {
+            ValidationSeverity::Error => eprintln!("[ERROR] {}: {}", err.code, err.message),
+            ValidationSeverity::Warning => println!("[WARN] {}: {}", err.code, err.message),
+            ValidationSeverity::Info => println!("[INFO] {}: {}", err.code, err.message),
+        }
+    }
+}
+```
+
+---
+
+## 12. Book Fingerprinting & Deduplication (`ebook_rs::BookFingerprint`)
+
+Generate metadata-independent SHA-256 content hashes to calculate similarity scores and detect duplicate books across formats:
+
+```rust
+use ebook_rs::Book;
+
+let book1 = Book::from_file("book_v1.epub")?;
+let book2 = Book::from_file("book_v2.mobi")?;
+
+let fp1 = book1.fingerprint();
+let fp2 = book2.fingerprint();
+
+println!("Book 1 Content Hash: {}", fp1.content_hash);
+println!("Book 2 Content Hash: {}", fp2.content_hash);
+
+let match_score = fp1.match_score(&fp2); // Returns 0.0 to 1.0
+if fp1.is_duplicate_of(&fp2) {
+    println!("Duplicate book detected! Match score: {:.2}%", match_score * 100.0);
+}
+```
+
+---
+
+## 13. Academic Citation Exporter (`ebook_rs::CitationExporter`)
+
+Export academic citations in standard scholarly formats (**BibTeX**, **APA**, **MLA**, **Chicago**):
+
+```rust
+use ebook_rs::Book;
+
+let book = Book::from_file("sample.epub")?;
+
+// 1. BibTeX Format
+println!("BibTeX:\n{}", book.to_bibtex());
+
+// 2. APA (7th ed.) Format
+println!("APA: {}", book.to_apa());
+
+// 3. MLA (9th ed.) Format
+println!("MLA: {}", book.to_mla());
+
+// 4. Chicago (17th ed.) Format
+println!("Chicago: {}", book.to_chicago());
 ```
