@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.1] - 2026-08-06
+
+### Fixed
+- **B1 & B2**: Fixed multibyte UTF-8 string slicing and char conversion in `sanitize_html_scripts`, preventing CJK, Arabic, Hebrew, and Emoji text corruption or `byte index X is not a char boundary` panics.
+- **B3**: Fixed tag skipping in `extract_plain_text` to recover text when unclosed `<style>` or `<script>` tags occur in non-conforming eBooks.
+- **B4 & E3**: Fixed MOBI header EXTH tag parsing for language and text direction (`Rtl` vs `Ltr`); fixed `text_record_count == 0` fallback to avoid reading image or metadata PDB records as raw text.
+- **B5**: Fixed `spine_index()` in `Cfi` to return `try_spine_index() -> Result<usize, String>`, returning an explicit error if no indirection step `!` is present instead of silently defaulting to section 0.
+- **E1**: Fixed preservation of multiple `<dc:title>` tags (e.g. main title + subtitle concatenation).
+- **E4 & E5**: Isolated attribute boundary matching in `regex_find_attr` so `src="..."` replacements do not overwrite `data-src="..."` or `srcset="..."`; added case-insensitive `.CSS`, `.css?v=1`, and `rel="stylesheet"` inlining.
+- **E6 & E7**: Fixed section path normalization in `get_section_by_href` to avoid false suffix matches; added manifest `cover_id` fallback in `cover_image()` when `cover_href` is `None`.
+- **E8**: Added actionable error guard detecting DRM-protected eBooks (ADEPT / LCP) informing users that decryption keys are required.
+
+---
+
 ## [0.5.0] - 2026-08-06
 
 ### Added

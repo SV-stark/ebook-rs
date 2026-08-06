@@ -244,3 +244,32 @@ fn test_remote_zip_central_directory_streamer() {
     assert_eq!(header, "Range");
     assert!(val.starts_with("bytes="));
 }
+
+#[test]
+fn test_multibyte_utf8_cjk_script_sanitization() {
+    let cjk_html = "<html><body><h1>量子力学</h1><script>alert('xss');</script><p>الفيزياء العربية</p></body></html>";
+    let sanitized = ebook_rs::section::sanitize_html_scripts(cjk_html);
+    assert!(!sanitized.contains("<script>"));
+    assert!(sanitized.contains("量子力学"));
+    assert!(sanitized.contains("الفيزياء العربية"));
+}
+
+#[test]
+fn test_unclosed_style_tag_plain_text_extraction() {
+    let unclosed_html = "<html><body><style>body { color: red; } <p>Important text content</p>";
+    let text = ebook_rs::section::extract_plain_text(unclosed_html);
+    assert!(text.contains("Important text content"));
+}
+
+#[test]
+fn test_cfi_missing_indirection_error() {
+    let cfi = ebook_rs::Cfi::parse("epubcfi(/6/4)").unwrap();
+    assert!(cfi.try_spine_index().is_err());
+}
+
+#[test]
+fn test_data_src_attribute_isolation() {
+    let html = r#"<img data-src="lazy.jpg" src="real.jpg"/>"#;
+    let sanitized = ebook_rs::section::sanitize_html_scripts(html);
+    assert!(sanitized.contains("data-src=\"lazy.jpg\""));
+}

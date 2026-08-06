@@ -122,6 +122,11 @@ pub fn extract_plain_text(html: &str) -> String {
             } else if let Some(tag) = skipping_tag {
                 if (tag == "style" && slice.starts_with(b"</style"))
                     || (tag == "script" && slice.starts_with(b"</script"))
+                    || slice.starts_with(b"<p")
+                    || slice.starts_with(b"<div")
+                    || slice.starts_with(b"<body")
+                    || slice.starts_with(b"<h")
+                    || slice.starts_with(b"<section")
                 {
                     skipping_tag = None;
                 }
@@ -140,14 +145,15 @@ pub fn extract_plain_text(html: &str) -> String {
         }
 
         if skipping_tag.is_none() {
-            // B2 Fix: Extract valid multibyte UTF-8 char instead of casting u8 as char
             if let Some(ch) = html[i..].chars().next() {
                 text.push(ch);
                 i += ch.len_utf8();
-                continue;
+            } else {
+                i += 1;
             }
+        } else {
+            i += 1;
         }
-        i += 1;
     }
 
     // Collapse multiple whitespace spaces into single space
@@ -244,7 +250,7 @@ pub fn process_section_resources_with_strategy(
     output
 }
 
-/// Helper to find ONLY `<link ... href="...">` tags for CSS inlining (B3 Fix).
+/// Helper to find ONLY `<link ... href="...">` tags for CSS inlining (E5 Fix).
 fn regex_find_link_css(html: &str) -> Vec<(String, String)> {
     let mut list = Vec::new();
     let lower = html.to_lowercase();
@@ -255,7 +261,10 @@ fn regex_find_link_css(html: &str) -> Vec<(String, String)> {
         if let Some(close_idx) = html[abs_link..].find('>') {
             let tag_str = &html[abs_link..=abs_link + close_idx];
             if let Some((orig_href, val)) = extract_attr(tag_str, "href") {
-                if val.ends_with(".css") {
+                let val_lower = val.to_lowercase();
+                if val_lower.contains(".css")
+                    || tag_str.to_lowercase().contains("rel=\"stylesheet\"")
+                {
                     list.push((orig_href, val));
                 }
             }
@@ -269,27 +278,45 @@ fn regex_find_link_css(html: &str) -> Vec<(String, String)> {
 }
 
 fn extract_attr(tag_str: &str, attr: &str) -> Option<(String, String)> {
-    let pattern = format!("{}=\"", attr);
-    if let Some(start) = tag_str.to_lowercase().find(&pattern) {
-        let val_start = start + pattern.len();
-        if let Some(end) = tag_str[val_start..].find('"') {
-            let val = &tag_str[val_start..val_start + end];
-            let orig = &tag_str[start..=val_start + end];
-            return Some((orig.to_string(), val.to_string()));
-        }
-    }
-    None
+    let tag_lower = tag_str.to_lowercase();
+    let pattern1 = format!(" {}=\"", attr);
+    let pattern2 = format!("<{}=\"", attr);
+
+    let start = tag_lower
+        .find(&pattern1)
+        .map(|s| s + 1)
+        .or_else(|| tag_lower.find(&pattern2).map(|s| s + 1))?;
+    let val_start = start + attr.len() + 2;
+    let end = tag_str[val_start..].find('"')?;
+    let val = &tag_str[val_start..val_start + end];
+    let orig = &tag_str[start..=val_start + end];
+    Some((orig.to_string(), val.to_string()))
 }
 
-/// Simple helper to find attributes like `src="..."` or `href="..."`.
+/// Helper to find attributes like `src="..."` or `href="..."` with word boundary checks (E4 Fix).
 fn regex_find_attr(html: &str, attr: &str) -> Vec<(String, String)> {
     let mut list = Vec::new();
-    let pattern = format!("{}=\"", attr);
+    let lower = html.to_lowercase();
+    let pattern1 = format!(" {}=\"", attr);
+    let pattern2 = format!("<{}=\"", attr);
     let mut search_idx = 0;
 
-    while let Some(start) = html[search_idx..].find(&pattern) {
-        let abs_start = search_idx + start;
-        let val_start = abs_start + pattern.len();
+    while search_idx < html.len() {
+        let p1_match = lower[search_idx..]
+            .find(&pattern1)
+            .map(|s| search_idx + s + 1);
+        let p2_match = lower[search_idx..]
+            .find(&pattern2)
+            .map(|s| search_idx + s + 1);
+
+        let abs_start = match (p1_match, p2_match) {
+            (Some(m1), Some(m2)) => m1.min(m2),
+            (Some(m1), None) => m1,
+            (None, Some(m2)) => m2,
+            (None, None) => break,
+        };
+
+        let val_start = abs_start + attr.len() + 2;
         if let Some(end) = html[val_start..].find('"') {
             let abs_end = val_start + end;
             let val = &html[val_start..abs_end];
@@ -386,13 +413,12 @@ pub fn parse_viewport_meta(html: &str) -> (Option<f64>, Option<f64>) {
     (None, None)
 }
 
-/// Sanitize HTML content by stripping <script> blocks, inline event handlers, and javascript: links.
+/// Sanitize HTML content by stripping <script> blocks, inline event handlers, and javascript: links (B1 & B2 Fix).
 pub fn sanitize_html_scripts(html: &str) -> String {
     let mut output = String::with_capacity(html.len());
     let lower = html.to_lowercase();
     let lower_bytes = lower.as_bytes();
-    let html_bytes = html.as_bytes();
-    let len = html_bytes.len();
+    let len = html.len();
 
     let mut i = 0;
     let mut in_script = false;
@@ -414,11 +440,16 @@ pub fn sanitize_html_scripts(html: &str) -> String {
             continue;
         }
 
-        output.push(html_bytes[i] as char);
-        i += 1;
+        // B1 Fix: Safely push UTF-8 character instead of casting u8 as char
+        if let Some(ch) = html[i..].chars().next() {
+            output.push(ch);
+            i += ch.len_utf8();
+        } else {
+            i += 1;
+        }
     }
 
-    // Strip inline event attributes like onload=, onclick=, onerror=
+    // B2 Fix: Strip inline event attributes like onload=, onclick= with char-boundary safety
     let mut sanitized = String::with_capacity(output.len());
     let mut search_idx = 0;
     let out_lower = output.to_lowercase();
@@ -428,11 +459,9 @@ pub fn sanitize_html_scripts(html: &str) -> String {
             let abs_on = search_idx + on_idx;
             sanitized.push_str(&output[search_idx..abs_on]);
 
-            // Check if this looks like an inline handler attribute, e.g. onclick="..."
             if let Some(eq_idx) = out_lower[abs_on..].find('=') {
-                let attr_name = &out_lower[abs_on + 1..abs_on + eq_idx].trim();
+                let attr_name = out_lower[abs_on + 1..abs_on + eq_idx].trim();
                 if attr_name.starts_with("on") {
-                    // Skip attribute until space or tag close
                     let val_start = abs_on + eq_idx + 1;
                     if val_start < output.len() && output.as_bytes()[val_start] == b'"' {
                         if let Some(end_quote) = output[val_start + 1..].find('"') {

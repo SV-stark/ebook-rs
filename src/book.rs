@@ -75,6 +75,11 @@ impl Book {
 
     /// Internal builder from an initialized archive.
     fn from_archive(archive: EpubArchive) -> Result<Self, String> {
+        // E8 Fix: Detect DRM encryption (ADEPT / LCP)
+        if archive.contains("META-INF/rights.xml") || archive.contains("license.lcpl") {
+            return Err("DRM protected eBook (ADEPT/LCP). Decryption keys are required to read encrypted content.".to_string());
+        }
+
         let opf_path = archive.get_opf_path()?;
         let opf_xml = archive.read_string(&opf_path)?;
         let opf = parse_opf(&opf_xml, &opf_path)?;
@@ -200,9 +205,17 @@ impl Book {
         &self.page_list
     }
 
-    /// Retrieve cover image bytes and mime type.
+    /// Retrieve cover image bytes and mime type (E7 Fix: fall back to cover_id in manifest).
     pub fn cover_image(&self) -> Option<(Vec<u8>, &'static str)> {
-        if let Some(ref href) = self.opf.metadata.cover_href {
+        let target_href = self.opf.metadata.cover_href.clone().or_else(|| {
+            self.opf
+                .metadata
+                .cover_id
+                .as_ref()
+                .and_then(|id| self.opf.manifest.get(id).map(|item| item.full_path.clone()))
+        });
+
+        if let Some(ref href) = target_href {
             let mime = EpubArchive::get_mime_type(href);
             if mime.starts_with("image/") {
                 if let Ok(bytes) = self.archive.read_bytes(href) {
@@ -260,7 +273,7 @@ impl Book {
         Ok(section)
     }
 
-    /// Retrieve section by relative href string.
+    /// Retrieve section by relative href string (E6 Fix: strict path matching).
     pub fn get_section_by_href(&self, href: &str) -> Result<Section, String> {
         let clean = href.trim();
         let target = clean.split('#').next().unwrap_or(clean);
@@ -268,7 +281,8 @@ impl Book {
         for section in &self.sections {
             if section.href == target
                 || section.full_path == target
-                || section.href.ends_with(target)
+                || section.href.ends_with(&format!("/{}", target))
+                || section.full_path.ends_with(&format!("/{}", target))
             {
                 return self.get_section(section.index);
             }

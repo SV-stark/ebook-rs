@@ -112,7 +112,8 @@ impl MobiBook {
         let compression = u16::from_be_bytes([rec0[0], rec0[1]]);
         let mut text_record_count = u16::from_be_bytes([rec0[8], rec0[9]]) as usize;
         if text_record_count == 0 || text_record_count >= num_records {
-            text_record_count = num_records.saturating_sub(1);
+            // E3 Fix: Cap text_record_count to 1 or safe bound to prevent reading image/metadata PDB records as text
+            text_record_count = 1.min(num_records.saturating_sub(1));
         }
 
         let mut title = if name.is_empty() {
@@ -122,6 +123,7 @@ impl MobiBook {
         };
         let mut author = "Unknown Author".to_string();
         let mut publisher = None;
+        let mut language = "en".to_string();
 
         if rec0.len() >= 40 && &rec0[16..20] == b"MOBI" {
             let header_len = u32::from_be_bytes([rec0[20], rec0[21], rec0[22], rec0[23]]) as usize;
@@ -167,6 +169,11 @@ impl MobiBook {
                             match tag {
                                 100 => author = val_str,
                                 101 => publisher = Some(val_str),
+                                524 | 106 => {
+                                    if !val_str.is_empty() {
+                                        language = val_str;
+                                    }
+                                }
                                 503 => {
                                     if !val_str.is_empty() {
                                         title = val_str;
@@ -253,11 +260,22 @@ impl MobiBook {
             });
         }
 
+        let lang_lower = language.to_lowercase();
+        let direction = if lang_lower.starts_with("ar")
+            || lang_lower.starts_with("he")
+            || lang_lower.starts_with("fa")
+            || lang_lower.starts_with("ur")
+        {
+            PageProgressionDirection::Rtl
+        } else {
+            PageProgressionDirection::Ltr
+        };
+
         let metadata = Metadata {
             title,
             creators: vec![author],
             publishers: publisher.map(|p| vec![p]).unwrap_or_default(),
-            languages: vec!["en".to_string()],
+            languages: vec![language],
             rights: None,
             description: None,
             identifier: None,
@@ -266,7 +284,7 @@ impl MobiBook {
             subjects: Vec::new(),
             cover_id: None,
             cover_href: None,
-            direction: PageProgressionDirection::Ltr,
+            direction,
             meta_properties: HashMap::new(),
         };
 

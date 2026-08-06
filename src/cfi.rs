@@ -142,14 +142,19 @@ impl Cfi {
         }
     }
 
-    /// Extract the 0-based spine item index from this CFI.
-    pub fn spine_index(&self) -> usize {
+    /// Extract the 0-based spine item index from this CFI, returning an error if no indirection step `!` is found (B5 Fix).
+    pub fn try_spine_index(&self) -> Result<usize, String> {
         for step in &self.path.steps {
             if step.indirection && step.index >= 2 {
-                return (step.index / 2) - 1;
+                return Ok((step.index / 2) - 1);
             }
         }
-        0
+        Err("CFI missing indirection step ('!')".to_string())
+    }
+
+    /// Extract the 0-based spine item index from this CFI (defaults to 0 if missing indirection).
+    pub fn spine_index(&self) -> usize {
+        self.try_spine_index().unwrap_or(0)
     }
 
     /// Extract character offset.

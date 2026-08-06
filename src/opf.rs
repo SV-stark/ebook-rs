@@ -206,7 +206,15 @@ fn parse_metadata_node(node: &roxmltree::Node, metadata: &mut Metadata) -> Resul
         let text = child.text().unwrap_or("").trim().to_string();
 
         match name {
-            "title" => metadata.title = text,
+            "title" => {
+                if !text.is_empty() {
+                    if metadata.title.is_empty() {
+                        metadata.title = text;
+                    } else {
+                        metadata.title = format!("{}: {}", metadata.title, text);
+                    }
+                }
+            }
             "creator" => {
                 if !text.is_empty() {
                     metadata.creators.push(text);
