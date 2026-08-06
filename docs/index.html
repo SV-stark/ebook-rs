@@ -527,7 +527,7 @@
     <div class="brand">
       <div class="brand-icon">📖</div>
       <span>ebook-rs</span>
-      <span class="brand-version">v0.2.0</span>
+      <span class="brand-version">v0.7.0</span>
     </div>
     <nav>
       <a href="#features">Features</a>
@@ -543,9 +543,9 @@
 
   <!-- Hero Section -->
   <section class="hero">
-    <div class="hero-badge">⚡ Pure Rust 2024 • Zero C-Dependencies • WASM Ready</div>
-    <h1>High-Performance Engine for <span>EPUB, MOBI & AZW3</span></h1>
-    <p>A pure Rust eBook parser, renderer, and indexer with zero-alloc full-text search, Canonical Fragment Identifiers (CFI), and multi-format support.</p>
+    <div class="hero-badge">⚡ Pure Rust 2024 • 11 Supported Formats • WASM Ready</div>
+    <h1>High-Performance Engine for <span>11 eBook & Document Formats</span></h1>
+    <p>Pure Rust engine for EPUB, MOBI, AZW3, FB2, KEPUB, LIT, CBZ, PDF, ODT, TXT, and Markdown with zero-alloc search, Readium LCP/Locator APIs, CFI, and Structural Validation.</p>
     
     <div class="hero-actions">
       <a href="https://crates.io/crates/ebook-rs" class="btn-primary" target="_blank">Add to Cargo.toml</a>
@@ -554,13 +554,13 @@
 
     <!-- Format Selector Pills -->
     <div class="formats-bar">
-      <div class="format-pill active" onclick="switchFormat('epub2')">EPUB 2</div>
-      <div class="format-pill" onclick="switchFormat('epub3')">EPUB 3</div>
-      <div class="format-pill" onclick="switchFormat('azw3')">AZW3 (KF8)</div>
-      <div class="format-pill" onclick="switchFormat('mobi')">MOBI (PalmDOC)</div>
-      <div class="format-pill" onclick="switchFormat('fb2')">FictionBook 2</div>
-      <div class="format-pill" onclick="switchFormat('kepub')">KEPUB</div>
-      <div class="format-pill" onclick="switchFormat('lit')">LIT</div>
+      <div class="format-pill active" onclick="switchFormat('epub2')">EPUB 2/3</div>
+      <div class="format-pill" onclick="switchFormat('azw3')">AZW3/MOBI</div>
+      <div class="format-pill" onclick="switchFormat('fb2')">FB2</div>
+      <div class="format-pill" onclick="switchFormat('cbz')">CBZ</div>
+      <div class="format-pill" onclick="switchFormat('pdf')">PDF</div>
+      <div class="format-pill" onclick="switchFormat('odt')">ODT</div>
+      <div class="format-pill" onclick="switchFormat('md')">Markdown/TXT</div>
     </div>
   </section>
 
