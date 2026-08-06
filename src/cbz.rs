@@ -15,6 +15,13 @@ pub struct CbzBook;
 impl CbzBook {
     /// Parse CBZ (ZIP) or raw image container bytes into a `Book` struct.
     pub fn parse(bytes: &[u8], title_fallback: &str) -> Result<Book, String> {
+        if bytes.starts_with(b"Rar!\x1a\x07\x00")
+            || bytes.starts_with(b"Rar!\x1a\x07\x01\x00")
+            || bytes.starts_with(b"Rar!\x1a\x07")
+        {
+            return Err("CBR (RAR format) is not supported in pure-Rust mode (RARv4/RARv5 detected). Please convert the file to CBZ (ZIP format).".to_string());
+        }
+
         let mut reader = Cursor::new(bytes);
         let mut zip = zip::ZipArchive::new(&mut reader)
             .map_err(|e| format!("Failed to open CBZ archive: {}", e))?;

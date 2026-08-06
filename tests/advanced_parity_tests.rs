@@ -306,3 +306,20 @@ fn test_custom_font_injection_css() {
     assert!(css.contains("@font-face"));
     assert!(css.contains("font-family: 'Roboto'"));
 }
+
+#[test]
+fn test_non_ascii_attribute_value_extraction() {
+    let html = r#"<img alt="über" title="日本語" src="image.jpg"/>"#;
+    let sanitized = ebook_rs::section::sanitize_html_scripts(html);
+    assert!(sanitized.contains("alt=\"über\""));
+    assert!(sanitized.contains("title=\"日本語\""));
+}
+
+#[test]
+fn test_rar_v4_v5_cbr_detection() {
+    let rar_v4_magic = b"Rar!\x1a\x07\x00extra_bytes";
+    let rar_v5_magic = b"Rar!\x1a\x07\x01\x00extra_bytes";
+
+    assert!(ebook_rs::Book::from_bytes(rar_v4_magic).is_err());
+    assert!(ebook_rs::Book::from_bytes(rar_v5_magic).is_err());
+}

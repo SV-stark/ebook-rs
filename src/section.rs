@@ -278,19 +278,36 @@ fn regex_find_link_css(html: &str) -> Vec<(String, String)> {
 }
 
 fn extract_attr(tag_str: &str, attr: &str) -> Option<(String, String)> {
-    let tag_lower = tag_str.to_lowercase();
-    let pattern1 = format!(" {}=\"", attr);
-    let pattern2 = format!("<{}=\"", attr);
+    let lower_tag = tag_str.to_lowercase();
+    let attr_lower = attr.to_lowercase();
+    let pat1 = format!(" {}=\"", attr_lower);
+    let pat2 = format!("<{}=\"", attr_lower);
+    let pat3 = format!(" {}='", attr_lower);
+    let pat4 = format!("<{}='", attr_lower);
 
-    let start = tag_lower
-        .find(&pattern1)
-        .map(|s| s + 1)
-        .or_else(|| tag_lower.find(&pattern2).map(|s| s + 1))?;
-    let val_start = start + attr.len() + 2;
-    let end = tag_str[val_start..].find('"')?;
-    let val = &tag_str[val_start..val_start + end];
-    let orig = &tag_str[start..=val_start + end];
-    Some((orig.to_string(), val.to_string()))
+    for pat in &[pat1, pat2, pat3, pat4] {
+        if let Some(pos) = lower_tag.find(pat) {
+            let quote = pat.chars().last().unwrap();
+            let attr_start = pos + 1;
+            let val_start = pos + pat.len();
+
+            // B2 Fix: Ensure char boundaries before slicing non-ASCII / CJK attribute strings
+            if tag_str.is_char_boundary(val_start) {
+                if let Some(quote_idx) = tag_str[val_start..].find(quote) {
+                    let val_end = val_start + quote_idx;
+                    if tag_str.is_char_boundary(attr_start)
+                        && tag_str.is_char_boundary(val_end)
+                        && val_end < tag_str.len()
+                    {
+                        let val = &tag_str[val_start..val_end];
+                        let orig = &tag_str[attr_start..=val_end];
+                        return Some((orig.to_string(), val.to_string()));
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Helper to find attributes like `src="..."` or `href="..."` with word boundary checks (E4 Fix).

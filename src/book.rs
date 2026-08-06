@@ -48,8 +48,11 @@ impl Book {
 
     /// Open an eBook from an in-memory byte slice with a title fallback.
     pub fn from_bytes_with_title(bytes: &[u8], title_fallback: &str) -> Result<Self, String> {
-        if bytes.starts_with(b"Rar!\x1a\x07") {
-            return Err("CBR (RAR format) is not supported in pure-Rust mode. Please convert the file to CBZ (ZIP format).".to_string());
+        if bytes.starts_with(b"Rar!\x1a\x07\x00")
+            || bytes.starts_with(b"Rar!\x1a\x07\x01\x00")
+            || bytes.starts_with(b"Rar!\x1a\x07")
+        {
+            return Err("CBR (RAR format) is not supported in pure-Rust mode (RARv4/RARv5 detected). Please convert the file to CBZ (ZIP format).".to_string());
         }
         if bytes.starts_with(b"PK\x03\x04") {
             if let Ok(archive) = EpubArchive::from_bytes(bytes) {
