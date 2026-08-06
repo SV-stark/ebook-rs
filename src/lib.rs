@@ -20,6 +20,7 @@ pub mod nav;
 pub mod opds;
 pub mod opf;
 pub mod paginator;
+pub mod pdf;
 pub mod sample_builder;
 pub mod search;
 pub mod section;
@@ -59,6 +60,7 @@ pub use nav::{Landmark, NavPoint, PageListItem};
 #[cfg(feature = "opds")]
 pub use opds::{OpdsEntry, OpdsFeed, OpdsLink};
 pub use paginator::{PageRange, ReflowPaginator, SectionPageMap};
+pub use pdf::PdfBook;
 pub use sample_builder::generate_sample_epub;
 pub use search::{SearchEngine, SearchResult};
 pub use section::Section;

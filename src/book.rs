@@ -55,6 +55,9 @@ impl Book {
         {
             return Err("CBR (RAR format) is not supported in pure-Rust mode (RARv4/RARv5 detected). Please convert the file to CBZ (ZIP format).".to_string());
         }
+        if bytes.starts_with(b"%PDF-") {
+            return crate::pdf::PdfBook::parse(bytes, title_fallback);
+        }
         if bytes.starts_with(b"PK\x03\x04") {
             if let Ok(archive) = EpubArchive::from_bytes(bytes) {
                 if archive.contains("META-INF/container.xml") {

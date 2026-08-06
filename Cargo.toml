@@ -27,6 +27,7 @@ server = ["dep:tiny_http", "dep:url"]
 wasm = ["dep:wasm-bindgen"]
 opds = []
 parallel = ["dep:rayon"]
+pdf = ["dep:pdf_oxide"]
 
 [dependencies]
 zip = "8.6"
@@ -39,3 +40,4 @@ tiny_http = { version = "0.12", optional = true }
 url = { version = "2.5", optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
 rayon = { version = "1.10", optional = true }
+pdf_oxide = { version = "0.3", optional = true }
