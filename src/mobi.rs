@@ -334,8 +334,8 @@ fn split_mobi_html(html: &str) -> Vec<String> {
                 parts.push(chunk.to_string());
             }
         }
-        if let Some(close) = html[abs_idx..].find('>') {
-            search_idx = abs_idx + close + 1;
+        if let Some(abs_close) = crate::section::find_tag_end(html, abs_idx) {
+            search_idx = abs_close + 1;
         } else {
             search_idx = abs_idx + 14;
         }

@@ -97,9 +97,32 @@ impl Section {
 }
 
 /// Extract clean plain text from HTML content by stripping tags, styles, and scripts.
-/// B2 Fix: Multibyte UTF-8 aware extraction.
+/// Quote-aware HTML tag boundary finder that ignores `>` characters inside attribute quotes.
+pub fn find_tag_end(html: &str, start_idx: usize) -> Option<usize> {
+    let bytes = html.as_bytes();
+    let mut in_quote: Option<u8> = None;
+    let mut i = start_idx;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if let Some(q) = in_quote {
+            if b == q {
+                in_quote = None;
+            }
+        } else if b == b'"' || b == b'\'' {
+            in_quote = Some(b);
+        } else if b == b'>' {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Extract clean plain text from HTML content by stripping tags, styles, and scripts.
+/// B2 Fix: Multibyte UTF-8 and quote-aware extraction.
 pub fn extract_plain_text(html: &str) -> String {
     let mut in_tag = false;
+    let mut in_quote: Option<u8> = None;
     let mut text = String::with_capacity(html.len());
     let mut skipping_tag: Option<&'static str> = None;
 
@@ -112,6 +135,7 @@ pub fn extract_plain_text(html: &str) -> String {
     while i < len {
         if !in_tag && html_bytes[i] == b'<' {
             in_tag = true;
+            in_quote = None;
             let slice = &lower_bytes[i..];
             if skipping_tag.is_none() {
                 if slice.starts_with(b"<style") {
@@ -137,8 +161,16 @@ pub fn extract_plain_text(html: &str) -> String {
         }
 
         if in_tag {
-            if html_bytes[i] == b'>' {
+            let b = html_bytes[i];
+            if let Some(q) = in_quote {
+                if b == q {
+                    in_quote = None;
+                }
+            } else if b == b'"' || b == b'\'' {
+                in_quote = Some(b);
+            } else if b == b'>' {
                 in_tag = false;
+                in_quote = None;
             }
             i += 1;
             continue;
@@ -258,8 +290,8 @@ fn regex_find_link_css(html: &str) -> Vec<(String, String)> {
 
     while let Some(link_idx) = lower[search_idx..].find("<link") {
         let abs_link = search_idx + link_idx;
-        if let Some(close_idx) = html[abs_link..].find('>') {
-            let tag_str = &html[abs_link..=abs_link + close_idx];
+        if let Some(abs_close) = find_tag_end(html, abs_link) {
+            let tag_str = &html[abs_link..=abs_close];
             if let Some((orig_href, val)) = extract_attr(tag_str, "href") {
                 let val_lower = val.to_lowercase();
                 if val_lower.contains(".css")
@@ -268,7 +300,7 @@ fn regex_find_link_css(html: &str) -> Vec<(String, String)> {
                     list.push((orig_href, val));
                 }
             }
-            search_idx = abs_link + close_idx + 1;
+            search_idx = abs_close + 1;
         } else {
             break;
         }
@@ -399,8 +431,8 @@ pub fn parse_viewport_meta(html: &str) -> (Option<f64>, Option<f64>) {
 
     while let Some(idx) = lower[search_idx..].find("<meta") {
         let abs_idx = search_idx + idx;
-        if let Some(close) = html[abs_idx..].find('>') {
-            let tag = &html[abs_idx..=abs_idx + close];
+        if let Some(abs_close) = find_tag_end(html, abs_idx) {
+            let tag = &html[abs_idx..=abs_close];
             if tag.to_lowercase().contains("viewport") {
                 if let Some((_, content)) = extract_attr(tag, "content") {
                     let mut width = None;
@@ -421,7 +453,7 @@ pub fn parse_viewport_meta(html: &str) -> (Option<f64>, Option<f64>) {
                     }
                 }
             }
-            search_idx = abs_idx + close + 1;
+            search_idx = abs_close + 1;
         } else {
             break;
         }

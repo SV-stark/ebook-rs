@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.2] - 2026-08-06
+
+### Fixed
+- **Quote-Aware HTML Tag & Text Parsing (`find_tag_end`)**: Fixed a flaw where `>` characters inside tag attribute quotes (e.g. `alt="x > y"`, `title="A > B"`) prematurely split HTML tags and emitted stray `>` characters into body text.
+
+---
+
 ## [0.8.0] - 2026-08-06
 
 ### Added
