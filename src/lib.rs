@@ -12,6 +12,7 @@ pub mod footnote;
 pub mod layout;
 pub mod lit;
 pub mod locations;
+pub mod media_overlay;
 pub mod metadata;
 pub mod mobi;
 pub mod nav;
@@ -46,6 +47,10 @@ pub use layout::{
 };
 pub use lit::LitBook;
 pub use locations::{LocationEntry, Locations};
+pub use media_overlay::{
+    MediaOverlayPackage, MediaOverlayParallel, MediaOverlaySequence, SmilAudioClip, SmilClock,
+    SmilTextRef,
+};
 pub use metadata::{
     AccessibilityMetadata, GuideItem, ManifestItem, Metadata, PageProgressionDirection, SpineItem,
 };

@@ -27,6 +27,7 @@ pub struct Book {
     pub layout: RenditionLayout,
     pub font_deobfuscator: FontDeobfuscator,
     pub before_display_hooks: Vec<BeforeDisplayHook>,
+    pub media_overlays: HashMap<String, crate::media_overlay::MediaOverlayPackage>,
 }
 
 impl Book {
@@ -155,6 +156,20 @@ impl Book {
 
         locations.finalize();
 
+        // Load EPUB 3 Media Overlays (SMIL Sync)
+        let mut media_overlays = HashMap::new();
+        for item in opf.manifest.values() {
+            if item.media_type == "application/smil+xml" || item.href.ends_with(".smil") {
+                if let Ok(smil_xml) = archive.read_string(&item.full_path) {
+                    if let Ok(pkg) =
+                        crate::media_overlay::MediaOverlayPackage::parse_smil(&smil_xml, &item.full_path)
+                    {
+                        media_overlays.insert(item.full_path.clone(), pkg);
+                    }
+                }
+            }
+        }
+
         Ok(Self {
             archive,
             opf,
@@ -167,6 +182,7 @@ impl Book {
             layout: RenditionLayout::default(),
             font_deobfuscator,
             before_display_hooks: Vec::new(),
+            media_overlays,
         })
     }
 
