@@ -1,5 +1,6 @@
 #![allow(clippy::collapsible_if, clippy::collapsible_match)]
 
+pub mod analytics;
 pub mod annotations;
 pub mod archive;
 pub mod book;
@@ -17,9 +18,11 @@ pub mod nav;
 #[cfg(feature = "opds")]
 pub mod opds;
 pub mod opf;
+pub mod paginator;
 pub mod sample_builder;
 pub mod search;
 pub mod section;
+pub mod stream_zip;
 pub mod wasm;
 pub mod webpub;
 
@@ -28,6 +31,7 @@ pub mod server;
 #[cfg(feature = "server")]
 pub mod web_ui;
 
+pub use analytics::ReadingAnalytics;
 pub use annotations::{Annotation, AnnotationManager, AnnotationType};
 pub use archive::{EpubArchive, HttpRangeRequest};
 pub use book::Book;
@@ -47,9 +51,11 @@ pub use mobi::{MobiBook, decompress_palmdoc};
 pub use nav::{Landmark, NavPoint, PageListItem};
 #[cfg(feature = "opds")]
 pub use opds::{OpdsEntry, OpdsFeed, OpdsLink};
+pub use paginator::{PageRange, ReflowPaginator, SectionPageMap};
 pub use sample_builder::generate_sample_epub;
 pub use search::{SearchEngine, SearchResult};
 pub use section::Section;
+pub use stream_zip::{ZipEntryLocation, ZipHeaderReader};
 pub use webpub::{WebpubLink, WebpubManifest, WebpubMetadata};
 
 #[cfg(feature = "server")]

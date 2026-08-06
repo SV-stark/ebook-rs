@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.0] - 2026-08-06
+
+### Added
+- **Rayon Multi-Threaded Parallel Chapter Parser (`parallel` feature)**: Added Rayon parallel iteration support for concurrent chapter XML parsing and asset processing across all CPU cores.
+- **Deterministic Reflow Paginator (`ReflowPaginator`)**: Added pure-Rust, DOM-free virtual reflow pagination calculating line wraps, page break boundaries, and character intervals without browser layout reflow.
+- **Structural NLP Reading Analytics Engine (`ReadingAnalytics`)**: Added chapter word counting, WPM reading time estimation, TF-IDF top keyword extraction, and Flesch-Kincaid style difficulty scoring.
+- **Remote ZIP Central Directory Streamer (`ZipHeaderReader`)**: Added EOCD `PK\x05\x06` parser generating HTTP Range requests (`bytes=start-end`) to open remote ZIP/CBZ archives by downloading < 1% of the total file payload.
+- **New WASM JSON Bindings**: Exposed `get_section_analytics_json` and `paginate_section_json` in `WasmBook`.
+
+---
+
 ## [0.4.0] - 2026-08-06
 
 ### Added
@@ -50,18 +61,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Readium Webpub Manifest Export**: Implemented `to_webpub_manifest()` for Readium `application/webpub+json` interop.
 
-### Fixed
-- Fixed PalmDOC LZ77 distance fallback bounds.
-- Fixed FB2 image reference matching.
-- Fixed complex CFI range assertion parsing safety.
-
 ---
 
 ## [0.2.0] - 2026-08-04
 
 ### Added
 - **Multi-Format eBook Support**: Added native parsing for **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, and **LIT (Microsoft Reader)** formats.
-- **Font De-Obfuscation**: Added SHA-1 / XOR de-scrambling for IDPF 2008 (`http://www.idpf.org/2008/embedding`) and Adobe font obfuscation specs.
+- **Font De-Obfuscation**: Added SHA-1 / XOR de-scrambling for IDPF 2008 and Adobe font obfuscation specs.
 - **EPUB 3 Landmarks & Page List**: Added `landmarks()` and `page_list()` navigation parsers.
 - **Pre-Display Transformation Hooks**: Added `register_before_display_hook` pipeline for modifying chapter HTML before rendering.
 
@@ -70,9 +76,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0] - 2026-08-01
 
 ### Added
-- Core EPUB 2 and EPUB 3 parser engine (OPF package, manifest, spine, NCX, NAV XHTML).
-- Canonical Fragment Identifier (CFI) Engine (parsing, formatting, range CFI, 0-alloc sorting).
-- Locations & Progress Indexer (character offset discrete location chunks).
-- Full-Text Search Engine (0.59ms / 0-allocation string search).
-- Annotations Manager (Highlights, Notes, Underlines, Bookmark serialization).
-- Built-in HTTP Reader Server (`tiny_http`) and WebAssembly bindings (`wasm-bindgen`).
+- Core EPUB 2 and EPUB 3 parser engine, CFI Engine, Location Progress Indexer, Full-Text Search Engine, Annotations Manager, HTTP Reader Server, and WebAssembly bindings.

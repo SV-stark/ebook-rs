@@ -66,4 +66,22 @@ impl WasmBook {
             .map_err(|e| JsValue::from_str(&e))?;
         Ok(bytes)
     }
+
+    /// Get NLP reading analytics for a section as JSON string (word count, reading time WPM, difficulty score, keywords).
+    pub fn get_section_analytics_json(&self, index: usize) -> Result<String, JsValue> {
+        let sec = self
+            .inner
+            .get_section(index)
+            .map_err(|e| JsValue::from_str(&e))?;
+        serde_json::to_string(&sec.analytics()).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Get virtual reflow page map for a section as JSON string.
+    pub fn paginate_section_json(&self, index: usize) -> Result<String, JsValue> {
+        let sec = self
+            .inner
+            .get_section(index)
+            .map_err(|e| JsValue::from_str(&e))?;
+        serde_json::to_string(&sec.paginate(None)).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
 }

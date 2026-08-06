@@ -209,3 +209,38 @@ fn test_http_range_request_header_formatting() {
     let parsed = ebook_rs::HttpRangeRequest::parse_range_header("bytes=2048-4096").unwrap();
     assert_eq!(parsed, (2048, Some(4096)));
 }
+
+#[test]
+fn test_reflow_paginator_offline_page_breaks() {
+    let paginator = ebook_rs::ReflowPaginator::new(16, 1.6, 800, 600, 32);
+    let sample_text = "Quantum Mechanics is a fundamental theory in physics that describes the physical properties of nature at the scale of atoms and subatomic particles.".repeat(30);
+
+    let page_map = paginator.paginate_text(&sample_text);
+    assert!(page_map.total_pages > 1);
+    assert_eq!(page_map.page_ranges[0].page_number, 1);
+    assert_eq!(page_map.page_ranges[0].start_char, 0);
+    assert!(page_map.page_ranges[0].end_char > 0);
+}
+
+#[test]
+fn test_reading_analytics_nlp_engine() {
+    let text = "Quantum physics explores quantum mechanics and subatomic particles. Quantum entanglement is fascinating.";
+    let analytics = ebook_rs::ReadingAnalytics::analyze_text(text);
+
+    assert_eq!(analytics.word_count, 12);
+    assert!(analytics.reading_time_minutes > 0.0);
+    assert!(!analytics.top_keywords.is_empty());
+    assert_eq!(analytics.top_keywords[0].0, "quantum");
+}
+
+#[test]
+fn test_remote_zip_central_directory_streamer() {
+    let bytes = generate_sample_epub().unwrap();
+    let entries = ebook_rs::ZipHeaderReader::parse_central_directory(&bytes)
+        .expect("Parse Central Directory");
+
+    assert!(!entries.is_empty());
+    let (header, val) = entries[0].to_http_range_header();
+    assert_eq!(header, "Range");
+    assert!(val.starts_with("bytes="));
+}

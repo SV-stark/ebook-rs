@@ -79,6 +79,21 @@ impl Section {
     pub fn extract_footnotes(&self) -> Vec<crate::footnote::Footnote> {
         crate::footnote::parse_footnotes_from_html(&self.raw_html)
     }
+
+    /// Calculate structural NLP Reading Analytics (word count, WPM reading time, difficulty score, keywords).
+    pub fn analytics(&self) -> crate::analytics::ReadingAnalytics {
+        crate::analytics::ReadingAnalytics::analyze_text(&self.plain_text)
+    }
+
+    /// Calculate virtual reflow page breaks for this section using default or custom paginator bounds.
+    pub fn paginate(
+        &self,
+        paginator: Option<&crate::paginator::ReflowPaginator>,
+    ) -> crate::paginator::SectionPageMap {
+        let default_paginator = crate::paginator::ReflowPaginator::default();
+        let active_paginator = paginator.unwrap_or(&default_paginator);
+        active_paginator.paginate_section(self)
+    }
 }
 
 /// Extract clean plain text from HTML content by stripping tags, styles, and scripts.
