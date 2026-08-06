@@ -348,6 +348,40 @@ impl Book {
         new_locations.finalize();
         self.locations = new_locations;
     }
+
+    /// Generate a Readium-compliant unified Locator object for a spine index and character offset (Readium Locator Model).
+    pub fn to_readium_locator(
+        &self,
+        spine_index: usize,
+        char_offset: usize,
+    ) -> Result<crate::locations::ReadiumLocator, String> {
+        let section = self.get_section(spine_index)?;
+        let cfi = Cfi::from_spine_index(spine_index, None, char_offset).to_string();
+
+        let section_char_count = section.char_count.max(1);
+        let progression = (char_offset as f64 / section_char_count as f64).clamp(0.0, 1.0);
+
+        let loc_entry = self
+            .locations
+            .location_from_char_offset(spine_index, char_offset);
+        let loc_idx = loc_entry.map(|e| e.location).unwrap_or(1);
+        let total_progression = self.locations.percentage_from_location(loc_idx);
+
+        Ok(crate::locations::ReadiumLocator {
+            href: section.href.clone(),
+            type_: "application/xhtml+xml".to_string(),
+            title: Some(format!("Section {}", spine_index + 1)),
+            locations: crate::locations::LocatorLocations {
+                cfi: Some(cfi),
+                position: Some(loc_idx),
+                progression,
+                total_progression,
+            },
+            text: Some(serde_json::json!({
+                "highlight": section.plain_text.chars().skip(char_offset).take(100).collect::<String>()
+            })),
+        })
+    }
 }
 
 fn extract_first_img_src(html: &str) -> Option<String> {

@@ -24,6 +24,31 @@ impl Default for Locations {
     }
 }
 
+/// Readium Standard Locator Locations object.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LocatorLocations {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cfi: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position: Option<usize>,
+    pub progression: f64,
+    #[serde(rename = "totalProgression")]
+    pub total_progression: f64,
+}
+
+/// Readium Unified Locator Model conforming to W3C / Readium Specification.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReadiumLocator {
+    pub href: String,
+    #[serde(rename = "type")]
+    pub type_: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub locations: LocatorLocations,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<serde_json::Value>,
+}
+
 impl Locations {
     pub fn new(chunk_size: usize) -> Self {
         Self {
@@ -99,10 +124,31 @@ impl Locations {
         )
     }
 
+    /// Map spine index and character offset to location entry.
+    pub fn location_from_char_offset(&self, spine_idx: usize, char_off: usize) -> Option<LocationEntry> {
+        for entry in &self.entries {
+            if entry.spine_index == spine_idx
+                && char_off >= entry.char_start
+                && char_off <= entry.char_end
+            {
+                return Some(entry.clone());
+            }
+        }
+        self.entries.iter().find(|e| e.spine_index == spine_idx).cloned()
+    }
+
+    /// Convert location integer to decimal progress percentage (0.0 to 1.0).
+    pub fn percentage_from_location(&self, location: usize) -> f64 {
+        if self.total_locations == 0 {
+            return 0.0;
+        }
+        (location as f64 / self.total_locations as f64).clamp(0.0, 1.0)
+    }
+
     /// Get progress percentage (0.0 to 1.0) for a given CFI.
     pub fn percentage_from_cfi(&self, cfi_str: &str) -> f64 {
         if let Some(entry) = self.location_from_cfi(cfi_str) {
-            (entry.location as f64) / (self.total_locations as f64)
+            self.percentage_from_location(entry.location)
         } else {
             0.0
         }

@@ -20,6 +20,13 @@ fn test_all_sample_files_parsing_and_verification() {
                 continue;
             }
 
+            #[cfg(not(feature = "pdf"))]
+            if path_str.ends_with(".pdf") {
+                println!("   - Skipping PDF file when 'pdf' feature is disabled: {}", path_str);
+                tested_count += 1;
+                continue;
+            }
+
             let book =
                 Book::from_file(&path_str).unwrap_or_else(|_| panic!("Should parse {}", path_str));
 

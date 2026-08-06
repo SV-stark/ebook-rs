@@ -10,6 +10,7 @@ pub mod deobfuscate;
 pub mod fb2;
 pub mod footnote;
 pub mod layout;
+pub mod lcp;
 pub mod lit;
 pub mod locations;
 pub mod media_overlay;
@@ -46,8 +47,9 @@ pub use layout::{
     AssetDeliveryStrategy, FlowMode, LayoutMode, RenditionLayout, SpreadMode, Theme,
     ViewportManagerConfig,
 };
+pub use lcp::{LcpDecryptor, LcpLicense, LcpRights, LcpUser};
 pub use lit::LitBook;
-pub use locations::{LocationEntry, Locations};
+pub use locations::{LocationEntry, Locations, LocatorLocations, ReadiumLocator};
 pub use media_overlay::{
     MediaOverlayPackage, MediaOverlayParallel, MediaOverlaySequence, SmilAudioClip, SmilClock,
     SmilTextRef,

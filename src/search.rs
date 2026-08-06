@@ -79,6 +79,38 @@ impl SearchEngine {
 
         results
     }
+
+    /// Format search results into Readium Standard Search Collection JSON (application/vnd.readium.search+json).
+    pub fn to_readium_search_json(results: &[SearchResult], query: &str) -> Result<String, String> {
+        let locators: Vec<serde_json::Value> = results
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "href": format!("section_{}.html", r.spine_index),
+                    "type": "application/xhtml+xml",
+                    "locations": {
+                        "cfi": r.cfi,
+                        "position": r.char_offset / 1000 + 1
+                    },
+                    "text": {
+                        "snippet": r.snippet
+                    }
+                })
+            })
+            .collect();
+
+        let collection = serde_json::json!({
+            "@context": "http://readium.org/webpub-manifest/context.jsonld",
+            "metadata": {
+                "numberOfResults": results.len(),
+                "query": query
+            },
+            "locators": locators
+        });
+
+        serde_json::to_string_pretty(&collection)
+            .map_err(|e| format!("Failed to serialize Readium Search JSON: {}", e))
+    }
 }
 
 #[cfg(test)]
