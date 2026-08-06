@@ -1,6 +1,6 @@
 [package]
 name = "ebook-rs"
-version = "0.8.0"
+version = "0.8.1"
 edition = "2024"
 authors = ["SV-Stark"]
 description = "Pure Rust multi-format eBook engine (EPUB2/3, MOBI, AZW3, FB2, LIT, CBZ, PDF, ODT, TXT, MD) with CFI, Tree-sitter Code Parser, Regex Search, EPUB Validator, Readium LCP/Locator, Book Fingerprinting, and Citation Export APIs."
@@ -42,3 +42,12 @@ wasm-bindgen = { version = "0.2", optional = true }
 rayon = { version = "1.10", optional = true }
 pdf_oxide = { version = "0.3", optional = true }
 regex = "1.10"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+rpath = false
+overflow-checks = false
