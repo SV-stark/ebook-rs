@@ -161,9 +161,10 @@ impl Book {
         for item in opf.manifest.values() {
             if item.media_type == "application/smil+xml" || item.href.ends_with(".smil") {
                 if let Ok(smil_xml) = archive.read_string(&item.full_path) {
-                    if let Ok(pkg) =
-                        crate::media_overlay::MediaOverlayPackage::parse_smil(&smil_xml, &item.full_path)
-                    {
+                    if let Ok(pkg) = crate::media_overlay::MediaOverlayPackage::parse_smil(
+                        &smil_xml,
+                        &item.full_path,
+                    ) {
                         media_overlays.insert(item.full_path.clone(), pkg);
                     }
                 }

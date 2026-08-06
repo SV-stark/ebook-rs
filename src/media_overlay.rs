@@ -32,8 +32,8 @@ impl SmilClock {
     /// Format seconds as NPT clock string ("00:00:00.000").
     pub fn format_npt(seconds: f64) -> String {
         let total_ms = (seconds * 1000.0).round() as u64;
-        let hours = total_ms / 3600_000;
-        let mins = (total_ms % 3600_000) / 60_000;
+        let hours = total_ms / 3_600_000;
+        let mins = (total_ms % 3_600_000) / 60_000;
         let secs = (total_ms % 60_000) / 1000;
         let ms = total_ms % 1000;
         format!("{:02}:{:02}:{:02}.{:03}", hours, mins, secs, ms)
@@ -117,8 +117,7 @@ impl MediaOverlayPackage {
                                 if let Some(src) = par_child.attribute("src") {
                                     let full_path =
                                         crate::archive::resolve_relative_path(smil_dir, src);
-                                    let element_id =
-                                        src.split('#').nth(1).map(|s| s.to_string());
+                                    let element_id = src.split('#').nth(1).map(|s| s.to_string());
                                     text_ref = Some(SmilTextRef {
                                         src: src.to_string(),
                                         full_path,
@@ -195,7 +194,11 @@ impl MediaOverlayPackage {
     }
 
     /// Lookup text target element for a specific audio timestamp in seconds.
-    pub fn find_text_ref_by_timestamp(&self, audio_path: &str, timestamp_secs: f64) -> Option<SmilTextRef> {
+    pub fn find_text_ref_by_timestamp(
+        &self,
+        audio_path: &str,
+        timestamp_secs: f64,
+    ) -> Option<SmilTextRef> {
         let clean_audio = audio_path.trim();
         for seq in &self.sequences {
             for par in &seq.parallels {

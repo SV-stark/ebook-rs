@@ -30,11 +30,16 @@ fn test_epub3_accessibility_metadata_parsing() {
 
     assert!(a11y.is_accessible);
     assert_eq!(a11y.access_modes, vec!["textual", "visual"]);
-    assert_eq!(a11y.accessibility_features, vec!["alternativeText", "structuralNavigation"]);
+    assert_eq!(
+        a11y.accessibility_features,
+        vec!["alternativeText", "structuralNavigation"]
+    );
     assert_eq!(a11y.accessibility_hazards, vec!["none"]);
     assert_eq!(
         a11y.accessibility_summary.as_deref(),
-        Some("This book contains detailed alternative text for all images and full structural navigation.")
+        Some(
+            "This book contains detailed alternative text for all images and full structural navigation."
+        )
     );
     assert_eq!(a11y.certified_by.as_deref(), Some("DAISY Consortium"));
 

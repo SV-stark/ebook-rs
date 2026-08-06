@@ -53,7 +53,9 @@ fn test_epub3_smil_media_overlay_parsing() {
     assert_eq!(matched_text2.element_id.as_deref(), Some("p2"));
 
     // Test text href lookup
-    let matched_audio = pkg.find_audio_clip_by_text_href("chapter1.xhtml#p2").unwrap();
+    let matched_audio = pkg
+        .find_audio_clip_by_text_href("chapter1.xhtml#p2")
+        .unwrap();
     assert_eq!(matched_audio.clip_begin, 12.45);
     assert_eq!(matched_audio.clip_end, 20.1);
 

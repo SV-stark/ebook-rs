@@ -33,6 +33,8 @@
 | **Font De-Obfuscation (IDPF & Adobe)** | ✅ Native SHA-1/XOR | ❌ No | ✅ Yes | ❌ No |
 | **WebAssembly Browser Support** | ✅ `wasm-bindgen` | ❌ JS Only | ❌ JS Only | ❌ No |
 | **Embedded HTTP Reader App** | ✅ Built-in Server | ❌ No | ❌ No | ❌ No |
+| **EPUB 3 Accessibility Metadata (a11y)** | ✅ `AccessibilityMetadata` | ❌ No | ⚠️ Partial | ❌ No |
+| **EPUB 3 Media Overlays (SMIL Sync)** | ✅ `MediaOverlayPackage` | ❌ No | ✅ Yes | ❌ No |
 | **Readium Webpub Manifest Export** | ✅ `to_webpub_manifest` | ❌ No | ✅ Yes | ❌ No |
 
 ---
