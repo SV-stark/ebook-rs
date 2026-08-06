@@ -11,7 +11,7 @@ fn test_full_epub_parsing_and_reader_parity() {
     // 3. Verify Metadata Parity
     let meta = book.metadata();
     assert_eq!(meta.title, "The Rustonomicon & EBook-RS Guide");
-    assert_eq!(meta.creators, vec!["Antigravity AI"]);
+    assert_eq!(meta.creators, vec!["SV-Stark"]);
     assert_eq!(meta.languages, vec!["en"]);
     assert_eq!(meta.publishers, vec!["Rust Ebook Publishers"]);
 

@@ -38,7 +38,7 @@ pub fn generate_sample_epub() -> Result<Vec<u8>, String> {
     <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
         <dc:identifier id="pub-id">urn:uuid:12345678-abcd-efgh-1234-56789abcdef0</dc:identifier>
         <dc:title>The Rustonomicon &amp; EBook-RS Guide</dc:title>
-        <dc:creator>Antigravity AI</dc:creator>
+        <dc:creator>SV-Stark</dc:creator>
         <dc:language>en</dc:language>
         <dc:publisher>Rust Ebook Publishers</dc:publisher>
         <dc:description>A complete sample EPUB 3 book for testing the ebook-rs parser and reader.</dc:description>
