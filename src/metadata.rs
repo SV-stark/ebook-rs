@@ -31,6 +31,23 @@ pub struct Metadata {
     pub accessibility: AccessibilityMetadata,
 }
 
+impl Metadata {
+    /// Return first creator (author) or empty string.
+    pub fn creator(&self) -> &str {
+        self.creators.first().map(|s| s.as_str()).unwrap_or("")
+    }
+
+    /// Return first publisher if present.
+    pub fn publisher(&self) -> Option<&str> {
+        self.publishers.first().map(|s| s.as_str())
+    }
+
+    /// Return first language or empty string.
+    pub fn language(&self) -> &str {
+        self.languages.first().map(|s| s.as_str()).unwrap_or("")
+    }
+}
+
 /// EPUB 3 Accessibility (a11y) Metadata conforming to W3C EPUB Accessibility 1.1 & Schema.org.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AccessibilityMetadata {

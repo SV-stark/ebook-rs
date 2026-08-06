@@ -39,8 +39,12 @@ pub struct LcpLicense {
 impl LcpLicense {
     /// Parse `META-INF/license.lcpl` JSON content into `LcpLicense`.
     pub fn parse(lcpl_json: &str) -> Result<Self, String> {
-        serde_json::from_str(lcpl_json)
-            .map_err(|e| format!("Failed to parse Readium LCP license JSON (license.lcpl): {}", e))
+        serde_json::from_str(lcpl_json).map_err(|e| {
+            format!(
+                "Failed to parse Readium LCP license JSON (license.lcpl): {}",
+                e
+            )
+        })
     }
 
     /// Check if rights license has expired.
@@ -96,7 +100,8 @@ impl LcpDecryptor {
 
 fn sha256_hash(input: &[u8]) -> [u8; 32] {
     let mut state: [u32; 8] = [
-        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+        0x5be0cd19,
     ];
 
     for (i, chunk) in input.chunks(64).enumerate() {

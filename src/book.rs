@@ -64,6 +64,10 @@ impl Book {
                     if let Ok(book) = Self::from_archive(archive) {
                         return Ok(book);
                     }
+                } else if archive.contains("content.xml") || archive.contains("meta.xml") {
+                    if let Ok(odt) = crate::odt::OdtBook::parse(bytes, title_fallback) {
+                        return Ok(odt);
+                    }
                 }
             }
             crate::cbz::CbzBook::parse(bytes, title_fallback)
@@ -73,8 +77,14 @@ impl Book {
             Ok(fb2)
         } else if let Ok(lit) = crate::lit::LitBook::parse(bytes) {
             Ok(lit)
+        } else if let Ok(odt) = crate::odt::OdtBook::parse(bytes, title_fallback) {
+            Ok(odt)
         } else if let Ok(cbz) = crate::cbz::CbzBook::parse(bytes, title_fallback) {
             Ok(cbz)
+        } else if let Ok(text) = std::str::from_utf8(bytes) {
+            let is_md =
+                text.contains("# ") || text.contains("## ") || title_fallback.ends_with(".md");
+            crate::txt::TxtBook::parse(bytes, title_fallback, is_md)
         } else {
             Err("Unsupported or corrupted eBook format".to_string())
         }
@@ -381,6 +391,41 @@ impl Book {
                 "highlight": section.plain_text.chars().skip(char_offset).take(100).collect::<String>()
             })),
         })
+    }
+
+    /// Perform full-text regular expression search across all book sections.
+    pub fn search_regex(&self, pattern: &str) -> Result<Vec<crate::search::SearchResult>, String> {
+        crate::search::SearchEngine::search_regex(&self.sections, pattern)
+    }
+
+    /// Perform structural validation on this Book instance (EpubValidator).
+    pub fn validate(&self) -> crate::validator::ValidationReport {
+        crate::validator::EpubValidator::validate(self)
+    }
+
+    /// Generate stable content & metadata fingerprint for deduplication.
+    pub fn fingerprint(&self) -> crate::fingerprint::BookFingerprint {
+        crate::fingerprint::FingerprintGenerator::generate(self)
+    }
+
+    /// Export BibTeX academic citation for this Book.
+    pub fn to_bibtex(&self) -> String {
+        crate::citation::CitationExporter::to_bibtex(self.metadata())
+    }
+
+    /// Export APA (7th ed.) academic citation for this Book.
+    pub fn to_apa(&self) -> String {
+        crate::citation::CitationExporter::to_apa(self.metadata())
+    }
+
+    /// Export MLA (9th ed.) academic citation for this Book.
+    pub fn to_mla(&self) -> String {
+        crate::citation::CitationExporter::to_mla(self.metadata())
+    }
+
+    /// Export Chicago (17th ed.) academic citation for this Book.
+    pub fn to_chicago(&self) -> String {
+        crate::citation::CitationExporter::to_chicago(self.metadata())
     }
 }
 

@@ -1,9 +1,9 @@
 [package]
 name = "ebook-rs"
-version = "0.6.1"
+version = "0.7.0"
 edition = "2024"
 authors = ["SV-Stark"]
-description = "Pure Rust multi-format eBook engine (EPUB2/3, MOBI, AZW3, FB2, LIT, CBZ, PDF) with CFI, SMIL overlays, Readium LCP/Locator/Search APIs, WASM/HTTP server support."
+description = "Pure Rust multi-format eBook engine (EPUB2/3, MOBI, AZW3, FB2, LIT, CBZ, PDF) with CFI, Regex search, EPUB Validator, Readium LCP/Locator, Book Fingerprinting, and Citation Export APIs."
 license = "MIT"
 repository = "https://github.com/SV-stark/ebook-rs"
 homepage = "https://github.com/SV-stark/ebook-rs"
@@ -41,3 +41,4 @@ url = { version = "2.5", optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
 rayon = { version = "1.10", optional = true }
 pdf_oxide = { version = "0.3", optional = true }
+regex = "1.10"

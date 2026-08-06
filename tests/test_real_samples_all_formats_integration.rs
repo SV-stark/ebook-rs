@@ -22,7 +22,10 @@ fn test_all_sample_files_parsing_and_verification() {
 
             #[cfg(not(feature = "pdf"))]
             if path_str.ends_with(".pdf") {
-                println!("   - Skipping PDF file when 'pdf' feature is disabled: {}", path_str);
+                println!(
+                    "   - Skipping PDF file when 'pdf' feature is disabled: {}",
+                    path_str
+                );
                 tested_count += 1;
                 continue;
             }

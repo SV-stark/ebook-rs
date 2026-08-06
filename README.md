@@ -1,4 +1,4 @@
-# 📖 EBook-RS: Multi-Format Rust EBook Parser and Reader Engine (v0.6.1)
+# 📖 EBook-RS: Multi-Format Rust EBook Parser and Reader Engine (v0.7.0)
 
 `ebook-rs` is a high-performance, 100% pure Rust parser and reader engine for **EPUB 2**, **EPUB 3**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, and **PDF** formats, designed for full feature parity with **epub.js** and **foliate-js**.
 
@@ -6,7 +6,7 @@
 
 ## ⚡ Feature Parity Matrix
 
-| Feature | 🚀 `ebook-rs` (v0.6.1) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.7.0) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **EPUB 2 & 3 Support** | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes |
 | **MOBI & AZW3 Support** | ✅ Native PalmDOC LZ77 | ❌ No | ✅ Yes | ❌ No |
@@ -40,6 +40,10 @@
 | **Readium LCP DRM Parsing** | ✅ `LcpLicense`, `LcpDecryptor` | ❌ No | ❌ No | ❌ No |
 | **Readium Unified Locator Model** | ✅ `to_readium_locator()` | ❌ No | ✅ Yes | ❌ No |
 | **Readium Search API (JSON)** | ✅ `to_readium_search_json()` | ❌ No | ❌ No | ❌ No |
+| **Regex Full-Text Search** | ✅ `search_regex()` | ❌ No | ❌ No | ❌ No |
+| **EPUB Structural Validator** | ✅ `EpubValidator` | ❌ No | ❌ No | ❌ No |
+| **Content Fingerprinting & Deduplication** | ✅ `BookFingerprint` | ❌ No | ❌ No | ❌ No |
+| **Academic Citation Exporter** | ✅ BibTeX, APA, MLA, Chicago | ❌ No | ❌ No | ❌ No |
 
 ---
 
@@ -75,32 +79,34 @@ fn main() -> Result<(), String> {
 
 ---
 
-## 🆕 What's New in v0.6.1
+## 🆕 What's New in v0.7.0
 
-- **Readium LCP DRM** — Parse `META-INF/license.lcpl` into `LcpLicense`, check expiry, and decrypt AES-256 encrypted content via `LcpDecryptor`.
-- **Readium Unified Locator Model** — Generate W3C-standard `ReadiumLocator` JSON (CFI + position + section/total progression) from any spine index and character offset using `book.to_readium_locator(spine_idx, char_offset)`.
-- **Readium Search API** — Format full-text `SearchResult` into the Readium standard `application/vnd.readium.search+json` schema using `SearchEngine::to_readium_search_json(&results, "query")`.
+- **Regex Full-Text Search** — Search eBook text using full regular expression patterns (`book.search_regex("(?i)quantum|physics")`).
+- **EPUB Structural Validator** — Validate eBook package integrity, OPF metadata, and spine references with `book.validate()` (`EpubValidator`).
+- **Book Fingerprinting & Deduplication** — Generate metadata-independent content hashes to detect duplicate books across formats with `book.fingerprint()`.
+- **Academic Citation Exporter** — Instantly export scholarly citations in **BibTeX**, **APA**, **MLA**, and **Chicago** formats (`book.to_bibtex()`, `book.to_apa()`, `book.to_mla()`, `book.to_chicago()`).
 
 ```rust
-use ebook_rs::{Book, SearchEngine, lcp::{LcpLicense, LcpDecryptor}};
+use ebook_rs::Book;
 
 let book = Book::from_file("book.epub")?;
 
-// Readium Unified Locator for cursor at section 2, char offset 500
-let locator = book.to_readium_locator(2, 500)?;
-println!("{}", serde_json::to_string_pretty(&locator).unwrap());
+// 1. Regex Search
+let matches = book.search_regex("(?i)alice|rabbit")?;
 
-// Readium Search API JSON output
-let results = book.search("Alice");
-let json = SearchEngine::to_readium_search_json(&results, "Alice")?;
-println!("{}", json);
-
-// Readium LCP license parsing
-let lcpl_json = std::fs::read_to_string("META-INF/license.lcpl")?;
-let license = LcpLicense::parse(&lcpl_json)?;
-if !license.is_expired("2026-08-06T00:00:00Z") {
-    let decrypted = LcpDecryptor::decrypt_bytes(&encrypted_bytes, "passphrase", &license)?;
+// 2. Structural Validation
+let report = book.validate();
+if !report.is_valid {
+    println!("Validation errors: {:?}", report.errors);
 }
+
+// 3. Content Fingerprinting & Match Score
+let fp = book.fingerprint();
+println!("Content Hash: {}", fp.content_hash);
+
+// 4. Academic Citations
+println!("BibTeX:\n{}", book.to_bibtex());
+println!("APA: {}", book.to_apa());
 ```
 
 ---

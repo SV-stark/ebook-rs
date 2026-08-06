@@ -1,7 +1,7 @@
 // Readium LCP DRM, Locator Model, and Search API integration tests (v0.6.0 rebuild)
+use ebook_rs::Book;
 use ebook_rs::lcp::{LcpDecryptor, LcpLicense};
 use ebook_rs::search::SearchEngine;
-use ebook_rs::Book;
 
 #[test]
 fn test_readium_lcp_license_parsing_and_decryption() {
@@ -26,7 +26,10 @@ fn test_readium_lcp_license_parsing_and_decryption() {
 
     let license = LcpLicense::parse(lcpl_json).expect("Should parse license.lcpl");
     assert_eq!(license.id, "urn:uuid:12345-6789");
-    assert_eq!(license.user.as_ref().unwrap().name.as_deref(), Some("Rust Reader"));
+    assert_eq!(
+        license.user.as_ref().unwrap().name.as_deref(),
+        Some("Rust Reader")
+    );
     assert!(!license.is_expired("2026-08-06T12:00:00Z"));
     assert!(license.is_expired("2027-01-01T00:00:00Z"));
 
@@ -41,7 +44,9 @@ fn test_readium_unified_locator_model() {
     let epub_path = "samples/Alice in Wonderland - Lewis Carroll EPUB3.epub";
     let book = Book::from_file(epub_path).expect("Should parse EPUB3");
 
-    let locator = book.to_readium_locator(0, 50).expect("Should generate ReadiumLocator");
+    let locator = book
+        .to_readium_locator(0, 50)
+        .expect("Should generate ReadiumLocator");
     assert!(!locator.href.is_empty());
     assert_eq!(locator.type_, "application/xhtml+xml");
     assert!(locator.locations.cfi.is_some());

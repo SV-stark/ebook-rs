@@ -125,7 +125,11 @@ impl Locations {
     }
 
     /// Map spine index and character offset to location entry.
-    pub fn location_from_char_offset(&self, spine_idx: usize, char_off: usize) -> Option<LocationEntry> {
+    pub fn location_from_char_offset(
+        &self,
+        spine_idx: usize,
+        char_off: usize,
+    ) -> Option<LocationEntry> {
         for entry in &self.entries {
             if entry.spine_index == spine_idx
                 && char_off >= entry.char_start
@@ -134,7 +138,10 @@ impl Locations {
                 return Some(entry.clone());
             }
         }
-        self.entries.iter().find(|e| e.spine_index == spine_idx).cloned()
+        self.entries
+            .iter()
+            .find(|e| e.spine_index == spine_idx)
+            .cloned()
     }
 
     /// Convert location integer to decimal progress percentage (0.0 to 1.0).

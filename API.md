@@ -1,6 +1,6 @@
-# 📚 EBook-RS API Reference & Complete Documentation (v0.6.1)
+# 📚 EBook-RS API Reference & Complete Documentation (v0.7.0)
 
-`ebook-rs` (v0.6.1) is a multi-format pure Rust eBook engine supporting **EPUB 2**, **EPUB 3**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, and **PDF** formats with **Readium LCP DRM**, **Unified Locator Model**, and **Readium Search API** support.
+`ebook-rs` (v0.7.0) is a multi-format pure Rust eBook engine supporting **EPUB 2**, **EPUB 3**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, and **PDF** formats with **Regex Search**, **Structural EPUB Validator**, **Book Fingerprinting & Deduplication**, **Academic Citation Exporter**, and **Readium LCP/Locator** support.
 
 ---
 
@@ -14,13 +14,15 @@
 7. [EPUB CFI Engine (`ebook_rs::Cfi`)](#7-epub-cfi-engine-ebook_rscfi)
 8. [Locations Progress Engine (`ebook_rs::Locations`)](#8-locations-progress-engine-ebook_rslocations)
 9. [Annotations Manager (`ebook_rs::AnnotationManager`)](#9-annotations-manager-ebook_rsannotationmanager)
-10. [Full-Text Search Engine (`ebook_rs::SearchEngine`)](#10-full-text-search-engine-ebook_rssearchengine)
-11. [Readium Webpub Manifest Export (`ebook_rs::webpub`)](#11-readium-webpub-manifest-export-ebook_rswebpub)
-12. [Readium LCP DRM (`ebook_rs::lcp`)](#12-readium-lcp-drm-ebook_rslcp)
-13. [Readium Unified Locator Model (`ReadiumLocator`)](#13-readium-unified-locator-model-readiumlocator)
-14. [Readium Search Web Service API](#14-readium-search-web-service-api)
-15. [OPDS Catalog Client & Feed Generator (`ebook_rs::opds`)](#15-opds-catalog-client--feed-generator-ebook_rsopds)
-16. [HTTP Reader Server & Web UI (`ebook_rs::server`)](#16-http-reader-server--web-ui-ebook_rsserver)
+10. [Full-Text & Regex Search Engine (`ebook_rs::SearchEngine`)](#10-full-text--regex-search-engine-ebook_rssearchengine)
+11. [Structural EPUB Validator (`ebook_rs::EpubValidator`)](#11-structural-epub-validator-ebook_rsepubvalidator)
+12. [Book Fingerprinting & Deduplication (`ebook_rs::BookFingerprint`)](#12-book-fingerprinting--deduplication-ebook_rsbookfingerprint)
+13. [Academic Citation Exporter (`ebook_rs::CitationExporter`)](#13-academic-citation-exporter-ebook_rscitationexporter)
+14. [Readium Webpub Manifest Export (`ebook_rs::webpub`)](#14-readium-webpub-manifest-export-ebook_rswebpub)
+15. [Readium LCP DRM (`ebook_rs::lcp`)](#15-readium-lcp-drm-ebook_rslcp)
+16. [Readium Unified Locator Model (`ReadiumLocator`)](#16-readium-unified-locator-model-readiumlocator)
+17. [OPDS Catalog Client & Feed Generator (`ebook_rs::opds`)](#17-opds-catalog-client--feed-generator-ebook_rsopds)
+18. [HTTP Reader Server & Web UI (`ebook_rs::server`)](#18-http-reader-server--web-ui-ebook_rsserver)
 
 ---
 
