@@ -475,7 +475,7 @@ dependencies = [
 
 [[package]]
 name = "ebook-rs"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "base64",
  "pdf_oxide",
