@@ -108,6 +108,8 @@ impl Fb2Book {
                             plain_text,
                             plain_text_lower,
                             char_count,
+                            viewport_width: None,
+                            viewport_height: None,
                         });
 
                         spine.push(SpineItem {
@@ -148,6 +150,8 @@ impl Fb2Book {
                 plain_text: full_plain,
                 plain_text_lower: plain_lower,
                 char_count,
+                viewport_width: None,
+                viewport_height: None,
             });
 
             spine.push(SpineItem {

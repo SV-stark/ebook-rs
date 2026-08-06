@@ -103,6 +103,8 @@ impl CbzBook {
                 plain_text,
                 plain_text_lower,
                 char_count,
+                viewport_width: None,
+                viewport_height: None,
             });
 
             spine.push(SpineItem {

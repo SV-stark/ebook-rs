@@ -32,7 +32,7 @@ pub use cbz::CbzBook;
 pub use cfi::{Cfi, CfiOffset, CfiPath, CfiStep};
 pub use deobfuscate::FontDeobfuscator;
 pub use fb2::Fb2Book;
-pub use layout::{FlowMode, LayoutMode, RenditionLayout, SpreadMode, Theme};
+pub use layout::{AssetDeliveryStrategy, FlowMode, LayoutMode, RenditionLayout, SpreadMode, Theme, ViewportManagerConfig};
 pub use lit::LitBook;
 pub use locations::{LocationEntry, Locations};
 pub use metadata::{GuideItem, ManifestItem, Metadata, PageProgressionDirection, SpineItem};

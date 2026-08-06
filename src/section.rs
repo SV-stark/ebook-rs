@@ -1,4 +1,5 @@
 use crate::archive::{EpubArchive, resolve_relative_path};
+use crate::layout::AssetDeliveryStrategy;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 
@@ -14,10 +15,12 @@ pub struct Section {
     pub plain_text: String,
     pub plain_text_lower: String, // P4: Pre-computed lowercased text for zero-alloc search
     pub char_count: usize,
+    pub viewport_width: Option<f64>,  // FXL viewport target width
+    pub viewport_height: Option<f64>, // FXL viewport target height
 }
 
 impl Section {
-    /// Create and process a section from archive content.
+    /// Create and process a section from archive content using default Base64 inlining.
     pub fn new(
         index: usize,
         idref: String,
@@ -25,11 +28,24 @@ impl Section {
         full_path: String,
         archive: &EpubArchive,
     ) -> Result<Self, String> {
+        Self::new_with_strategy(index, idref, href, full_path, archive, &AssetDeliveryStrategy::InlinedBase64)
+    }
+
+    /// Create and process a section using a specific asset delivery strategy (Base64 vs Resource Stream).
+    pub fn new_with_strategy(
+        index: usize,
+        idref: String,
+        href: String,
+        full_path: String,
+        archive: &EpubArchive,
+        strategy: &AssetDeliveryStrategy,
+    ) -> Result<Self, String> {
         let raw_html = archive.read_string(&full_path)?;
         let plain_text = extract_plain_text(&raw_html);
         let plain_text_lower = plain_text.to_lowercase();
         let char_count = plain_text.chars().count();
-        let processed_html = process_section_resources(&raw_html, &full_path, archive);
+        let processed_html = process_section_resources_with_strategy(&raw_html, &full_path, archive, strategy);
+        let (viewport_width, viewport_height) = parse_viewport_meta(&raw_html);
 
         Ok(Self {
             index,
@@ -41,7 +57,14 @@ impl Section {
             plain_text,
             plain_text_lower,
             char_count,
+            viewport_width,
+            viewport_height,
         })
+    }
+
+    /// Strip embedded <script> tags, inline event attributes (on*="..."), and javascript: URIs.
+    pub fn strip_script_content(&mut self) {
+        self.processed_html = sanitize_html_scripts(&self.processed_html);
     }
 }
 
@@ -119,6 +142,16 @@ pub fn extract_plain_text(html: &str) -> String {
 
 /// Process XHTML/HTML resources: Inline images, styles, and fonts as base64 Data URIs.
 pub fn process_section_resources(html: &str, section_path: &str, archive: &EpubArchive) -> String {
+    process_section_resources_with_strategy(html, section_path, archive, &AssetDeliveryStrategy::InlinedBase64)
+}
+
+/// Process XHTML/HTML resources according to specified delivery strategy (Base64 vs ResourceStream).
+pub fn process_section_resources_with_strategy(
+    html: &str,
+    section_path: &str,
+    archive: &EpubArchive,
+    strategy: &AssetDeliveryStrategy,
+) -> String {
     let section_dir = if let Some(idx) = section_path.rfind('/') {
         &section_path[..idx]
     } else {
@@ -137,23 +170,40 @@ pub fn process_section_resources(html: &str, section_path: &str, archive: &EpubA
             continue;
         }
         let res_path = resolve_relative_path(section_dir, &src_val);
-        if let Ok(bytes) = archive.read_bytes(&res_path) {
-            let mime = EpubArchive::get_mime_type(&res_path);
-            let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-            let data_uri = format!("data:{};base64,{}", mime, b64);
-            output = output.replace(&orig_attr, &format!("src=\"{}\"", data_uri));
+
+        match strategy {
+            AssetDeliveryStrategy::InlinedBase64 => {
+                if let Ok(bytes) = archive.read_bytes(&res_path) {
+                    let mime = EpubArchive::get_mime_type(&res_path);
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                    let data_uri = format!("data:{};base64,{}", mime, b64);
+                    output = output.replace(&orig_attr, &format!("src=\"{}\"", data_uri));
+                }
+            }
+            AssetDeliveryStrategy::ResourceStream => {
+                let stream_url = format!("resource/{}", res_path);
+                output = output.replace(&orig_attr, &format!("src=\"{}\"", stream_url));
+            }
         }
     }
 
-    // B3 Fix: Replace ONLY <link href="*.css"> stylesheet links, avoiding <a href="*.css"> hyperlinks
+    // Replace ONLY <link href="*.css"> stylesheet links
     let css_href_regex = regex_find_link_css(html);
     for (orig_attr, href_val) in css_href_regex {
         let res_path = resolve_relative_path(section_dir, &href_val);
-        if let Ok(css_text) = archive.read_string(&res_path) {
-            let processed_css = process_css_resources(&css_text, &res_path, archive);
-            let b64 = base64::engine::general_purpose::STANDARD.encode(processed_css.as_bytes());
-            let data_uri = format!("data:text/css;base64,{}", b64);
-            output = output.replace(&orig_attr, &format!("href=\"{}\"", data_uri));
+        match strategy {
+            AssetDeliveryStrategy::InlinedBase64 => {
+                if let Ok(css_text) = archive.read_string(&res_path) {
+                    let processed_css = process_css_resources(&css_text, &res_path, archive);
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(processed_css.as_bytes());
+                    let data_uri = format!("data:text/css;base64,{}", b64);
+                    output = output.replace(&orig_attr, &format!("href=\"{}\"", data_uri));
+                }
+            }
+            AssetDeliveryStrategy::ResourceStream => {
+                let stream_url = format!("resource/{}", res_path);
+                output = output.replace(&orig_attr, &format!("href=\"{}\"", stream_url));
+            }
         }
     }
 
@@ -262,4 +312,110 @@ fn process_css_resources(css: &str, css_path: &str, archive: &EpubArchive) -> St
         output = output.replace(&target, &repl);
     }
     output
+}
+
+/// Parse `<meta name="viewport" content="width=..., height=...">` from section HTML.
+pub fn parse_viewport_meta(html: &str) -> (Option<f64>, Option<f64>) {
+    let lower = html.to_lowercase();
+    let mut search_idx = 0;
+
+    while let Some(idx) = lower[search_idx..].find("<meta") {
+        let abs_idx = search_idx + idx;
+        if let Some(close) = html[abs_idx..].find('>') {
+            let tag = &html[abs_idx..=abs_idx + close];
+            if tag.to_lowercase().contains("viewport") {
+                if let Some((_, content)) = extract_attr(tag, "content") {
+                    let mut width = None;
+                    let mut height = None;
+
+                    for pair in content.split(',') {
+                        let parts: Vec<&str> = pair.split('=').map(|s| s.trim()).collect();
+                        if parts.len() == 2 {
+                            if parts[0].eq_ignore_ascii_case("width") {
+                                width = parts[1].parse::<f64>().ok();
+                            } else if parts[0].eq_ignore_ascii_case("height") {
+                                height = parts[1].parse::<f64>().ok();
+                            }
+                        }
+                    }
+                    if width.is_some() || height.is_some() {
+                        return (width, height);
+                    }
+                }
+            }
+            search_idx = abs_idx + close + 1;
+        } else {
+            break;
+        }
+    }
+
+    (None, None)
+}
+
+/// Sanitize HTML content by stripping <script> blocks, inline event handlers, and javascript: links.
+pub fn sanitize_html_scripts(html: &str) -> String {
+    let mut output = String::with_capacity(html.len());
+    let lower = html.to_lowercase();
+    let lower_bytes = lower.as_bytes();
+    let html_bytes = html.as_bytes();
+    let len = html_bytes.len();
+
+    let mut i = 0;
+    let mut in_script = false;
+
+    while i < len {
+        if !in_script && lower_bytes[i..].starts_with(b"<script") {
+            in_script = true;
+            i += 7;
+            continue;
+        }
+
+        if in_script {
+            if lower_bytes[i..].starts_with(b"</script>") {
+                in_script = false;
+                i += 9;
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+
+        output.push(html_bytes[i] as char);
+        i += 1;
+    }
+
+    // Strip inline event attributes like onload=, onclick=, onerror=
+    let mut sanitized = String::with_capacity(output.len());
+    let mut search_idx = 0;
+    let out_lower = output.to_lowercase();
+
+    while search_idx < output.len() {
+        if let Some(on_idx) = out_lower[search_idx..].find(" on") {
+            let abs_on = search_idx + on_idx;
+            sanitized.push_str(&output[search_idx..abs_on]);
+            
+            // Check if this looks like an inline handler attribute, e.g. onclick="..."
+            if let Some(eq_idx) = out_lower[abs_on..].find('=') {
+                let attr_name = &out_lower[abs_on + 1..abs_on + eq_idx].trim();
+                if attr_name.starts_with("on") {
+                    // Skip attribute until space or tag close
+                    let val_start = abs_on + eq_idx + 1;
+                    if val_start < output.len() && output.as_bytes()[val_start] == b'"' {
+                        if let Some(end_quote) = output[val_start + 1..].find('"') {
+                            search_idx = val_start + 1 + end_quote + 1;
+                            continue;
+                        }
+                    }
+                }
+            }
+            sanitized.push_str(" on");
+            search_idx = abs_on + 3;
+        } else {
+            sanitized.push_str(&output[search_idx..]);
+            break;
+        }
+    }
+
+    // Strip href="javascript:..."
+    sanitized.replace("href=\"javascript:", "href=\"#disabled_js:")
 }

@@ -57,4 +57,13 @@ impl WasmBook {
         let cfi = Cfi::parse(cfi_str).map_err(|e| JsValue::from_str(&e))?;
         Ok(cfi.spine_index())
     }
+
+    /// Retrieve raw resource byte array Uint8Array for Blob URL creation in JS.
+    pub fn get_resource_bytes(&self, path: &str) -> Result<Vec<u8>, JsValue> {
+        let (bytes, _) = self
+            .inner
+            .get_resource_bytes(path)
+            .map_err(|e| JsValue::from_str(&e))?;
+        Ok(bytes)
+    }
 }

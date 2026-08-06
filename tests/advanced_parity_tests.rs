@@ -92,3 +92,64 @@ fn test_font_deobfuscation_idpf_and_adobe() {
     let deobf = FontDeobfuscator::parse_encryption_xml(xml);
     assert!(deobf.is_encrypted("OEBPS/Fonts/custom.otf"));
 }
+
+#[test]
+fn test_script_content_sanitization_and_sandboxing() {
+    let bytes = generate_sample_epub().unwrap();
+    let book = Book::from_bytes(&bytes).unwrap();
+
+    // Default: allow_scripted_content is false -> scripts are stripped
+    let mut sec = book.get_section(0).unwrap();
+    sec.processed_html.push_str("<script>alert('XSS')</script><div onload=\"evil()\">Text</div><a href=\"javascript:bad()\">Click</a>");
+    sec.strip_script_content();
+
+    assert!(!sec.processed_html.contains("<script>"));
+    assert!(!sec.processed_html.contains("alert('XSS')"));
+    assert!(!sec.processed_html.contains("javascript:bad()"));
+    assert!(sec.processed_html.contains("Text"));
+}
+
+#[test]
+fn test_fxl_viewport_scaling_and_meta_parsing() {
+    let html = r#"
+        <html>
+            <head>
+                <meta name="viewport" content="width=1024, height=768"/>
+            </head>
+            <body>Fixed Layout Page</body>
+        </html>
+    "#;
+
+    let (w, h) = ebook_rs::section::parse_viewport_meta(html);
+    assert_eq!(w, Some(1024.0));
+    assert_eq!(h, Some(768.0));
+
+    let layout = ebook_rs::RenditionLayout::default();
+    let (scale, css) = layout
+        .compute_fxl_scale(1024.0, 768.0, 512.0, 384.0)
+        .expect("Scale computation");
+
+    assert_eq!(scale, 0.5);
+    assert!(css.contains("transform: scale(0.5)"));
+    assert!(css.contains("width: 1024px; height: 768px;"));
+}
+
+#[test]
+fn test_asset_delivery_strategy_and_resource_streaming() {
+    let bytes = generate_sample_epub().unwrap();
+    let mut book = Book::from_bytes(&bytes).unwrap();
+
+    // Set AssetDeliveryStrategy to ResourceStream
+    book.layout.asset_delivery = ebook_rs::AssetDeliveryStrategy::ResourceStream;
+    let sec = book.get_section(0).unwrap();
+
+    // Verify HTML contains resource streaming URLs instead of Base64 Data URIs
+    assert!(!sec.processed_html.contains("data:image/"));
+
+    // Verify raw resource bytes retrieval API
+    let style_res = book.get_resource_bytes("OEBPS/style.css");
+    assert!(style_res.is_ok());
+    let (style_bytes, mime) = style_res.unwrap();
+    assert!(!style_bytes.is_empty());
+    assert_eq!(mime, "text/css");
+}

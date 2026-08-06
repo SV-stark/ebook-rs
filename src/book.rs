@@ -228,6 +228,17 @@ impl Book {
         None
     }
 
+    /// Retrieve raw resource bytes and MIME type for on-demand HTTP streaming or WASM Blob URL creation.
+    pub fn get_resource_bytes(&self, path: &str) -> Result<(Vec<u8>, &'static str), String> {
+        let clean_path = path.strip_prefix("resource/").unwrap_or(path);
+        let bytes = self
+            .archive
+            .read_bytes(clean_path)
+            .map_err(|e| format!("Resource not found in archive: {} ({})", clean_path, e))?;
+        let mime = EpubArchive::get_mime_type(clean_path);
+        Ok((bytes, mime))
+    }
+
     /// Retrieve a section by spine index (applying pre-display hooks).
     pub fn get_section(&self, index: usize) -> Result<Section, String> {
         let mut section = self
@@ -235,6 +246,11 @@ impl Book {
             .get(index)
             .cloned()
             .ok_or_else(|| format!("Section index out of bounds: {}", index))?;
+
+        // Sanitize script content if scripted content is disabled for security
+        if !self.layout.allow_scripted_content {
+            section.strip_script_content();
+        }
 
         // Apply registered before_display hooks
         for hook in &self.before_display_hooks {

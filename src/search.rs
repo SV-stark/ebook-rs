@@ -92,6 +92,8 @@ mod tests {
             plain_text: "Hello Rust Reader".to_string(),
             plain_text_lower: "hello rust reader".to_string(),
             char_count: 17,
+            viewport_width: None,
+            viewport_height: None,
         };
 
         let results = SearchEngine::search(&[sec], "Rust", false);
