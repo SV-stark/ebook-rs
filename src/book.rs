@@ -252,13 +252,27 @@ impl Book {
         Ok((bytes, mime))
     }
 
-    /// Retrieve a section by spine index (applying pre-display hooks).
+    /// Retrieve a section by spine index (applying pre-display hooks and automatic RTL dir="rtl" injection).
     pub fn get_section(&self, index: usize) -> Result<Section, String> {
         let mut section = self
             .sections
             .get(index)
             .cloned()
             .ok_or_else(|| format!("Section index out of bounds: {}", index))?;
+
+        // F6 Fix: Automatic RTL dir="rtl" injection at render time
+        if self.opf.metadata.direction == crate::metadata::PageProgressionDirection::Rtl {
+            if !section.processed_html.contains("dir=\"rtl\"")
+                && !section.processed_html.contains("dir='rtl'")
+            {
+                section.processed_html =
+                    section.processed_html.replace("<html", "<html dir=\"rtl\"");
+                if !section.processed_html.contains("dir=\"rtl\"") {
+                    section.processed_html =
+                        section.processed_html.replace("<body", "<body dir=\"rtl\"");
+                }
+            }
+        }
 
         // Sanitize script content if scripted content is disabled for security
         if !self.layout.allow_scripted_content {

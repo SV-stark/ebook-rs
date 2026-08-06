@@ -84,4 +84,26 @@ impl WasmBook {
             .map_err(|e| JsValue::from_str(&e))?;
         serde_json::to_string(&sec.paginate(None)).map_err(|e| JsValue::from_str(&e.to_string()))
     }
+
+    /// Resolve CFI string to DOM element selector and offset target JSON string (F1 WASM Fix).
+    pub fn resolve_cfi_dom_json(
+        &self,
+        cfi_str: &str,
+        section_index: usize,
+    ) -> Result<String, JsValue> {
+        let cfi = Cfi::parse(cfi_str).map_err(|e| JsValue::from_str(&e))?;
+        let sec = self
+            .inner
+            .get_section(section_index)
+            .map_err(|e| JsValue::from_str(&e))?;
+        let target = cfi.resolve_dom_path(&sec.raw_html);
+        serde_json::to_string(&target).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Set custom reader font family and font URL (F5 WASM Fix).
+    pub fn set_custom_font(&mut self, font_family: &str, font_url_or_b64: &str) {
+        self.inner
+            .layout
+            .set_custom_font(font_family, font_url_or_b64);
+    }
 }

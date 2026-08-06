@@ -36,7 +36,7 @@ pub use annotations::{Annotation, AnnotationManager, AnnotationType};
 pub use archive::{EpubArchive, HttpRangeRequest};
 pub use book::Book;
 pub use cbz::CbzBook;
-pub use cfi::{Cfi, CfiOffset, CfiPath, CfiStep};
+pub use cfi::{Cfi, CfiDomTarget, CfiOffset, CfiPath, CfiStep};
 pub use deobfuscate::FontDeobfuscator;
 pub use fb2::Fb2Book;
 pub use footnote::Footnote;

@@ -70,6 +70,8 @@ pub struct RenditionLayout {
     pub allow_scripted_content: bool,
     pub viewport_config: ViewportManagerConfig,
     pub asset_delivery: AssetDeliveryStrategy,
+    pub custom_font_family: Option<String>,
+    pub custom_font_url: Option<String>,
 }
 
 impl Default for RenditionLayout {
@@ -86,11 +88,19 @@ impl Default for RenditionLayout {
             allow_scripted_content: false,
             viewport_config: ViewportManagerConfig::default(),
             asset_delivery: AssetDeliveryStrategy::InlinedBase64,
+            custom_font_family: None,
+            custom_font_url: None,
         }
     }
 }
 
 impl RenditionLayout {
+    /// Inject custom reader font family and font URL (F5 Fix).
+    pub fn set_custom_font(&mut self, font_family: &str, font_url_or_b64: &str) {
+        self.custom_font_family = Some(font_family.to_string());
+        self.custom_font_url = Some(font_url_or_b64.to_string());
+    }
+
     /// Generate dynamic CSS rules to inject into section HTML.
     pub fn to_css_override(&self) -> String {
         let (bg, fg, link) = match self.theme {
@@ -101,8 +111,29 @@ impl RenditionLayout {
             Theme::HighContrast => ("#000000", "#ffffff", "#ffff00"),
         };
 
+        let font_rule =
+            if let (Some(fam), Some(url)) = (&self.custom_font_family, &self.custom_font_url) {
+                format!(
+                    r#"
+                @font-face {{
+                    font-family: '{}';
+                    src: url('{}');
+                }}
+                "#,
+                    fam, url
+                )
+            } else {
+                "".to_string()
+            };
+
+        let active_font = self
+            .custom_font_family
+            .as_deref()
+            .unwrap_or(&self.font_family);
+
         format!(
             r#"
+            {}
             :root {{
                 --reader-bg: {};
                 --reader-fg: {};
@@ -128,7 +159,14 @@ impl RenditionLayout {
                 height: auto !important;
             }}
             "#,
-            bg, fg, link, self.font_family, self.font_size_px, self.line_height, self.margin_px
+            font_rule,
+            bg,
+            fg,
+            link,
+            active_font,
+            self.font_size_px,
+            self.line_height,
+            self.margin_px
         )
     }
 

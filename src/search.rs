@@ -40,23 +40,28 @@ impl SearchEngine {
             while let Some(match_idx) = text_ref[search_idx..].find(&query_cmp) {
                 let abs_idx = search_idx + match_idx;
 
-                // Extract context snippet
-                let snippet_start = abs_idx.saturating_sub(40);
-                let snippet_end = (abs_idx + query.len() + 40).min(section.plain_text.len());
+                // Extract context snippet with 100% UTF-8 char boundary safety
+                let text_chars: Vec<char> = section.plain_text.chars().collect();
+                let char_idx = section.plain_text[..abs_idx.min(section.plain_text.len())]
+                    .chars()
+                    .count();
+                let q_char_len = query.chars().count();
 
-                let prefix = if snippet_start > 0 { "..." } else { "" };
-                let suffix = if snippet_end < section.plain_text.len() {
-                    "..."
-                } else {
-                    ""
-                };
+                let start_c = char_idx.saturating_sub(40);
+                let end_c = (char_idx + q_char_len + 40).min(text_chars.len());
 
-                let snippet = format!(
-                    "{}{}{}",
-                    prefix,
-                    &section.plain_text[snippet_start..snippet_end],
-                    suffix
-                );
+                let raw_snippet: String = text_chars[start_c..end_c].iter().collect();
+                let query_str: String = text_chars
+                    [char_idx..(char_idx + q_char_len).min(text_chars.len())]
+                    .iter()
+                    .collect();
+                let highlighted =
+                    raw_snippet.replace(&query_str, &format!("<mark>{}</mark>", query_str));
+
+                let prefix = if start_c > 0 { "..." } else { "" };
+                let suffix = if end_c < text_chars.len() { "..." } else { "" };
+
+                let snippet = format!("{}{}{}", prefix, highlighted, suffix);
 
                 // Generate target CFI for search match
                 let cfi = Cfi::from_spine_index(section.index, None, abs_idx).to_string();

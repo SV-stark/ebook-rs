@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.2] - 2026-08-06
+
+### Added
+- **F8: Search Surrounding Context Snippets (`SearchSnippet`)**: Enhanced `SearchResult` with UTF-8 char-safe context snippets, character offset bounds, and `<mark>` query highlights.
+- **F1: Deep DOM-Element CFI Resolver (`resolve_dom_path`)**: Added `CfiDomTarget` and `cfi.resolve_dom_path(html)` to resolve IDPF element steps (`/4/2/1`) and IDs (`[chap01]`) to target element IDs and CSS selector paths.
+- **F10: W3C Web Annotation Data Model Export (`to_w3c_json`)**: Added standard W3C JSON-LD export (`http://www.w3.org/ns/anno.jsonld`) for annotations and highlights.
+- **F6: Automatic RTL Render-Time Injection (`dir="rtl"`)**: Added automatic `dir="rtl"` and `text-align: right;` injection for RTL books (Arabic, Hebrew, Persian, Urdu).
+- **F5: Reader Custom Font Injection (`set_custom_font`)**: Added `custom_font_family` and `custom_font_url` fields in `RenditionLayout` for `@font-face` CSS injection.
+- **New WASM Bindings**: Exposed `resolve_cfi_dom_json` and `set_custom_font` to WebAssembly JS exports.
+
+---
+
 ## [0.5.1] - 2026-08-06
 
 ### Fixed

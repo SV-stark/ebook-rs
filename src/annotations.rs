@@ -95,6 +95,42 @@ impl AnnotationManager {
     pub fn list(&self) -> Vec<Annotation> {
         self.annotations.values().cloned().collect()
     }
+
+    /// Export annotations as W3C Web Annotation Data Model (JSON-LD) format (F10 Fix).
+    pub fn to_w3c_json(&self) -> Result<String, String> {
+        let items: Vec<serde_json::Value> = self
+            .annotations
+            .values()
+            .map(|ann| {
+                serde_json::json!({
+                    "@context": "http://www.w3.org/ns/anno.jsonld",
+                    "id": format!("urn:annotation:{}", ann.id),
+                    "type": "Annotation",
+                    "motivation": match ann.type_ {
+                        AnnotationType::Highlight => "highlighting",
+                        AnnotationType::Bookmark => "bookmarking",
+                        AnnotationType::Underline => "underlining",
+                        AnnotationType::Note => "commenting",
+                    },
+                    "target": {
+                        "selector": {
+                            "type": "FragmentSelector",
+                            "conformsTo": "http://www.idpf.org/epub/linking/cfi/epub-cfi.html",
+                            "value": ann.cfi_range
+                        }
+                    },
+                    "body": {
+                        "type": "TextualBody",
+                        "value": ann.note.as_deref().unwrap_or(""),
+                        "format": "text/plain"
+                    },
+                    "created": ann.created_at
+                })
+            })
+            .collect();
+
+        serde_json::to_string(&items).map_err(|e| e.to_string())
+    }
 }
 
 /// B6 Fix: Generate 100% collision-free unique IDs using atomic sequence counters + timestamp.

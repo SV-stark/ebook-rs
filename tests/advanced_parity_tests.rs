@@ -273,3 +273,36 @@ fn test_data_src_attribute_isolation() {
     let sanitized = ebook_rs::section::sanitize_html_scripts(html);
     assert!(sanitized.contains("data-src=\"lazy.jpg\""));
 }
+
+#[test]
+fn test_deep_cfi_dom_element_resolver() {
+    let cfi = ebook_rs::Cfi::parse("epubcfi(/6/4[chap01]!/4/2/1:10)").unwrap();
+    let target = cfi.resolve_dom_path("<p id='chap01'>Text</p>").unwrap();
+    assert_eq!(target.element_id, Some("chap01".to_string()));
+    assert_eq!(target.char_offset, 10);
+}
+
+#[test]
+fn test_w3c_web_annotation_export() {
+    let mut manager = ebook_rs::AnnotationManager::new();
+    manager.create_highlight(
+        "epubcfi(/6/4!/4/2/1:0)",
+        "#ffff00",
+        Some("quote"),
+        Some("my note"),
+    );
+
+    let w3c_json = manager.to_w3c_json().unwrap();
+    assert!(w3c_json.contains("http://www.w3.org/ns/anno.jsonld"));
+    assert!(w3c_json.contains("highlighting"));
+}
+
+#[test]
+fn test_custom_font_injection_css() {
+    let mut layout = ebook_rs::RenditionLayout::default();
+    layout.set_custom_font("Roboto", "https://fonts.com/roboto.woff2");
+
+    let css = layout.to_css_override();
+    assert!(css.contains("@font-face"));
+    assert!(css.contains("font-family: 'Roboto'"));
+}

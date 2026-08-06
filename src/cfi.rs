@@ -9,6 +9,14 @@ pub struct Cfi {
     pub range_end: Option<CfiPath>,
 }
 
+/// DOM Element target resolved from CFI element steps and ID assertions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CfiDomTarget {
+    pub element_id: Option<String>,
+    pub css_selector: String,
+    pub char_offset: usize,
+}
+
 /// A path component inside a CFI.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CfiPath {
@@ -175,6 +183,48 @@ impl Cfi {
         let o1 = self.char_offset();
         let o2 = other.char_offset();
         o1.cmp(&o2)
+    }
+
+    /// Resolve IDPF element steps and assertion IDs into CSS DOM selectors and target element IDs (F1 Fix).
+    pub fn resolve_dom_path(&self, html: &str) -> Option<CfiDomTarget> {
+        let mut element_id = None;
+        let mut selectors = Vec::new();
+
+        for step in &self.path.steps {
+            if let Some(id) = &step.element_id {
+                element_id = Some(id.clone());
+                selectors.push(format!("#{}", id));
+            } else if !step.indirection && step.index >= 2 {
+                let child_num = step.index / 2;
+                selectors.push(format!("*:nth-child({})", child_num));
+            }
+        }
+
+        let css_selector = if selectors.is_empty() {
+            "body".to_string()
+        } else {
+            selectors.join(" > ")
+        };
+
+        // Check if element_id exists in target HTML
+        if element_id.is_none() {
+            let lower = html.to_lowercase();
+            for step in &self.path.steps {
+                if let Some(id) = &step.element_id {
+                    if lower.contains(&format!("id=\"{}\"", id.to_lowercase()))
+                        || lower.contains(&format!("id='{}'", id.to_lowercase()))
+                    {
+                        element_id = Some(id.clone());
+                    }
+                }
+            }
+        }
+
+        Some(CfiDomTarget {
+            element_id,
+            css_selector,
+            char_offset: self.char_offset(),
+        })
     }
 
     /// Convert back to formatted `epubcfi(...)` string.
