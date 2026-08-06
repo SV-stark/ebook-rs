@@ -28,7 +28,14 @@ impl Section {
         full_path: String,
         archive: &EpubArchive,
     ) -> Result<Self, String> {
-        Self::new_with_strategy(index, idref, href, full_path, archive, &AssetDeliveryStrategy::InlinedBase64)
+        Self::new_with_strategy(
+            index,
+            idref,
+            href,
+            full_path,
+            archive,
+            &AssetDeliveryStrategy::InlinedBase64,
+        )
     }
 
     /// Create and process a section using a specific asset delivery strategy (Base64 vs Resource Stream).
@@ -44,7 +51,8 @@ impl Section {
         let plain_text = extract_plain_text(&raw_html);
         let plain_text_lower = plain_text.to_lowercase();
         let char_count = plain_text.chars().count();
-        let processed_html = process_section_resources_with_strategy(&raw_html, &full_path, archive, strategy);
+        let processed_html =
+            process_section_resources_with_strategy(&raw_html, &full_path, archive, strategy);
         let (viewport_width, viewport_height) = parse_viewport_meta(&raw_html);
 
         Ok(Self {
@@ -65,6 +73,11 @@ impl Section {
     /// Strip embedded <script> tags, inline event attributes (on*="..."), and javascript: URIs.
     pub fn strip_script_content(&mut self) {
         self.processed_html = sanitize_html_scripts(&self.processed_html);
+    }
+
+    /// Extract footnotes and endnotes for popup previewing.
+    pub fn extract_footnotes(&self) -> Vec<crate::footnote::Footnote> {
+        crate::footnote::parse_footnotes_from_html(&self.raw_html)
     }
 }
 
@@ -142,7 +155,12 @@ pub fn extract_plain_text(html: &str) -> String {
 
 /// Process XHTML/HTML resources: Inline images, styles, and fonts as base64 Data URIs.
 pub fn process_section_resources(html: &str, section_path: &str, archive: &EpubArchive) -> String {
-    process_section_resources_with_strategy(html, section_path, archive, &AssetDeliveryStrategy::InlinedBase64)
+    process_section_resources_with_strategy(
+        html,
+        section_path,
+        archive,
+        &AssetDeliveryStrategy::InlinedBase64,
+    )
 }
 
 /// Process XHTML/HTML resources according to specified delivery strategy (Base64 vs ResourceStream).
@@ -195,7 +213,8 @@ pub fn process_section_resources_with_strategy(
             AssetDeliveryStrategy::InlinedBase64 => {
                 if let Ok(css_text) = archive.read_string(&res_path) {
                     let processed_css = process_css_resources(&css_text, &res_path, archive);
-                    let b64 = base64::engine::general_purpose::STANDARD.encode(processed_css.as_bytes());
+                    let b64 =
+                        base64::engine::general_purpose::STANDARD.encode(processed_css.as_bytes());
                     let data_uri = format!("data:text/css;base64,{}", b64);
                     output = output.replace(&orig_attr, &format!("href=\"{}\"", data_uri));
                 }
@@ -393,7 +412,7 @@ pub fn sanitize_html_scripts(html: &str) -> String {
         if let Some(on_idx) = out_lower[search_idx..].find(" on") {
             let abs_on = search_idx + on_idx;
             sanitized.push_str(&output[search_idx..abs_on]);
-            
+
             // Check if this looks like an inline handler attribute, e.g. onclick="..."
             if let Some(eq_idx) = out_lower[abs_on..].find('=') {
                 let attr_name = &out_lower[abs_on + 1..abs_on + eq_idx].trim();

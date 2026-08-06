@@ -141,7 +141,8 @@ impl RenditionLayout {
         container_width: f64,
         container_height: f64,
     ) -> Option<(f64, String)> {
-        if vp_width <= 0.0 || vp_height <= 0.0 || container_width <= 0.0 || container_height <= 0.0 {
+        if vp_width <= 0.0 || vp_height <= 0.0 || container_width <= 0.0 || container_height <= 0.0
+        {
             return None;
         }
 

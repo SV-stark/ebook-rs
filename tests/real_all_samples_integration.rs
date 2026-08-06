@@ -20,8 +20,8 @@ fn test_all_sample_files_parsing_and_verification() {
                 continue;
             }
 
-            let book = Book::from_file(&path_str)
-                .unwrap_or_else(|_| panic!("Should parse {}", path_str));
+            let book =
+                Book::from_file(&path_str).unwrap_or_else(|_| panic!("Should parse {}", path_str));
 
             // Verify Metadata
             assert!(

@@ -7,12 +7,15 @@ pub mod cbz;
 pub mod cfi;
 pub mod deobfuscate;
 pub mod fb2;
+pub mod footnote;
 pub mod layout;
 pub mod lit;
 pub mod locations;
 pub mod metadata;
 pub mod mobi;
 pub mod nav;
+#[cfg(feature = "opds")]
+pub mod opds;
 pub mod opf;
 pub mod sample_builder;
 pub mod search;
@@ -26,18 +29,24 @@ pub mod server;
 pub mod web_ui;
 
 pub use annotations::{Annotation, AnnotationManager, AnnotationType};
-pub use archive::EpubArchive;
+pub use archive::{EpubArchive, HttpRangeRequest};
 pub use book::Book;
 pub use cbz::CbzBook;
 pub use cfi::{Cfi, CfiOffset, CfiPath, CfiStep};
 pub use deobfuscate::FontDeobfuscator;
 pub use fb2::Fb2Book;
-pub use layout::{AssetDeliveryStrategy, FlowMode, LayoutMode, RenditionLayout, SpreadMode, Theme, ViewportManagerConfig};
+pub use footnote::Footnote;
+pub use layout::{
+    AssetDeliveryStrategy, FlowMode, LayoutMode, RenditionLayout, SpreadMode, Theme,
+    ViewportManagerConfig,
+};
 pub use lit::LitBook;
 pub use locations::{LocationEntry, Locations};
 pub use metadata::{GuideItem, ManifestItem, Metadata, PageProgressionDirection, SpineItem};
 pub use mobi::{MobiBook, decompress_palmdoc};
 pub use nav::{Landmark, NavPoint, PageListItem};
+#[cfg(feature = "opds")]
+pub use opds::{OpdsEntry, OpdsFeed, OpdsLink};
 pub use sample_builder::generate_sample_epub;
 pub use search::{SearchEngine, SearchResult};
 pub use section::Section;

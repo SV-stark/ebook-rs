@@ -158,6 +158,44 @@ pub fn resolve_relative_path(base_dir: &str, relative: &str) -> String {
     normalize_path(&combined)
 }
 
+/// Helper for HTTP Range request generation and byte-slice streaming (`bytes=start-end`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct HttpRangeRequest {
+    pub url: String,
+    pub start: u64,
+    pub end: Option<u64>,
+}
+
+impl HttpRangeRequest {
+    /// Create a new HTTP Range byte slice request.
+    pub fn new(url: &str, start: u64, end: Option<u64>) -> Self {
+        Self {
+            url: url.to_string(),
+            start,
+            end,
+        }
+    }
+
+    /// Generate standard HTTP Range header tuple ("Range", "bytes=start-end").
+    pub fn to_range_header(&self) -> (String, String) {
+        let val = match self.end {
+            Some(end_byte) => format!("bytes={}-{}", self.start, end_byte),
+            None => format!("bytes={}-", self.start),
+        };
+        ("Range".to_string(), val)
+    }
+
+    /// Parse an incoming HTTP Range header string (e.g. "bytes=0-1024").
+    pub fn parse_range_header(header_val: &str) -> Option<(u64, Option<u64>)> {
+        let clean = header_val.trim();
+        let spec = clean.strip_prefix("bytes=")?;
+        let mut parts = spec.split('-');
+        let start = parts.next()?.parse::<u64>().ok()?;
+        let end = parts.next().and_then(|s| s.parse::<u64>().ok());
+        Some((start, end))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

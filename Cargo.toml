@@ -1,6 +1,6 @@
 [package]
 name = "ebook-rs"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2024"
 authors = ["SV-Stark"]
 description = "Pure Rust EPUB parser and reader engine with CFI location mapping, full-text search, font de-obfuscation, and WASM/HTTP reader support."
@@ -22,9 +22,10 @@ path = "src/main.rs"
 required-features = ["server"]
 
 [features]
-default = ["server"]
+default = ["server", "opds"]
 server = ["dep:tiny_http", "dep:url"]
 wasm = ["dep:wasm-bindgen"]
+opds = []
 
 [dependencies]
 zip = "8.6"

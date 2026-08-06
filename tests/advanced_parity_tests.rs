@@ -153,3 +153,59 @@ fn test_asset_delivery_strategy_and_resource_streaming() {
     assert!(!style_bytes.is_empty());
     assert_eq!(mime, "text/css");
 }
+
+#[test]
+fn test_footnote_and_endnote_extraction() {
+    let html = r##"
+        <html xmlns:epub="http://www.idpf.org/2007/ops">
+            <body>
+                <p>Quantum Mechanics<a id="ref1" href="#fn1" epub:type="noteref">1</a> is fascinating.</p>
+                <aside id="fn1" epub:type="footnote">
+                    <p>Footnote 1: A fundamental theory in physics.</p>
+                </aside>
+            </body>
+        </html>
+    "##;
+
+    let footnotes = ebook_rs::footnote::parse_footnotes_from_html(html);
+    assert_eq!(footnotes.len(), 1);
+    assert_eq!(footnotes[0].target_id, "fn1");
+    assert_eq!(footnotes[0].label, "1");
+    assert!(footnotes[0].plain_text.contains("fundamental theory"));
+}
+
+#[test]
+#[cfg(feature = "opds")]
+fn test_opds_feed_parsing_atom_xml_and_json() {
+    let atom_xml = r#"<?xml version="1.0" encoding="utf-8"?>
+        <feed xmlns="http://www.w3.org/2005/Atom">
+            <id>urn:opds:catalog</id>
+            <title>Standard Ebooks Catalog</title>
+            <entry>
+                <id>urn:isbn:9781234567890</id>
+                <title>Alice in Wonderland</title>
+                <author><name>Lewis Carroll</name></author>
+                <summary>A classic fantasy novel.</summary>
+                <link rel="http://opds-spec.org/acquisition" href="https://example.com/alice.epub" type="application/epub+zip"/>
+            </entry>
+        </feed>
+    "#;
+
+    let feed = ebook_rs::OpdsFeed::parse_atom_xml(atom_xml).expect("Parse OPDS Atom XML");
+    assert_eq!(feed.title, "Standard Ebooks Catalog");
+    assert_eq!(feed.entries.len(), 1);
+    assert_eq!(feed.entries[0].title, "Alice in Wonderland");
+    assert_eq!(feed.entries[0].authors, vec!["Lewis Carroll"]);
+    assert!(feed.entries[0].download_link(None).is_some());
+}
+
+#[test]
+fn test_http_range_request_header_formatting() {
+    let req = ebook_rs::HttpRangeRequest::new("https://example.com/book.epub", 0, Some(1023));
+    let (header_name, header_val) = req.to_range_header();
+    assert_eq!(header_name, "Range");
+    assert_eq!(header_val, "bytes=0-1023");
+
+    let parsed = ebook_rs::HttpRangeRequest::parse_range_header("bytes=2048-4096").unwrap();
+    assert_eq!(parsed, (2048, Some(4096)));
+}
