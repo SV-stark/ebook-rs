@@ -146,7 +146,8 @@ fn parse_tag_parts(content: &str) -> (String, HashMap<String, String>) {
 fn collect_matching_nodes<'a>(node: &'a DomNode, tag_lower: &str, matches: &mut Vec<&'a DomNode>) {
     if let DomNode::Element {
         tag_name, children, ..
-    } = node {
+    } = node
+    {
         if tag_name.to_lowercase() == tag_lower {
             matches.push(node);
         }
