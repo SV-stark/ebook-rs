@@ -1,6 +1,6 @@
 [package]
 name = "ebook-rs"
-version = "0.8.2"
+version = "0.8.3"
 edition = "2024"
 authors = ["SV-Stark"]
 description = "Pure Rust multi-format eBook engine (EPUB2/3, MOBI, AZW3, FB2, LIT, CBZ, PDF, ODT, TXT, MD) with CFI, Tree-sitter Code Parser, Regex Search, EPUB Validator, Readium LCP/Locator, Book Fingerprinting, and Citation Export APIs."

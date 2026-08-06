@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.3] - 2026-08-06
+
+### Fixed & Improved
+- **MOBI Control Character Sanitization (`sanitize_mobi_control_chars`)**: Filtered out raw NUL (`\0`) bytes and non-printable control characters from PalmDOC streams that produced strange characters in MOBI output.
+- **MOBI Image Extraction & Base64 Inlining (`process_mobi_images`)**: Implemented parsing of MOBI PDB image records from `first_image_index` and automated inlining into Base64 Data URIs (`data:image/jpeg;base64,...`) for `<img recindex="...">`, `src="kindle:embed:..."`, and `src="0000X.jpg"` image tags.
+
+---
+
 ## [0.8.2] - 2026-08-06
 
 ### Fixed

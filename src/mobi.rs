@@ -8,6 +8,8 @@ use crate::opf::OpfPackage;
 use crate::section::{Section, extract_plain_text};
 use std::collections::HashMap;
 
+use base64::Engine;
+
 /// PalmDOC LZ77 Decompressor.
 pub fn decompress_palmdoc(data: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(data.len() * 2);
@@ -19,12 +21,16 @@ pub fn decompress_palmdoc(data: &[u8]) -> Vec<u8> {
 
         match byte {
             0x00 => {
-                out.push(0x00);
+                // Ignore NUL control bytes inside PalmDOC stream to prevent garbled '\0' symbols
             }
             0x01..=0x08 => {
                 let count = byte as usize;
                 let end = (i + count).min(data.len());
-                out.extend_from_slice(&data[i..end]);
+                for &b in &data[i..end] {
+                    if b >= 0x20 || b == b'\n' || b == b'\r' || b == b'\t' {
+                        out.push(b);
+                    }
+                }
                 i += count;
             }
             0x09..=0x7F => {
@@ -45,9 +51,6 @@ pub fn decompress_palmdoc(data: &[u8]) -> Vec<u8> {
                             let val = out[start + (j % distance)];
                             out.push(val);
                         }
-                    } else {
-                        out.push(byte);
-                        out.push(next);
                     }
                 }
             }
@@ -188,6 +191,18 @@ impl MobiBook {
             }
         }
 
+        let first_image_index = if rec0.len() >= 112 && &rec0[16..20] == b"MOBI" {
+            let img_rec_val =
+                u32::from_be_bytes([rec0[108], rec0[109], rec0[110], rec0[111]]) as usize;
+            if img_rec_val > 0 && img_rec_val < num_records {
+                img_rec_val
+            } else {
+                1 + text_record_count
+            }
+        } else {
+            1 + text_record_count
+        };
+
         let mut raw_html_bytes = Vec::new();
         let max_text_rec = (1 + text_record_count).min(record_offsets.len());
 
@@ -215,6 +230,12 @@ impl MobiBook {
         if full_html.trim().is_empty() || extract_plain_text(&full_html).trim().is_empty() {
             full_html = extract_fallback_mobi_text(bytes);
         }
+
+        // Clean MOBI control characters & junk bytes
+        full_html = sanitize_mobi_control_chars(&full_html);
+
+        // Process and inline MOBI images into Base64 Data URIs
+        full_html = process_mobi_images(&full_html, bytes, &record_offsets, first_image_index);
 
         let raw_sections = split_mobi_html(&full_html);
         let mut sections = Vec::with_capacity(raw_sections.len());
@@ -369,5 +390,90 @@ fn extract_fallback_mobi_text(bytes: &[u8]) -> String {
         "<p>AZW3 Book Content</p>".to_string()
     } else {
         out
+    }
+}
+
+fn sanitize_mobi_control_chars(input: &str) -> String {
+    input
+        .chars()
+        .filter(|&c| c == '\n' || c == '\r' || c == '\t' || !c.is_control())
+        .collect()
+}
+
+fn process_mobi_images(
+    html: &str,
+    bytes: &[u8],
+    record_offsets: &[usize],
+    first_image_index: usize,
+) -> String {
+    let mut image_map: HashMap<usize, String> = HashMap::new();
+    let num_records = record_offsets.len();
+
+    let start_img_rec = first_image_index.max(1);
+    for rec_idx in start_img_rec..num_records {
+        let rec_start = record_offsets[rec_idx];
+        let rec_end = if rec_idx + 1 < num_records {
+            record_offsets[rec_idx + 1]
+        } else {
+            bytes.len()
+        };
+
+        if rec_start < bytes.len() && rec_end <= bytes.len() && rec_start < rec_end {
+            let img_bytes = &bytes[rec_start..rec_end];
+            if let Some(mime) = detect_image_mime(img_bytes) {
+                let b64 = base64::engine::general_purpose::STANDARD.encode(img_bytes);
+                let data_uri = format!("data:{};base64,{}", mime, b64);
+                let img_num = (rec_idx - start_img_rec) + 1;
+                image_map.insert(img_num, data_uri);
+            }
+        }
+    }
+
+    if image_map.is_empty() {
+        return html.to_string();
+    }
+
+    let mut output = html.to_string();
+
+    for (img_num, data_uri) in &image_map {
+        let rec_str1 = format!("recindex=\"{}\"", img_num);
+        let rec_str2 = format!("recindex=\"{:05}\"", img_num);
+        output = output.replace(&rec_str1, &format!("src=\"{}\"", data_uri));
+        output = output.replace(&rec_str2, &format!("src=\"{}\"", data_uri));
+
+        let kindle_str1 = format!("kindle:embed:{:04}", img_num);
+        let kindle_str2 = format!("kindle:embed:{:05}", img_num);
+        let kindle_str3 = format!("kindle:embed:{}", img_num);
+        output = output.replace(&kindle_str1, data_uri);
+        output = output.replace(&kindle_str2, data_uri);
+        output = output.replace(&kindle_str3, data_uri);
+
+        let file_str1 = format!("src=\"{:05}.jpg\"", img_num);
+        let file_str2 = format!("src=\"{:04}.jpg\"", img_num);
+        let file_str3 = format!("src=\"{}.jpg\"", img_num);
+        output = output.replace(&file_str1, &format!("src=\"{}\"", data_uri));
+        output = output.replace(&file_str2, &format!("src=\"{}\"", data_uri));
+        output = output.replace(&file_str3, &format!("src=\"{}\"", data_uri));
+    }
+
+    output
+}
+
+fn detect_image_mime(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.len() < 4 {
+        return None;
+    }
+    if bytes.starts_with(b"\xFF\xD8\xFF") {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("image/gif")
+    } else if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else if bytes.starts_with(b"BM") {
+        Some("image/bmp")
+    } else {
+        None
     }
 }
