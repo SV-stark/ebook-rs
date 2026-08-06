@@ -427,6 +427,11 @@ impl Book {
     pub fn to_chicago(&self) -> String {
         crate::citation::CitationExporter::to_chicago(self.metadata())
     }
+
+    /// Extract embedded code blocks and AST nodes using Tree-sitter engine.
+    pub fn extract_code_blocks(&self) -> Vec<crate::treesitter::ExtractedCodeBlock> {
+        crate::treesitter::TreeSitterEngine::extract_code_blocks(self)
+    }
 }
 
 fn extract_first_img_src(html: &str) -> Option<String> {

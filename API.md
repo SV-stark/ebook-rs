@@ -1,13 +1,13 @@
-# 📚 EBook-RS API Reference & Complete Documentation (v0.7.1)
+# 📚 EBook-RS API Reference & Complete Documentation (v0.8.0)
 
-`ebook-rs` (v0.7.1) is a multi-format pure Rust eBook engine supporting **EPUB 2**, **EPUB 3**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT (OpenDocument Text)**, **Plain Text (.txt)**, and **Markdown (.md)** formats with **Regex Search**, **Structural EPUB Validator**, **Book Fingerprinting & Deduplication**, **Academic Citation Exporter**, and **Readium LCP/Locator** support.
+`ebook-rs` (v0.8.0) is a multi-format pure Rust eBook engine supporting **EPUB 2**, **EPUB 3**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT (OpenDocument Text)**, **Plain Text (.txt)**, and **Markdown (.md)** formats with **Tree-sitter Code Block Parser**, **Regex Search**, **Structural EPUB Validator**, **Book Fingerprinting & Deduplication**, **Academic Citation Exporter**, and **Readium LCP/Locator** support.
 
 ---
 
 ## 📋 Table of Contents
 1. [Multi-Format Book Core API (`ebook_rs::Book`)](#1-multi-format-book-core-api-ebook_rsbook)
 2. [Supported Formats Matrix](#2-supported-formats-matrix)
-3. [Format-Specific Parsers (`MobiBook`, `Fb2Book`, `LitBook`, `CbzBook`)](#3-format-specific-parsers)
+3. [Format-Specific Parsers (`MobiBook`, `Fb2Book`, `LitBook`, `CbzBook`, `OdtBook`, `TxtBook`, `PdfBook`)](#3-format-specific-parsers)
 4. [EPUB 3 Accessibility Metadata (`AccessibilityMetadata`)](#4-epub-3-accessibility-metadata-accessibilitymetadata)
 5. [EPUB 3 Media Overlays (SMIL Audio Sync) (`MediaOverlayPackage`)](#5-epub-3-media-overlays-smil-audio-sync-mediaoverlaypackage)
 6. [Section Module (`ebook_rs::Section`)](#6-section-module-ebook_rssection)
@@ -18,11 +18,12 @@
 11. [Structural EPUB Validator (`ebook_rs::EpubValidator`)](#11-structural-epub-validator-ebook_rsepubvalidator)
 12. [Book Fingerprinting & Deduplication (`ebook_rs::BookFingerprint`)](#12-book-fingerprinting--deduplication-ebook_rsbookfingerprint)
 13. [Academic Citation Exporter (`ebook_rs::CitationExporter`)](#13-academic-citation-exporter-ebook_rscitationexporter)
-14. [Readium Webpub Manifest Export (`ebook_rs::webpub`)](#14-readium-webpub-manifest-export-ebook_rswebpub)
-15. [Readium LCP DRM (`ebook_rs::lcp`)](#15-readium-lcp-drm-ebook_rslcp)
-16. [Readium Unified Locator Model (`ReadiumLocator`)](#16-readium-unified-locator-model-readiumlocator)
-17. [OPDS Catalog Client & Feed Generator (`ebook_rs::opds`)](#17-opds-catalog-client--feed-generator-ebook_rsopds)
-18. [HTTP Reader Server & Web UI (`ebook_rs::server`)](#18-http-reader-server--web-ui-ebook_rsserver)
+14. [Tree-sitter Concrete Syntax Tree Engine (`ebook_rs::TreeSitterEngine`)](#14-tree-sitter-concrete-syntax-tree-engine-ebook_rstreesitterengine)
+15. [Readium Webpub Manifest Export (`ebook_rs::webpub`)](#15-readium-webpub-manifest-export-ebook_rswebpub)
+16. [Readium LCP DRM (`ebook_rs::lcp`)](#16-readium-lcp-drm-ebook_rslcp)
+17. [Readium Unified Locator Model (`ReadiumLocator`)](#17-readium-unified-locator-model-readiumlocator)
+18. [OPDS Catalog Client & Feed Generator (`ebook_rs::opds`)](#18-opds-catalog-client--feed-generator-ebook_rsopds)
+19. [HTTP Reader Server & Web UI (`ebook_rs::server`)](#19-http-reader-server--web-ui-ebook_rsserver)
 
 ---
 
@@ -293,4 +294,29 @@ println!("MLA: {}", book.to_mla());
 
 // 4. Chicago (17th ed.) Format
 println!("Chicago: {}", book.to_chicago());
+```
+
+---
+
+## 14. Tree-sitter Concrete Syntax Tree Engine (`ebook_rs::TreeSitterEngine`)
+
+Tokenize, parse AST syntax nodes (`SyntaxNodeInfo`), and highlight embedded code blocks (`<pre><code>`) across technical eBooks and documentation:
+
+```rust
+use ebook_rs::{Book, TreeSitterEngine};
+
+let book = Book::from_file("rust_guide.md")?;
+
+// Extract all code blocks with AST syntax node trees
+let blocks = book.extract_code_blocks();
+for block in blocks {
+    println!("Language: {}", block.language);
+    println!("Code: {}", block.code);
+    for node in block.ast_nodes {
+        println!("AST Node: {} [byte {}-{}]", node.kind, node.start_byte, node.end_byte);
+    }
+}
+
+// Tokenize standalone code snippet
+let ast_nodes = TreeSitterEngine::parse_code("fn main() {}", "rust");
 ```

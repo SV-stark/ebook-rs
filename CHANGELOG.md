@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.0] - 2026-08-06
+
+### Added
+- **Tree-sitter Syntax Engine (`TreeSitterEngine`)**: Parses concrete syntax trees (`SyntaxNodeInfo`), extracts code blocks (`book.extract_code_blocks()`), and highlights embedded `<pre><code>` blocks across technical eBooks and Markdown/ODT sections.
+
+---
+
 ## [0.7.1] - 2026-08-06
 
 ### Added

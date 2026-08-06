@@ -1,4 +1,4 @@
-# 📖 EBook-RS: Multi-Format Rust EBook Parser and Reader Engine (v0.7.1)
+# 📖 EBook-RS: Multi-Format Rust EBook Parser and Reader Engine (v0.8.0)
 
 `ebook-rs` is a high-performance, 100% pure Rust parser and reader engine for **EPUB 2**, **EPUB 3**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT**, **TXT**, and **MD** formats, designed for full feature parity with **epub.js** and **foliate-js**.
 
@@ -6,7 +6,7 @@
 
 ## ⚡ Feature Parity Matrix
 
-| Feature | 🚀 `ebook-rs` (v0.7.1) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.8.0) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **EPUB 2 & 3 Support** | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes |
 | **MOBI & AZW3 Support** | ✅ Native PalmDOC LZ77 | ❌ No | ✅ Yes | ❌ No |
@@ -14,6 +14,9 @@
 | **KEPUB & LIT Support** | ✅ Native | ❌ No | ✅ Yes | ❌ No |
 | **CBZ Comic Archive Support** | ✅ Native ZIP Images | ❌ No | ✅ Yes | ❌ No |
 | **PDF Document Text Extraction** | ✅ `PdfBook` (pdf_oxide) | ❌ No | ✅ Yes | ❌ No |
+| **ODT OpenDocument Text Support** | ✅ `OdtBook` | ❌ No | ❌ No | ❌ No |
+| **Plain Text & Markdown Support** | ✅ `TxtBook` | ❌ No | ❌ No | ❌ No |
+| **Tree-sitter Code Parser & Highlighter** | ✅ `TreeSitterEngine` | ❌ No | ❌ No | ❌ No |
 | **Rayon Multi-Core Parallel Parsing** | ✅ `parallel` feature | ❌ Single Thread | ❌ Single Thread | ❌ Single Thread |
 | **DOM-Free Reflow Paginator** | ✅ `ReflowPaginator` | ❌ DOM-based | ❌ DOM-based | ❌ None |
 | **NLP Reading Analytics & Keywords** | ✅ `ReadingAnalytics` | ❌ No | ❌ No | ❌ No |
@@ -79,34 +82,35 @@ fn main() -> Result<(), String> {
 
 ---
 
-## 🆕 What's New in v0.7.0
+## 🆕 What's New in v0.8.0
 
+- **Tree-sitter Code Block Parser & Highlighter** — Tokenize, parse AST syntax nodes (`SyntaxNodeInfo`), and highlight embedded code blocks (`<pre><code>`) across technical eBooks using `TreeSitterEngine` / `book.extract_code_blocks()`.
+- **OpenDocument Text (.odt) Parser** — Full `.odt` archive parsing (`OdtBook`), extracting `content.xml` headings, paragraphs, and `meta.xml` metadata.
+- **Plain Text (.txt) & Markdown (.md) Parsers** — `TxtBook` engine mapping Markdown headings (`#`, `##`) into `NavPoint` Table of Contents nodes and section breaks.
 - **Regex Full-Text Search** — Search eBook text using full regular expression patterns (`book.search_regex("(?i)quantum|physics")`).
 - **EPUB Structural Validator** — Validate eBook package integrity, OPF metadata, and spine references with `book.validate()` (`EpubValidator`).
 - **Book Fingerprinting & Deduplication** — Generate metadata-independent content hashes to detect duplicate books across formats with `book.fingerprint()`.
 - **Academic Citation Exporter** — Instantly export scholarly citations in **BibTeX**, **APA**, **MLA**, and **Chicago** formats (`book.to_bibtex()`, `book.to_apa()`, `book.to_mla()`, `book.to_chicago()`).
 
 ```rust
-use ebook_rs::Book;
+use ebook_rs::{Book, TreeSitterEngine};
 
-let book = Book::from_file("book.epub")?;
+let book = Book::from_file("rust_guide.md")?;
 
-// 1. Regex Search
-let matches = book.search_regex("(?i)alice|rabbit")?;
+// 1. Extract embedded code blocks with AST syntax nodes
+let code_blocks = book.extract_code_blocks();
+for block in code_blocks {
+    println!("Language: {}, AST Nodes: {}", block.language, block.ast_nodes.len());
+}
 
 // 2. Structural Validation
 let report = book.validate();
-if !report.is_valid {
-    println!("Validation errors: {:?}", report.errors);
-}
 
 // 3. Content Fingerprinting & Match Score
 let fp = book.fingerprint();
-println!("Content Hash: {}", fp.content_hash);
 
 // 4. Academic Citations
 println!("BibTeX:\n{}", book.to_bibtex());
-println!("APA: {}", book.to_apa());
 ```
 
 ---
