@@ -34,8 +34,16 @@ pub fn parse_container_xml(xml_content: &str) -> Result<String, String> {
 
 /// Parse the `.opf` package file into `OpfPackage`.
 pub fn parse_opf(xml_content: &str, opf_path: &str) -> Result<OpfPackage, String> {
-    let doc =
-        Document::parse(xml_content).map_err(|e| format!("XML parse error in OPF file: {}", e))?;
+    let repaired_xml;
+    let effective_xml = match Document::parse(xml_content) {
+        Ok(_) => xml_content,
+        Err(_) => {
+            repaired_xml = crate::dom::sanitize_and_repair_xml(xml_content);
+            &repaired_xml
+        }
+    };
+    let doc = Document::parse(effective_xml)
+        .map_err(|e| format!("XML parse error in OPF file: {}", e))?;
     let root = doc.root_element();
 
     if root.tag_name().name() != "package" {

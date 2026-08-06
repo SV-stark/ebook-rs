@@ -493,6 +493,130 @@ impl Book {
             height,
         })
     }
+
+    #[cfg(feature = "mmap")]
+    /// Open eBook from a file using zero-copy memory-mapped I/O (via `memmap2`).
+    pub fn from_mmap<P: AsRef<std::path::Path>>(path: P) -> Result<Self, String> {
+        let file = std::fs::File::open(path.as_ref())
+            .map_err(|e| format!("Failed to open file for mmap: {}", e))?;
+        let mmap = unsafe {
+            memmap2::Mmap::map(&file).map_err(|e| format!("Failed to memory-map file: {}", e))?
+        };
+        Self::from_bytes(&mmap)
+    }
+
+    /// Export any loaded eBook (EPUB, MOBI, AZW3, FB2, KEPUB, LIT, CBZ, PDF, ODT, TXT, MD) as a clean, compliant EPUB 3 ZIP archive buffer.
+    pub fn export_epub3_bytes(&self) -> Result<Vec<u8>, String> {
+        use std::io::Write;
+        use zip::write::FileOptions;
+
+        let mut zip_buf = Vec::new();
+        {
+            let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut zip_buf));
+
+            let stored_options = FileOptions::<()>::default()
+                .compression_method(zip::CompressionMethod::Stored)
+                .unix_permissions(0o644);
+            zip.start_file("mimetype", stored_options)
+                .map_err(|e| format!("Failed to write mimetype: {}", e))?;
+            zip.write_all(b"application/epub+zip")
+                .map_err(|e| format!("Failed to write mimetype content: {}", e))?;
+
+            let deflated_options = FileOptions::<()>::default()
+                .compression_method(zip::CompressionMethod::Deflated)
+                .unix_permissions(0o644);
+
+            zip.start_file("META-INF/container.xml", deflated_options)
+                .map_err(|e| format!("Failed to write container.xml: {}", e))?;
+            let container_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>"#;
+            zip.write_all(container_xml.as_bytes())
+                .map_err(|e| format!("Failed to write container.xml content: {}", e))?;
+
+            for section in &self.sections {
+                let sec_path = format!("OEBPS/section_{}.html", section.index);
+                zip.start_file(&sec_path, deflated_options)
+                    .map_err(|e| format!("Failed to write {}: {}", sec_path, e))?;
+
+                let doc_html = format!(
+                    "<!DOCTYPE html>\n<html xmlns=\"http://www.w3.org/1999/xhtml\">\n<head><title>Section {}</title></head>\n<body>\n{}\n</body>\n</html>",
+                    section.index + 1,
+                    section.processed_html
+                );
+                zip.write_all(doc_html.as_bytes())
+                    .map_err(|e| format!("Failed to write {} content: {}", sec_path, e))?;
+            }
+
+            zip.start_file("OEBPS/nav.xhtml", deflated_options)
+                .map_err(|e| format!("Failed to write nav.xhtml: {}", e))?;
+            let mut nav_html = String::from(
+                "<!DOCTYPE html>\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\">\n<head><title>Navigation</title></head>\n<body>\n<nav epub:type=\"toc\" id=\"toc\">\n<ol>\n",
+            );
+            for pt in &self.toc {
+                nav_html.push_str(&format!(
+                    "<li><a href=\"{}\">{}</a></li>\n",
+                    pt.href, pt.label
+                ));
+            }
+            nav_html.push_str("</ol>\n</nav>\n</body>\n</html>");
+            zip.write_all(nav_html.as_bytes())
+                .map_err(|e| format!("Failed to write nav.xhtml content: {}", e))?;
+
+            zip.start_file("OEBPS/content.opf", deflated_options)
+                .map_err(|e| format!("Failed to write content.opf: {}", e))?;
+
+            let mut opf_xml = format!(
+                r#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="pub-id">urn:uuid:ebook-rs-export-{}</dc:identifier>
+    <dc:title>{}</dc:title>
+    <dc:language>{}</dc:language>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+"#,
+                self.opf
+                    .metadata
+                    .title
+                    .chars()
+                    .filter(|c| c.is_alphanumeric())
+                    .collect::<String>(),
+                self.opf.metadata.title,
+                self.opf
+                    .metadata
+                    .languages
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "en".to_string())
+            );
+
+            for section in &self.sections {
+                opf_xml.push_str(&format!(
+                    "    <item id=\"sec_{}\" href=\"section_{}.html\" media-type=\"application/xhtml+xml\"/>\n",
+                    section.index, section.index
+                ));
+            }
+
+            opf_xml.push_str("  </manifest>\n  <spine>\n");
+            for section in &self.sections {
+                opf_xml.push_str(&format!("    <itemref idref=\"sec_{}\"/>\n", section.index));
+            }
+            opf_xml.push_str("  </spine>\n</package>");
+
+            zip.write_all(opf_xml.as_bytes())
+                .map_err(|e| format!("Failed to write content.opf content: {}", e))?;
+
+            zip.finish()
+                .map_err(|e| format!("Failed to finalize EPUB ZIP archive: {}", e))?;
+        }
+
+        Ok(zip_buf)
+    }
 }
 
 fn extract_first_img_src(html: &str) -> Option<String> {

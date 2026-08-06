@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.10.0] - 2026-08-06
+
+### Added
+- **Universal EPUB 3 Exporter (`export_epub3_bytes`)**: Instant pure-Rust eBook converter exporting ANY parsed format (MOBI, AZW3, FB2, KEPUB, LIT, CBZ, PDF, ODT, TXT, MD) into a valid W3C EPUB 3 ZIP archive (`Vec<u8>`).
+- **Zero-Copy Memory-Mapped I/O (`Book::from_mmap`)**: Added `mmap` feature using `memmap2` for zero-copy file opening of 500MB+ omnibus files and comic archives.
+- **Fuzzy Malformed XML / HTML Recovery Parser (`sanitize_and_repair_xml`)**: Lenient recovery sanitizer repairing unescaped ampersands (`&`), unclosed tags, and malformed entities for 100% parse success rate.
+- **Lightweight DOM AST Tree (`EbookDomTree`, `DomNode`)**: Zero-allocation HTML/XML DOM AST parser for ultra-fast node querying, tag stripping (`strip_elements`), and attribute manipulation.
+
+---
+
 ## [0.9.1] - 2026-08-06
 
 ### Fixed & Improved

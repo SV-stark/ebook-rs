@@ -121,7 +121,15 @@ pub struct PageListItem {
 
 /// Parse EPUB 2 NCX document (`toc.ncx`).
 pub fn parse_ncx(xml_content: &str, ncx_path: &str) -> Result<Vec<NavPoint>, String> {
-    let doc = Document::parse(xml_content).map_err(|e| format!("NCX XML parse error: {}", e))?;
+    let repaired_xml;
+    let effective_xml = match Document::parse(xml_content) {
+        Ok(_) => xml_content,
+        Err(_) => {
+            repaired_xml = crate::dom::sanitize_and_repair_xml(xml_content);
+            &repaired_xml
+        }
+    };
+    let doc = Document::parse(effective_xml).map_err(|e| format!("NCX XML parse error: {}", e))?;
     let ncx_dir = if let Some(idx) = ncx_path.rfind('/') {
         &ncx_path[..idx]
     } else {
@@ -199,7 +207,16 @@ fn parse_ncx_navpoint(node: &roxmltree::Node, base_dir: &str) -> Option<NavPoint
 
 /// Parse EPUB 3 Navigation Document (`nav.xhtml`).
 pub fn parse_nav_xhtml(html_content: &str, nav_path: &str) -> Result<Vec<NavPoint>, String> {
-    let doc = Document::parse(html_content).map_err(|e| format!("NAV XHTML parse error: {}", e))?;
+    let repaired_xml;
+    let effective_xml = match Document::parse(html_content) {
+        Ok(_) => html_content,
+        Err(_) => {
+            repaired_xml = crate::dom::sanitize_and_repair_xml(html_content);
+            &repaired_xml
+        }
+    };
+    let doc =
+        Document::parse(effective_xml).map_err(|e| format!("NAV XHTML parse error: {}", e))?;
     let nav_dir = if let Some(idx) = nav_path.rfind('/') {
         &nav_path[..idx]
     } else {
