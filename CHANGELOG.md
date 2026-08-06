@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.3] - 2026-08-06
+
+### Fixed
+- **B2 (Non-ASCII Attribute Extraction)**: Added character boundary safety checks in `extract_attr` (`tag_str.is_char_boundary`), preventing string slice panics when parsing non-ASCII attributes (`alt="über"`, `title="日本語"`) and CJK image filenames.
+- **B6 (RAR v4 & RAR v5 CBR Detection)**: Updated CBR file signature detection to explicitly match both RAR v4 (`Rar!\x1a\x07\x00`) and RAR v5 (`Rar!\x1a\x07\x01\x00`) magic headers, returning actionable error messages instructing users to convert CBR to CBZ format.
+
+---
+
 ## [0.5.2] - 2026-08-06
 
 ### Added
