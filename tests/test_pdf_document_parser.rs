@@ -11,7 +11,7 @@ fn test_pdf_header_detection_and_parsing() {
     {
         // When PDF feature is active, it parses or returns structured PDF result
         if let Ok(book) = result {
-            assert!(book.sections.len() > 0 || book.opf.metadata.title == "Sample PDF Paper");
+            assert!(!book.sections.is_empty() || book.opf.metadata.title == "Sample PDF Paper");
         } else {
             // Document was minimal byte mock
             assert!(result.is_err());

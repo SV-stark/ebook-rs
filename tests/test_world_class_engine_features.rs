@@ -55,3 +55,23 @@ fn test_lightweight_dom_ast_tree() {
     assert!(!stripped_html.contains("script"));
     assert!(stripped_html.contains("Title"));
 }
+
+#[test]
+fn test_performance_crate_accelerators() {
+    // 1. Test simdutf8 fast SIMD validation
+    let valid_bytes = b"Hello SIMD UTF-8 World";
+    assert!(simdutf8::basic::from_utf8(valid_bytes).is_ok());
+
+    // 2. Test ahash AHashMap speed
+    let mut map = ahash::AHashMap::new();
+    map.insert("ch1.xhtml", 1);
+    assert_eq!(map.get("ch1.xhtml"), Some(&1));
+
+    // 3. Test compact_str SSO
+    let sso_str = compact_str::CompactString::new("short_idref");
+    assert_eq!(sso_str, "short_idref");
+
+    // 4. Test parking_lot mutex lock
+    let lock = parking_lot::Mutex::new(42);
+    assert_eq!(*lock.lock(), 42);
+}

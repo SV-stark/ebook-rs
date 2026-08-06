@@ -1,12 +1,13 @@
+use ahash::AHashMap;
+use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// A node in the lightweight Ebook DOM AST tree.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum DomNode {
     Element {
-        tag_name: String,
-        attributes: HashMap<String, String>,
+        tag_name: CompactString,
+        attributes: AHashMap<CompactString, CompactString>,
         children: Vec<DomNode>,
     },
     Text(String),
@@ -89,18 +90,20 @@ impl EbookDomTree {
     pub fn strip_elements(&mut self, tags_to_strip: &[&str]) {
         let strip_set: Vec<String> = tags_to_strip.iter().map(|s| s.to_lowercase()).collect();
         self.root_nodes.retain(|node| match node {
-            DomNode::Element { tag_name, .. } => !strip_set.contains(&tag_name.to_lowercase()),
+            DomNode::Element { tag_name, .. } => {
+                !strip_set.contains(&tag_name.to_lowercase().to_string())
+            }
             _ => true,
         });
     }
 }
 
-fn parse_tag_parts(content: &str) -> (String, HashMap<String, String>) {
+fn parse_tag_parts(content: &str) -> (CompactString, AHashMap<CompactString, CompactString>) {
     let trimmed = content.trim_end_matches('/').trim();
     let mut parts = trimmed.split_whitespace();
-    let tag_name = parts.next().unwrap_or("").to_string();
+    let tag_name = CompactString::new(parts.next().unwrap_or(""));
 
-    let mut attrs = HashMap::new();
+    let mut attrs = AHashMap::new();
     let mut search_idx = tag_name.len();
     while search_idx < trimmed.len() {
         let rem = &trimmed[search_idx..].trim_start();
@@ -108,12 +111,12 @@ fn parse_tag_parts(content: &str) -> (String, HashMap<String, String>) {
             break;
         }
         if let Some(eq_idx) = rem.find('=') {
-            let key = rem[..eq_idx].trim().to_string();
+            let key = CompactString::new(rem[..eq_idx].trim());
             let val_rem = rem[eq_idx + 1..].trim_start();
             if let Some(stripped) = val_rem.strip_prefix('"') {
                 if let Some(end_q) = stripped.find('"') {
                     let val = &stripped[..end_q];
-                    attrs.insert(key, val.to_string());
+                    attrs.insert(key, CompactString::new(val));
                     search_idx = trimmed.len() - stripped[end_q + 1..].len();
                 } else {
                     break;
@@ -121,20 +124,20 @@ fn parse_tag_parts(content: &str) -> (String, HashMap<String, String>) {
             } else if let Some(stripped) = val_rem.strip_prefix('\'') {
                 if let Some(end_q) = stripped.find('\'') {
                     let val = &stripped[..end_q];
-                    attrs.insert(key, val.to_string());
+                    attrs.insert(key, CompactString::new(val));
                     search_idx = trimmed.len() - stripped[end_q + 1..].len();
                 } else {
                     break;
                 }
             } else {
                 let val_end = val_rem.find(char::is_whitespace).unwrap_or(val_rem.len());
-                attrs.insert(key, val_rem[..val_end].to_string());
+                attrs.insert(key, CompactString::new(&val_rem[..val_end]));
                 search_idx = trimmed.len() - val_rem[val_end..].len();
             }
         } else {
             let key = rem.split_whitespace().next().unwrap_or("");
             if !key.is_empty() {
-                attrs.insert(key.to_string(), String::new());
+                attrs.insert(CompactString::new(key), CompactString::new(""));
             }
             break;
         }

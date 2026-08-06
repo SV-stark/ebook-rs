@@ -155,7 +155,7 @@ impl CbzBook {
             opf_path: "content.opf".to_string(),
             opf_dir: "".to_string(),
             metadata,
-            manifest: HashMap::new(),
+            manifest: ahash::AHashMap::new(),
             spine,
             guide: Vec::new(),
             toc_item_id: None,

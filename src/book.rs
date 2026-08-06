@@ -219,7 +219,7 @@ impl Book {
     }
 
     /// Manifest map.
-    pub fn manifest(&self) -> &HashMap<String, ManifestItem> {
+    pub fn manifest(&self) -> &ahash::AHashMap<String, ManifestItem> {
         &self.opf.manifest
     }
 

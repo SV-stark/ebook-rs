@@ -315,7 +315,7 @@ impl MobiBook {
             opf_path: "OEBPS/content.opf".to_string(),
             opf_dir: "OEBPS".to_string(),
             metadata,
-            manifest: HashMap::new(),
+            manifest: ahash::AHashMap::new(),
             spine,
             guide: Vec::new(),
             toc_item_id: None,

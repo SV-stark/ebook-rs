@@ -1,7 +1,7 @@
 use crate::archive::resolve_relative_path;
 use crate::metadata::{GuideItem, ManifestItem, Metadata, PageProgressionDirection, SpineItem};
+use ahash::AHashMap;
 use roxmltree::Document;
-use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct OpfPackage {
@@ -9,7 +9,7 @@ pub struct OpfPackage {
     pub opf_path: String,
     pub opf_dir: String,
     pub metadata: Metadata,
-    pub manifest: HashMap<String, ManifestItem>,
+    pub manifest: AHashMap<String, ManifestItem>,
     pub spine: Vec<SpineItem>,
     pub guide: Vec<GuideItem>,
     pub toc_item_id: Option<String>,
@@ -60,7 +60,7 @@ pub fn parse_opf(xml_content: &str, opf_path: &str) -> Result<OpfPackage, String
     };
 
     let mut metadata = Metadata::default();
-    let mut manifest = HashMap::new();
+    let mut manifest = AHashMap::new();
     let mut spine = Vec::new();
     let mut guide = Vec::new();
     let mut toc_item_id = None;

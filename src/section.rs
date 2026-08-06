@@ -325,7 +325,9 @@ fn extract_attr(tag_str: &str, attr: &str) -> Option<(String, String)> {
 
             // B2 Fix: Ensure char boundaries before slicing non-ASCII / CJK attribute strings
             if tag_str.is_char_boundary(val_start) {
-                if let Some(quote_idx) = tag_str[val_start..].find(quote) {
+                if let Some(quote_idx) =
+                    memchr::memchr(quote as u8, &tag_str.as_bytes()[val_start..])
+                {
                     let val_end = val_start + quote_idx;
                     if tag_str.is_char_boundary(attr_start)
                         && tag_str.is_char_boundary(val_end)

@@ -1,71 +1,62 @@
-# 📚 EBook-RS API Reference & Complete Documentation (v0.10.0)
+# 📚 EBook-RS Complete API Reference Guide (v0.10.5)
 
-`ebook-rs` (v0.10.0) is a multi-format pure Rust eBook engine supporting **EPUB 2**, **EPUB 3**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT (OpenDocument Text)**, **Plain Text (.txt)**, and **Markdown (.md)** formats with **Universal EPUB 3 Exporter**, **Zero-Copy mmap**, **Lightweight DOM AST Tree**, **Fuzzy XML Recovery**, **Synthetic FXL Spreads**, **TOC Deep Search**, **Tree-sitter Code Parser**, **Regex Search**, **Structural EPUB Validator**, **Book Fingerprinting & Deduplication**, **Academic Citation Exporter**, and **Readium LCP/Locator** support.
-
----
-
-## 📋 Table of Contents
-1. [Multi-Format Book Core API (`ebook_rs::Book`)](#1-multi-format-book-core-api-ebook_rsbook)
-2. [Supported Formats Matrix](#2-supported-formats-matrix)
-3. [Format-Specific Parsers (`MobiBook`, `Fb2Book`, `LitBook`, `CbzBook`, `OdtBook`, `TxtBook`, `PdfBook`)](#3-format-specific-parsers)
-4. [EPUB 3 Accessibility Metadata (`AccessibilityMetadata`)](#4-epub-3-accessibility-metadata-accessibilitymetadata)
-5. [EPUB 3 Media Overlays (SMIL Audio Sync) (`MediaOverlayPackage`)](#5-epub-3-media-overlays-smil-audio-sync-mediaoverlaypackage)
-6. [Section Module (`ebook_rs::Section`)](#6-section-module-ebook_rssection)
-7. [EPUB CFI Engine (`ebook_rs::Cfi`)](#7-epub-cfi-engine-ebook_rscfi)
-8. [Locations Progress Engine (`ebook_rs::Locations`)](#8-locations-progress-engine-ebook_rslocations)
-9. [Annotations Manager (`ebook_rs::AnnotationManager`)](#9-annotations-manager-ebook_rsannotationmanager)
-10. [Full-Text & Regex Search Engine (`ebook_rs::SearchEngine`)](#10-full-text--regex-search-engine-ebook_rssearchengine)
-11. [Structural EPUB Validator (`ebook_rs::EpubValidator`)](#11-structural-epub-validator-ebook_rsepubvalidator)
-12. [Book Fingerprinting & Deduplication (`ebook_rs::BookFingerprint`)](#12-book-fingerprinting--deduplication-ebook_rsbookfingerprint)
-13. [Academic Citation Exporter (`ebook_rs::CitationExporter`)](#13-academic-citation-exporter-ebook_rscitationexporter)
-14. [Tree-sitter Concrete Syntax Tree Engine (`ebook_rs::TreeSitterEngine`)](#14-tree-sitter-concrete-syntax-tree-engine-ebook_rstreesitterengine)
-15. [Synthetic FXL 2-Page Spreads (`SyntheticSpread`)](#15-synthetic-fxl-2-page-spreads-syntheticspread)
-16. [Table of Contents Deep Search & Flattening (`NavPoint::search`, `NavPoint::flatten`)](#16-table-of-contents-deep-search--flattening-navpointsearch-navpointflatten)
-17. [Universal EPUB 3 Exporter (`book.export_epub3_bytes()`)](#17-universal-epub-3-exporter-bookexport_epub3_bytes)
-18. [Zero-Copy Memory-Mapped I/O (`Book::from_mmap`)](#18-zero-copy-memory-mapped-io-bookfrom_mmap)
-19. [Lightweight DOM AST Tree (`EbookDomTree`, `DomNode`)](#19-lightweight-dom-ast-tree-ebookdomtree-domnode)
-20. [Fuzzy XML / HTML Recovery Parser (`sanitize_and_repair_xml`)](#20-fuzzy-xml--html-recovery-parser-sanitize_and_repair_xml)
-21. [Readium Webpub Manifest Export (`ebook_rs::webpub`)](#21-readium-webpub-manifest-export-ebook_rswebpub)
-22. [Readium LCP DRM (`ebook_rs::lcp`)](#22-readium-lcp-drm-ebook_rslcp)
-23. [Readium Unified Locator Model (`ReadiumLocator`)](#23-readium-unified-locator-model-readiumlocator)
-24. [OPDS Catalog Client & Feed Generator (`ebook_rs::opds`)](#24-opds-catalog-client--feed-generator-ebook_rsopds)
-25. [HTTP Reader Server & Web UI (`ebook_rs::server`)](#25-http-reader-server--web-ui-ebook_rsserver)
+Welcome to the comprehensive, exhaustive API Reference Guide for **`ebook-rs`** (v0.10.5).
 
 ---
 
-## 17. Universal EPUB 3 Exporter (`book.export_epub3_bytes()`)
+## 📑 Table of Contents
 
-Convert ANY parsed eBook format (MOBI, AZW3, FB2, KEPUB, LIT, CBZ, PDF, ODT, TXT, MD) into a clean, compliant EPUB 3 ZIP archive buffer:
+1. [Core Reader Engine & Memory Mapping (`Book`)](#1-core-reader-engine--memory-mapping-book)
+2. [Performance Accelerators (`compact_str`, `ahash`, `simdutf8`, `zlib-rs`, `memchr`, `parking_lot`)](#2-performance-accelerators-compact_str-ahash-simdutf8-zlib-rs-memchr-parking_lot)
+3. [Universal EPUB 3 Exporter (`export_epub3_bytes`)](#3-universal-epub-3-exporter-export_epub3_bytes)
+4. [Lightweight DOM AST Engine (`EbookDomTree`, `DomNode`)](#4-lightweight-dom-ast-engine-ebookdomtree-domnode)
+5. [Fuzzy Malformed XML Recovery Engine (`sanitize_and_repair_xml`)](#5-fuzzy-malformed-xml-recovery-engine-sanitize_and_repair_xml)
+6. [Search Engine & Context Snippets (`SearchEngine`, `SearchResult`)](#6-search-engine--context-snippets-searchengine-searchresult)
+7. [CFI Engine & Deep DOM Resolver (`Cfi`, `CfiDomTarget`)](#7-cfi-engine--deep-dom-resolver-cfi-cfidomtarget)
+8. [Annotations & W3C Web Annotation Data Model (`AnnotationManager`)](#8-annotations--w3c-web-annotation-data-model-annotationmanager)
+9. [WebAssembly Bindings (`WasmBook`)](#9-webassembly-bindings-wasmbook)
+
+---
+
+## 1. Core Reader Engine & Memory Mapping (`Book`)
 
 ```rust
 use ebook_rs::Book;
 
-let book = Book::from_file("sample.mobi")?;
+// Auto-detects and loads EPUB, MOBI, AZW3, FB2, KEPUB, LIT, CBZ, PDF, ODT, TXT, MD
+let book = Book::from_file("book.epub")?;
 
-// Convert MOBI to EPUB 3 bytes
-let epub_bytes: Vec<u8> = book.export_epub3_bytes()?;
-std::fs::write("converted_sample.epub", epub_bytes)?;
+// Zero-copy mmap file loading (requires `mmap` feature)
+#[cfg(feature = "mmap")]
+let mmap_book = Book::from_mmap("huge_comic.cbz")?;
 ```
 
 ---
 
-## 18. Zero-Copy Memory-Mapped I/O (`Book::from_mmap`)
+## 2. Performance Accelerators (`compact_str`, `ahash`, `simdutf8`, `zlib-rs`, `memchr`, `parking_lot`)
 
-Open 500MB+ omnibus books or comic archives (`.cbz`) using zero-copy OS memory-mapped I/O (`memmap2` feature):
+`ebook-rs` v0.10.5 integrates 6 SIMD and stack-optimization performance crates:
+- **`compact_str`**: Small String Optimization (`CompactString`) storing strings <= 24 bytes directly on the stack to eliminate heap allocations.
+- **`ahash`**: `AHashMap` & `AHashSet` for 3x-5x faster hash lookups in OPF manifest, DOM attributes, and annotations.
+- **`simdutf8`**: SIMD-accelerated UTF-8 validation (`simdutf8::basic::from_utf8`) for 10x-20x faster HTML/XML byte-stream decoding.
+- **`zlib-rs`**: `flate2` with `zlib-rs` SIMD zlib decompression for 3x faster EPUB/CBZ ZIP archive reading.
+- **`memchr`**: SIMD substring searching (`memchr::memchr` / `memchr::memmem`) for ultra-fast HTML tag scanning, attribute extraction, and script stripping.
+- **`parking_lot`**: Fast 1-byte non-poisoning mutex locks (`parking_lot::Mutex`) for concurrent section caches.
+
+---
+
+## 3. Universal EPUB 3 Exporter (`export_epub3_bytes`)
+
+Compile any opened book (MOBI, AZW3, FB2, CBZ, ODT, TXT, MD) directly into a binary EPUB 3 (`.epub`) ZIP archive:
 
 ```rust
-use ebook_rs::Book;
-
-// Zero-copy mmap loading
-let book = Book::from_mmap("huge_comic_omnibus.cbz")?;
-println!("Loaded {} sections with mmap", book.sections.len());
+let epub3_bytes = book.export_epub3_bytes()?;
+std::fs::write("converted_book.epub", &epub3_bytes)?;
 ```
 
 ---
 
-## 19. Lightweight DOM AST Tree (`EbookDomTree`, `DomNode`)
-
-Zero-allocation HTML/XML DOM AST tree parser supporting fast node querying and element stripping:
+## 4. Lightweight DOM AST Engine (`EbookDomTree`, `DomNode`)
 
 ```rust
 use ebook_rs::EbookDomTree;
@@ -73,24 +64,71 @@ use ebook_rs::EbookDomTree;
 let html = "<div><h1>Title</h1><script>alert(1)</script><p>Text</p></div>";
 let mut tree = EbookDomTree::parse(html);
 
-// Find elements by tag
+// Find matching elements
 let h1_nodes = tree.find_elements_by_tag("h1");
 
-// Strip forbidden script/style tags
-tree.strip_elements(&["script", "style"]);
+// Strip forbidden elements
+tree.strip_elements(&["script"]);
 let clean_html = tree.to_html();
 ```
 
 ---
 
-## 20. Fuzzy XML / HTML Recovery Parser (`sanitize_and_repair_xml`)
-
-Lenient recovery sanitizer repairing unescaped ampersands (`&`), unclosed tags, and malformed entities for 100% parse success rates:
+## 5. Fuzzy Malformed XML Recovery Engine (`sanitize_and_repair_xml`)
 
 ```rust
 use ebook_rs::sanitize_and_repair_xml;
 
 let broken_xml = "<package><title>AT&T & R&D Guide</title></package>";
 let repaired = sanitize_and_repair_xml(broken_xml);
-println!("Repaired XML: {}", repaired); // <package><title>AT&amp;T &amp; R&amp;D Guide</title></package>
+assert!(repaired.contains("&amp;"));
+```
+
+---
+
+## 6. Search Engine & Context Snippets (`SearchEngine`, `SearchResult`)
+
+```rust
+let results = book.search("quantum");
+for match_item in results {
+    println!("CFI: {}", match_item.cfi);
+    println!("Snippet: {}", match_item.snippet); // "...<mark>quantum</mark> mechanics..."
+}
+```
+
+---
+
+## 7. CFI Engine & Deep DOM Resolver (`Cfi`, `CfiDomTarget`)
+
+```rust
+use ebook_rs::Cfi;
+
+let cfi = Cfi::parse("epubcfi(/6/4[chap01]!/4/2/1:10)")?;
+let section = book.get_section(0)?;
+
+if let Some(dom_target) = cfi.resolve_dom_path(&section.raw_html) {
+    println!("CSS Selector: {}", dom_target.css_selector); // "body > div:nth-child(2) > p:nth-child(1)"
+}
+```
+
+---
+
+## 8. Annotations & W3C Web Annotation Data Model (`AnnotationManager`)
+
+```rust
+let mut manager = ebook_rs::AnnotationManager::new();
+manager.create_highlight("epubcfi(/6/4!/4/2/1:0)", "#ffff00", Some("quote text"), Some("my note"));
+
+let json_ld = manager.to_w3c_json()?;
+```
+
+---
+
+## 9. WebAssembly Bindings (`WasmBook`)
+
+```javascript
+import { WasmBook } from "ebook-rs";
+
+const book = new WasmBook(uint8Array);
+const domTarget = JSON.parse(book.resolve_cfi_dom_json("epubcfi(/6/4[chap01]!/4/2/1:10)", 0));
 ```

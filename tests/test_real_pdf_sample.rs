@@ -30,11 +30,11 @@ fn test_real_pdf_sample_parsing() {
             "PDF title should not be empty"
         );
         assert!(
-            book.spine().len() > 0,
+            !book.spine().is_empty(),
             "PDF should have at least 1 page/spine item"
         );
         assert!(
-            book.sections.len() > 0,
+            !book.sections.is_empty(),
             "PDF should have extracted section pages"
         );
 

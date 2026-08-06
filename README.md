@@ -1,4 +1,4 @@
-# 📖 EBook-RS: Multi-Format Rust EBook Parser and Reader Engine (v0.10.0)
+# 📖 EBook-RS: Multi-Format Rust EBook Parser and Reader Engine (v0.10.5)
 
 `ebook-rs` is a high-performance, 100% pure Rust parser and reader engine for **EPUB 2**, **EPUB 3**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT**, **TXT**, and **MD** formats, designed for full feature parity with **epub.js** and **foliate-js**.
 
@@ -6,23 +6,18 @@
 
 ## ⚡ Feature Parity Matrix
 
-| Feature | 🚀 `ebook-rs` (v0.10.0) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.10.5) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **EPUB 2 & 3 Support** | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes |
 | **MOBI & AZW3 Support** | ✅ Native PalmDOC LZ77 | ❌ No | ✅ Yes | ❌ No |
 | **FB2 (FictionBook 2) Support** | ✅ Native XML | ❌ No | ✅ Yes | ❌ No |
-| **KEPUB & LIT Support** | ✅ Native | ❌ No | ✅ Yes | ❌ No |
+| **KEPUB, LIT, PDF, ODT, TXT, MD Support** | ✅ Native | ❌ No | ✅ Yes | ❌ No |
 | **CBZ Comic Archive Support** | ✅ Native ZIP Images | ❌ No | ✅ Yes | ❌ No |
-| **PDF Document Text Extraction** | ✅ `PdfBook` (pdf_oxide) | ❌ No | ✅ Yes | ❌ No |
-| **ODT OpenDocument Text Support** | ✅ `OdtBook` | ❌ No | ❌ No | ❌ No |
-| **Plain Text & Markdown Support** | ✅ `TxtBook` | ❌ No | ❌ No | ❌ No |
-| **Universal EPUB 3 Exporter** | ✅ `export_epub3_bytes` | ❌ No | ❌ No | ❌ No |
-| **Zero-Copy Memory-Mapped I/O** | ✅ `Book::from_mmap` | ❌ No | ❌ No | ❌ No |
-| **Fuzzy XML Recovery Parser** | ✅ `sanitize_and_repair_xml` | ❌ No | ❌ No | ❌ No |
-| **Lightweight DOM AST Tree** | ✅ `EbookDomTree` | ❌ No | ❌ No | ❌ No |
-| **Synthetic FXL 2-Page Spreads** | ✅ `get_synthetic_spread` | ❌ No | ❌ No | ❌ No |
-| **Deep TOC Search & Flattening** | ✅ `search_toc`, `flatten_toc` | ❌ No | ❌ No | ❌ No |
-| **Tree-sitter Code Parser & Highlighter** | ✅ `TreeSitterEngine` | ❌ No | ❌ No | ❌ No |
+| **Performance Accelerators** | ✅ `compact_str`, `ahash`, `simdutf8`, `zlib-rs`, `memchr`, `parking_lot` | ❌ No | ❌ No | ❌ No |
+| **Universal EPUB 3 Exporter** | ✅ `export_epub3_bytes()` | ❌ No | ❌ No | ❌ No |
+| **Zero-Copy Memory-Mapped I/O** | ✅ `Book::from_mmap()` | ❌ No | ❌ No | ❌ No |
+| **Lightweight DOM AST Tree** | ✅ `EbookDomTree` | ❌ DOM-based | ❌ DOM-based | ❌ None |
+| **Fuzzy Malformed XML Recovery** | ✅ `sanitize_and_repair_xml` | ❌ Strict | ❌ Strict | ❌ Strict |
 | **Rayon Multi-Core Parallel Parsing** | ✅ `parallel` feature | ❌ Single Thread | ❌ Single Thread | ❌ Single Thread |
 | **DOM-Free Reflow Paginator** | ✅ `ReflowPaginator` | ❌ DOM-based | ❌ DOM-based | ❌ None |
 | **NLP Reading Analytics & Keywords** | ✅ `ReadingAnalytics` | ❌ No | ❌ No | ❌ No |
@@ -34,25 +29,6 @@
 | **Remote ZIP Central Directory Streamer** | ✅ `ZipHeaderReader` | ❌ Unpacked only | ❌ Download full | ❌ No |
 | **Footnote & Endnote Previewer** | ✅ `extract_footnotes()` | ❌ No | ✅ Yes | ❌ No |
 | **OPDS Catalog Feed Client** | ✅ OPDS 1.2 & 2.0 | ❌ No | ✅ Yes | ❌ No |
-| **Resource Streaming API** | ✅ `AssetDeliveryStrategy` | ✅ Blob URIs | ✅ Blob URIs | ❌ No |
-| **Embedded Script Sanitizer** | ✅ `strip_script_content()` | ✅ Sandbox | ✅ Sandbox | ❌ No |
-| **Fixed Layout (FXL) Scaling** | ✅ `compute_fxl_scale()` | ✅ Yes | ✅ Yes | ❌ No |
-| **Full-Text Search Engine** | ✅ 0.59ms / 0-alloc | ❌ Third-party | ✅ Yes | ❌ No |
-| **EPUB Canonical Fragment Identifiers (CFI)** | ✅ Complete IDPF Spec | ✅ Yes | ✅ Yes | ❌ No |
-| **Locations & Progress Indexing** | ✅ Discrete Chunks | ⚠️ Slow (DOM) | ✅ Yes | ❌ No |
-| **Font De-Obfuscation (IDPF & Adobe)** | ✅ Native SHA-1/XOR | ❌ No | ✅ Yes | ❌ No |
-| **WebAssembly Browser Support** | ✅ `wasm-bindgen` | ❌ JS Only | ❌ JS Only | ❌ No |
-| **Embedded HTTP Reader App** | ✅ Built-in Server | ❌ No | ❌ No | ❌ No |
-| **EPUB 3 Accessibility Metadata (a11y)** | ✅ `AccessibilityMetadata` | ❌ No | ⚠️ Partial | ❌ No |
-| **EPUB 3 Media Overlays (SMIL Sync)** | ✅ `MediaOverlayPackage` | ❌ No | ✅ Yes | ❌ No |
-| **Readium Webpub Manifest Export** | ✅ `to_webpub_manifest` | ❌ No | ✅ Yes | ❌ No |
-| **Readium LCP DRM Parsing** | ✅ `LcpLicense`, `LcpDecryptor` | ❌ No | ❌ No | ❌ No |
-| **Readium Unified Locator Model** | ✅ `to_readium_locator()` | ❌ No | ✅ Yes | ❌ No |
-| **Readium Search API (JSON)** | ✅ `to_readium_search_json()` | ❌ No | ❌ No | ❌ No |
-| **Regex Full-Text Search** | ✅ `search_regex()` | ❌ No | ❌ No | ❌ No |
-| **EPUB Structural Validator** | ✅ `EpubValidator` | ❌ No | ❌ No | ❌ No |
-| **Content Fingerprinting & Deduplication** | ✅ `BookFingerprint` | ❌ No | ❌ No | ❌ No |
-| **Academic Citation Exporter** | ✅ BibTeX, APA, MLA, Chicago | ❌ No | ❌ No | ❌ No |
 
 ---
 
@@ -62,24 +38,19 @@
 use ebook_rs::{Book, ReflowPaginator, Cfi};
 
 fn main() -> Result<(), String> {
-    // Auto-detects and opens EPUB, MOBI, AZW3, FB2, KEPUB, LIT, or CBZ files
+    // Auto-detects and opens EPUB, MOBI, AZW3, FB2, KEPUB, LIT, CBZ, PDF, ODT, TXT, MD
     let mut book = Book::from_file("book.epub")?;
 
     println!("Title: {}", book.metadata().title);
     println!("Sections: {}", book.spine().len());
 
+    // Export any format to standard binary EPUB3 ZIP bytes
+    let epub3_bytes = book.export_epub3_bytes()?;
+
     // Search with surrounding context snippets and <mark> highlights
     let search_results = book.search("quantum");
     for res in search_results {
         println!("Snippet: {}", res.snippet);
-    }
-
-    // Resolve CFI element step to CSS DOM selector
-    let cfi = Cfi::parse("epubcfi(/6/4[chap01]!/4/2/1:10)")?;
-    let section = book.get_section(0)?;
-    if let Some(target) = cfi.resolve_dom_path(&section.raw_html) {
-        println!("CSS Selector: {}", target.css_selector);
-        println!("Target Element ID: {:?}", target.element_id);
     }
 
     Ok(())
@@ -88,42 +59,9 @@ fn main() -> Result<(), String> {
 
 ---
 
-## 🆕 What's New in v0.8.0
-
-- **Tree-sitter Code Block Parser & Highlighter** — Tokenize, parse AST syntax nodes (`SyntaxNodeInfo`), and highlight embedded code blocks (`<pre><code>`) across technical eBooks using `TreeSitterEngine` / `book.extract_code_blocks()`.
-- **OpenDocument Text (.odt) Parser** — Full `.odt` archive parsing (`OdtBook`), extracting `content.xml` headings, paragraphs, and `meta.xml` metadata.
-- **Plain Text (.txt) & Markdown (.md) Parsers** — `TxtBook` engine mapping Markdown headings (`#`, `##`) into `NavPoint` Table of Contents nodes and section breaks.
-- **Regex Full-Text Search** — Search eBook text using full regular expression patterns (`book.search_regex("(?i)quantum|physics")`).
-- **EPUB Structural Validator** — Validate eBook package integrity, OPF metadata, and spine references with `book.validate()` (`EpubValidator`).
-- **Book Fingerprinting & Deduplication** — Generate metadata-independent content hashes to detect duplicate books across formats with `book.fingerprint()`.
-- **Academic Citation Exporter** — Instantly export scholarly citations in **BibTeX**, **APA**, **MLA**, and **Chicago** formats (`book.to_bibtex()`, `book.to_apa()`, `book.to_mla()`, `book.to_chicago()`).
-
-```rust
-use ebook_rs::{Book, TreeSitterEngine};
-
-let book = Book::from_file("rust_guide.md")?;
-
-// 1. Extract embedded code blocks with AST syntax nodes
-let code_blocks = book.extract_code_blocks();
-for block in code_blocks {
-    println!("Language: {}, AST Nodes: {}", block.language, block.ast_nodes.len());
-}
-
-// 2. Structural Validation
-let report = book.validate();
-
-// 3. Content Fingerprinting & Match Score
-let fp = book.fingerprint();
-
-// 4. Academic Citations
-println!("BibTeX:\n{}", book.to_bibtex());
-```
-
----
-
 ## 📖 Documentation & Wiki
 
-Detailed API documentation and integration guides are available in [API.md](API.md) and the [GitHub Wiki](https://github.com/SV-stark/ebook-rs/wiki).
+Detailed API documentation and integration guides are available in [docs/API.md](docs/API.md) and [WIKI.md](WIKI.md).
 
 ---
 
