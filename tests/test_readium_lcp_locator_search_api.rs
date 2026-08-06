@@ -54,6 +54,12 @@ fn test_readium_unified_locator_model() {
     assert!(locator.locations.progression >= 0.0 && locator.locations.progression <= 1.0);
     assert!(locator.locations.total_progression >= 0.0);
     assert!(locator.text.is_some());
+
+    let md_book = ebook_rs::TxtBook::parse("# Chapter 1\n<h2 id=\"sec-1\">Section</h2>\nText content.".as_bytes(), "MD Book", true)
+        .expect("MD book parse error");
+    let md_loc = md_book.to_readium_locator(0, 5)
+        .expect("MD ReadiumLocator error");
+    assert_eq!(md_loc.locations.fragment, Some("sec-1".to_string()));
 }
 
 #[test]

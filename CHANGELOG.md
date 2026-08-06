@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.1] - 2026-08-06
+
+### Fixed & Improved
+- **Readium Locator HTML Anchor Fragment Inlining (`locations.fragment`)**: Implemented `find_nearest_element_id_anchor()` to automatically populate `locations.fragment` in `to_readium_locator()` with nearest HTML element ID anchors (e.g. `Some("sec-1")`) conforming to 100% Readium Locator specification.
+
+---
+
 ## [0.9.0] - 2026-08-06
 
 ### Added

@@ -30,6 +30,8 @@ pub struct LocatorLocations {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cfi: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub fragment: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub position: Option<usize>,
     pub progression: f64,
     #[serde(rename = "totalProgression")]

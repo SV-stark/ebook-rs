@@ -377,12 +377,15 @@ impl Book {
         let loc_idx = loc_entry.map(|e| e.location).unwrap_or(1);
         let total_progression = self.locations.percentage_from_location(loc_idx);
 
+        let fragment = find_nearest_element_id_anchor(&section.raw_html, char_offset);
+
         Ok(crate::locations::ReadiumLocator {
             href: section.href.clone(),
             type_: "application/xhtml+xml".to_string(),
             title: Some(format!("Section {}", spine_index + 1)),
             locations: crate::locations::LocatorLocations {
                 cfi: Some(cfi),
+                fragment,
                 position: Some(loc_idx),
                 progression,
                 total_progression,
@@ -505,4 +508,25 @@ fn extract_first_img_src(html: &str) -> Option<String> {
         }
     }
     None
+}
+
+fn find_nearest_element_id_anchor(html: &str, _char_offset: usize) -> Option<String> {
+    let lower = html.to_lowercase();
+    let mut search_idx = 0;
+    let mut last_id: Option<String> = None;
+
+    while let Some(idx) = lower[search_idx..].find(" id=\"") {
+        let abs_idx = search_idx + idx + 5;
+        if let Some(end_quote) = html[abs_idx..].find('"') {
+            let id_val = &html[abs_idx..abs_idx + end_quote];
+            if !id_val.trim().is_empty() {
+                last_id = Some(id_val.to_string());
+            }
+            search_idx = abs_idx + end_quote + 1;
+        } else {
+            break;
+        }
+    }
+
+    last_id
 }
