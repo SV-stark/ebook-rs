@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.1] - 2026-08-06
+
+### Added
+- Synchronized documentation, GitHub Pages site, and GitHub Wiki across all 11 format parsers (EPUB 2/3, MOBI, AZW3, FB2, KEPUB, LIT, CBZ, PDF, ODT, TXT, MD) and Readium APIs.
+
+---
+
 ## [0.7.0] - 2026-08-06
 
 ### Added
