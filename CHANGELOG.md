@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.0] - 2026-08-06
+
+### Added
+- **Synthetic FXL 2-Page Spreads (`SyntheticSpread`)**: Auto-synthesizes responsive side-by-side two-page spread containers (`book.get_synthetic_spread(left_idx, Some(right_idx))`) for EPUB 3 Fixed-Layout and comic book readers.
+- **Table of Contents Deep Search & Flattening (`NavPoint::search`, `NavPoint::flatten`)**: Deep case-insensitive TOC searching across any hierarchy level with breadcrumb trails (`book.search_toc("query")`) and TOC tree flattening (`book.flatten_toc()`).
+
+---
+
 ## [0.8.3] - 2026-08-06
 
 ### Fixed & Improved

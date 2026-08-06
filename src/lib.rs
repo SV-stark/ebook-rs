@@ -52,8 +52,8 @@ pub use fb2::Fb2Book;
 pub use fingerprint::{BookFingerprint, FingerprintGenerator};
 pub use footnote::Footnote;
 pub use layout::{
-    AssetDeliveryStrategy, FlowMode, LayoutMode, RenditionLayout, SpreadMode, Theme,
-    ViewportManagerConfig,
+    AssetDeliveryStrategy, FlowMode, LayoutMode, RenditionLayout, SpreadMode, SyntheticSpread,
+    Theme, ViewportManagerConfig,
 };
 pub use lcp::{LcpDecryptor, LcpLicense, LcpRights, LcpUser};
 pub use lit::LitBook;
@@ -66,7 +66,7 @@ pub use metadata::{
     AccessibilityMetadata, GuideItem, ManifestItem, Metadata, PageProgressionDirection, SpineItem,
 };
 pub use mobi::{MobiBook, decompress_palmdoc};
-pub use nav::{Landmark, NavPoint, PageListItem};
+pub use nav::{Landmark, NavPoint, NavPointFlat, PageListItem, TocSearchResult};
 pub use odt::OdtBook;
 #[cfg(feature = "opds")]
 pub use opds::{OpdsEntry, OpdsFeed, OpdsLink};

@@ -1,6 +1,6 @@
-# 📚 EBook-RS API Reference & Complete Documentation (v0.8.0)
+# 📚 EBook-RS API Reference & Complete Documentation (v0.9.0)
 
-`ebook-rs` (v0.8.0) is a multi-format pure Rust eBook engine supporting **EPUB 2**, **EPUB 3**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT (OpenDocument Text)**, **Plain Text (.txt)**, and **Markdown (.md)** formats with **Tree-sitter Code Block Parser**, **Regex Search**, **Structural EPUB Validator**, **Book Fingerprinting & Deduplication**, **Academic Citation Exporter**, and **Readium LCP/Locator** support.
+`ebook-rs` (v0.9.0) is a multi-format pure Rust eBook engine supporting **EPUB 2**, **EPUB 3**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT (OpenDocument Text)**, **Plain Text (.txt)**, and **Markdown (.md)** formats with **Synthetic FXL Spreads**, **TOC Deep Search**, **Tree-sitter Code Parser**, **Regex Search**, **Structural EPUB Validator**, **Book Fingerprinting & Deduplication**, **Academic Citation Exporter**, and **Readium LCP/Locator** support.
 
 ---
 
@@ -19,11 +19,13 @@
 12. [Book Fingerprinting & Deduplication (`ebook_rs::BookFingerprint`)](#12-book-fingerprinting--deduplication-ebook_rsbookfingerprint)
 13. [Academic Citation Exporter (`ebook_rs::CitationExporter`)](#13-academic-citation-exporter-ebook_rscitationexporter)
 14. [Tree-sitter Concrete Syntax Tree Engine (`ebook_rs::TreeSitterEngine`)](#14-tree-sitter-concrete-syntax-tree-engine-ebook_rstreesitterengine)
-15. [Readium Webpub Manifest Export (`ebook_rs::webpub`)](#15-readium-webpub-manifest-export-ebook_rswebpub)
-16. [Readium LCP DRM (`ebook_rs::lcp`)](#16-readium-lcp-drm-ebook_rslcp)
-17. [Readium Unified Locator Model (`ReadiumLocator`)](#17-readium-unified-locator-model-readiumlocator)
-18. [OPDS Catalog Client & Feed Generator (`ebook_rs::opds`)](#18-opds-catalog-client--feed-generator-ebook_rsopds)
-19. [HTTP Reader Server & Web UI (`ebook_rs::server`)](#19-http-reader-server--web-ui-ebook_rsserver)
+15. [Synthetic FXL 2-Page Spreads (`SyntheticSpread`)](#15-synthetic-fxl-2-page-spreads-syntheticspread)
+16. [Table of Contents Deep Search & Flattening (`NavPoint::search`, `NavPoint::flatten`)](#16-table-of-contents-deep-search--flattening-navpointsearch-navpointflatten)
+17. [Readium Webpub Manifest Export (`ebook_rs::webpub`)](#17-readium-webpub-manifest-export-ebook_rswebpub)
+18. [Readium LCP DRM (`ebook_rs::lcp`)](#18-readium-lcp-drm-ebook_rslcp)
+19. [Readium Unified Locator Model (`ReadiumLocator`)](#19-readium-unified-locator-model-readiumlocator)
+20. [OPDS Catalog Client & Feed Generator (`ebook_rs::opds`)](#20-opds-catalog-client--feed-generator-ebook_rsopds)
+21. [HTTP Reader Server & Web UI (`ebook_rs::server`)](#21-http-reader-server--web-ui-ebook_rsserver)
 
 ---
 
@@ -64,182 +66,43 @@ let mut book = Book::from_bytes(&bytes)?;
 
 ---
 
-## 3. Format-Specific Parsers
+## 15. Synthetic FXL 2-Page Spreads (`SyntheticSpread`)
 
-In addition to `Book::from_file()`, format-specific parsers are available:
-- `ebook_rs::CbzBook::parse(bytes, title_fallback)` — Parses CBZ comic archives.
-- `ebook_rs::MobiBook::parse(bytes)` — Parses MOBI / AZW3 PalmDOC PDB containers.
-- `ebook_rs::Fb2Book::parse(bytes)` — Parses FictionBook 2 XML documents.
-- `ebook_rs::LitBook::parse(bytes)` — Parses Microsoft Reader LIT files.
-- `ebook_rs::OdtBook::parse(bytes, title_fallback)` — Parses OpenDocument Text (.odt) archives.
-- `ebook_rs::TxtBook::parse(bytes, title_fallback, is_markdown)` — Parses Plain Text (.txt) or Markdown (.md) documents.
-- `ebook_rs::PdfBook::parse(bytes, title_fallback)` — Parses pre-OCR PDF documents (`pdf` feature).
-
----
-
-## 4. EPUB 3 Accessibility Metadata (`AccessibilityMetadata`)
-
-`ebook-rs` parses W3C EPUB Accessibility 1.1 and Schema.org metadata into `book.metadata().accessibility`:
+Auto-synthesize responsive side-by-side two-page spread containers for EPUB 3 Fixed-Layout and comic books:
 
 ```rust
-let a11y = &book.metadata().accessibility;
+use ebook_rs::Book;
 
-if a11y.is_accessible {
-    println!("Access modes: {:?}", a11y.access_modes);
-    println!("Features: {:?}", a11y.accessibility_features);
-    println!("Summary: {:?}", a11y.accessibility_summary);
-    println!("Certified by: {:?}", a11y.certified_by);
+let book = Book::from_file("comic.cbz")?;
 
-    assert!(a11y.has_alternative_text());
-    assert!(a11y.has_structural_navigation());
-    assert!(a11y.is_screen_reader_friendly());
-}
+// Generate side-by-side synthetic spread for page 0 and page 1
+let spread = book.get_synthetic_spread(0, Some(1))?;
+
+println!("Left: {}, Right: {:?}", spread.left_index, spread.right_index);
+println!("Page dimensions: {:.0}x{:.0}", spread.width, spread.height);
+println!("Combined Spread HTML:\n{}", spread.combined_html);
 ```
 
 ---
 
-## 5. EPUB 3 Media Overlays (SMIL Audio Sync) (`MediaOverlayPackage`)
+## 16. Table of Contents Deep Search & Flattening (`NavPoint::search`, `NavPoint::flatten`)
 
-`ebook-rs` provides full parsing and query support for EPUB 3 synchronized audio-text read-aloud overlays (`.smil`):
-
-```rust
-// Access parsed SMIL packages
-for (smil_path, pkg) in &book.media_overlays {
-    // Reverse lookup: Find text node active for a given audio timestamp (in seconds)
-    if let Some(text_ref) = pkg.find_text_ref_by_timestamp("audio/ch1.mp3", 8.5) {
-        println!("Active element ID: {:?}", text_ref.element_id);
-    }
-
-    // Forward lookup: Find audio clip start/end times for a clicked paragraph
-    if let Some(audio_clip) = pkg.find_audio_clip_by_text_href("chapter1.xhtml#p2") {
-        println!("Audio clip: {} -> {}s", audio_clip.clip_begin, audio_clip.clip_end);
-    }
-
-    // Export SMIL package as JSON
-    let json_str = pkg.to_smil_json()?;
-}
-```
-
----
-
-## 10. Full-Text & Regex Search Engine (`ebook_rs::SearchEngine`)
-
-`ebook-rs` provides literal string search and regular expression pattern search with `<mark>` context highlighting:
+Search TOC nodes down to any depth level with parent breadcrumbs and flatten TOC trees into linear depth lists:
 
 ```rust
 use ebook_rs::Book;
 
 let book = Book::from_file("sample.epub")?;
 
-// 1. Literal Search
-let literal_results = book.search("quantum");
-
-// 2. Regular Expression Search (case-insensitive regex)
-let regex_results = book.search_regex("(?i)quantum|physics|particle")?;
-
-for match_item in regex_results {
-    println!("Spine Index: {}", match_item.spine_index);
-    println!("CFI: {}", match_item.cfi);
-    println!("Context Snippet: {}", match_item.snippet); // "...<mark>quantum</mark> physics..."
-}
-```
-
----
-
-## 11. Structural EPUB Validator (`ebook_rs::EpubValidator`)
-
-Validate eBook package structure, OPF metadata, spine items, and navigation hierarchy:
-
-```rust
-use ebook_rs::{Book, EpubValidator, ValidationSeverity};
-
-let book = Book::from_file("sample.epub")?;
-
-let report = book.validate(); // or EpubValidator::validate(&book)
-
-if report.is_valid {
-    println!("✅ Book passed validation with 0 errors!");
-} else {
-    println!("❌ Book contains {} validation errors:", report.errors_count);
-    for err in report.errors {
-        match err.severity {
-            ValidationSeverity::Error => eprintln!("[ERROR] {}: {}", err.code, err.message),
-            ValidationSeverity::Warning => println!("[WARN] {}: {}", err.code, err.message),
-            ValidationSeverity::Info => println!("[INFO] {}: {}", err.code, err.message),
-        }
-    }
-}
-```
-
----
-
-## 12. Book Fingerprinting & Deduplication (`ebook_rs::BookFingerprint`)
-
-Generate metadata-independent SHA-256 content hashes to calculate similarity scores and detect duplicate books across formats:
-
-```rust
-use ebook_rs::Book;
-
-let book1 = Book::from_file("book_v1.epub")?;
-let book2 = Book::from_file("book_v2.mobi")?;
-
-let fp1 = book1.fingerprint();
-let fp2 = book2.fingerprint();
-
-println!("Book 1 Content Hash: {}", fp1.content_hash);
-println!("Book 2 Content Hash: {}", fp2.content_hash);
-
-let match_score = fp1.match_score(&fp2); // Returns 0.0 to 1.0
-if fp1.is_duplicate_of(&fp2) {
-    println!("Duplicate book detected! Match score: {:.2}%", match_score * 100.0);
-}
-```
-
----
-
-## 13. Academic Citation Exporter (`ebook_rs::CitationExporter`)
-
-Export academic citations in standard scholarly formats (**BibTeX**, **APA**, **MLA**, **Chicago**):
-
-```rust
-use ebook_rs::Book;
-
-let book = Book::from_file("sample.epub")?;
-
-// 1. BibTeX Format
-println!("BibTeX:\n{}", book.to_bibtex());
-
-// 2. APA (7th ed.) Format
-println!("APA: {}", book.to_apa());
-
-// 3. MLA (9th ed.) Format
-println!("MLA: {}", book.to_mla());
-
-// 4. Chicago (17th ed.) Format
-println!("Chicago: {}", book.to_chicago());
-```
-
----
-
-## 14. Tree-sitter Concrete Syntax Tree Engine (`ebook_rs::TreeSitterEngine`)
-
-Tokenize, parse AST syntax nodes (`SyntaxNodeInfo`), and highlight embedded code blocks (`<pre><code>`) across technical eBooks and documentation:
-
-```rust
-use ebook_rs::{Book, TreeSitterEngine};
-
-let book = Book::from_file("rust_guide.md")?;
-
-// Extract all code blocks with AST syntax node trees
-let blocks = book.extract_code_blocks();
-for block in blocks {
-    println!("Language: {}", block.language);
-    println!("Code: {}", block.code);
-    for node in block.ast_nodes {
-        println!("AST Node: {} [byte {}-{}]", node.kind, node.start_byte, node.end_byte);
-    }
+// 1. Deep TOC Search
+let matches = book.search_toc("quantum");
+for m in matches {
+    println!("Found: {} (Breadcrumb: '{}', Depth: {})", m.label, m.breadcrumb, m.depth);
 }
 
-// Tokenize standalone code snippet
-let ast_nodes = TreeSitterEngine::parse_code("fn main() {}", "rust");
+// 2. Flatten TOC Tree
+let flat_toc = book.flatten_toc();
+for node in flat_toc {
+    println!("[Depth {}] {} -> {}", node.depth, node.breadcrumb, node.href);
+}
 ```

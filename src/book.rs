@@ -432,6 +432,64 @@ impl Book {
     pub fn extract_code_blocks(&self) -> Vec<crate::treesitter::ExtractedCodeBlock> {
         crate::treesitter::TreeSitterEngine::extract_code_blocks(self)
     }
+
+    /// Perform deep case-insensitive search across Table of Contents nodes at any depth level.
+    pub fn search_toc(&self, query: &str) -> Vec<crate::nav::TocSearchResult> {
+        crate::nav::NavPoint::search(&self.toc, query)
+    }
+
+    /// Flatten hierarchical Table of Contents into a linear list with depth levels and breadcrumbs.
+    pub fn flatten_toc(&self) -> Vec<crate::nav::NavPointFlat> {
+        crate::nav::NavPoint::flatten(&self.toc)
+    }
+
+    /// Generate side-by-side synthetic 2-page spread HTML for EPUB 3 Fixed-Layout (FXL) and comic books.
+    pub fn get_synthetic_spread(
+        &self,
+        left_spine_index: usize,
+        right_spine_index: Option<usize>,
+    ) -> Result<crate::layout::SyntheticSpread, String> {
+        let left_section = self.get_section(left_spine_index)?;
+        let right_section = match right_spine_index {
+            Some(idx) => Some(self.get_section(idx)?),
+            None => None,
+        };
+
+        let width = left_section.viewport_width.unwrap_or(600.0);
+        let height = left_section.viewport_height.unwrap_or(800.0);
+
+        let mut html = String::new();
+        html.push_str("<div class=\"epub-fxl-spread-container\" style=\"display:flex; flex-direction:row; justify-content:center; align-items:center; width:100%; height:100vh; background-color:#0f1319;\">");
+
+        html.push_str(&format!(
+            "<div class=\"epub-fxl-page page-left\" style=\"width:{:.1}px; height:{:.1}px; overflow:hidden; box-shadow: -4px 0 16px rgba(0,0,0,0.5);\">",
+            width, height
+        ));
+        html.push_str(&left_section.processed_html);
+        html.push_str("</div>");
+
+        if let Some(right_sec) = right_section {
+            let r_width = right_sec.viewport_width.unwrap_or(width);
+            let r_height = right_sec.viewport_height.unwrap_or(height);
+
+            html.push_str(&format!(
+                "<div class=\"epub-fxl-page page-right\" style=\"width:{:.1}px; height:{:.1}px; overflow:hidden; box-shadow: 4px 0 16px rgba(0,0,0,0.5);\">",
+                r_width, r_height
+            ));
+            html.push_str(&right_sec.processed_html);
+            html.push_str("</div>");
+        }
+
+        html.push_str("</div>");
+
+        Ok(crate::layout::SyntheticSpread {
+            left_index: left_spine_index,
+            right_index: right_spine_index,
+            combined_html: html,
+            width,
+            height,
+        })
+    }
 }
 
 fn extract_first_img_src(html: &str) -> Option<String> {

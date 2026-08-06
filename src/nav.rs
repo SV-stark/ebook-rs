@@ -11,6 +11,97 @@ pub struct NavPoint {
     pub full_path: String,
     pub subitems: Vec<NavPoint>,
 }
+/// Flattened Table of Contents item with depth level and parent breadcrumbs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NavPointFlat {
+    pub id: String,
+    pub label: String,
+    pub href: String,
+    pub full_path: String,
+    pub depth: usize,
+    pub breadcrumb: String,
+}
+
+/// Search result from deep TOC searching across any depth level.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TocSearchResult {
+    pub label: String,
+    pub href: String,
+    pub full_path: String,
+    pub depth: usize,
+    pub breadcrumb: String,
+}
+
+impl NavPoint {
+    /// Perform deep case-insensitive search across Table of Contents tree nodes down to any depth.
+    pub fn search(points: &[NavPoint], query: &str) -> Vec<TocSearchResult> {
+        let mut results = Vec::new();
+        let query_lower = query.to_lowercase();
+        Self::search_recursive(points, &query_lower, "", 0, &mut results);
+        results
+    }
+
+    fn search_recursive(
+        points: &[NavPoint],
+        query_lower: &str,
+        parent_breadcrumb: &str,
+        depth: usize,
+        results: &mut Vec<TocSearchResult>,
+    ) {
+        for pt in points {
+            let breadcrumb = if parent_breadcrumb.is_empty() {
+                pt.label.clone()
+            } else {
+                format!("{} > {}", parent_breadcrumb, pt.label)
+            };
+
+            if pt.label.to_lowercase().contains(query_lower) {
+                results.push(TocSearchResult {
+                    label: pt.label.clone(),
+                    href: pt.href.clone(),
+                    full_path: pt.full_path.clone(),
+                    depth,
+                    breadcrumb: breadcrumb.clone(),
+                });
+            }
+
+            Self::search_recursive(&pt.subitems, query_lower, &breadcrumb, depth + 1, results);
+        }
+    }
+
+    /// Flatten hierarchical Table of Contents points into a linear list with depth levels and breadcrumbs.
+    pub fn flatten(points: &[NavPoint]) -> Vec<NavPointFlat> {
+        let mut flat = Vec::new();
+        Self::flatten_recursive(points, "", 0, &mut flat);
+        flat
+    }
+
+    fn flatten_recursive(
+        points: &[NavPoint],
+        parent_breadcrumb: &str,
+        depth: usize,
+        flat: &mut Vec<NavPointFlat>,
+    ) {
+        for pt in points {
+            let breadcrumb = if parent_breadcrumb.is_empty() {
+                pt.label.clone()
+            } else {
+                format!("{} > {}", parent_breadcrumb, pt.label)
+            };
+
+            flat.push(NavPointFlat {
+                id: pt.id.clone(),
+                label: pt.label.clone(),
+                href: pt.href.clone(),
+                full_path: pt.full_path.clone(),
+                depth,
+                breadcrumb: breadcrumb.clone(),
+            });
+
+            Self::flatten_recursive(&pt.subitems, &breadcrumb, depth + 1, flat);
+        }
+    }
+}
 
 /// EPUB 3 Landmark reference (e.g. cover, titlepage, toc, bodymatter).
 #[derive(Debug, Clone, Serialize, Deserialize)]

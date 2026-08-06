@@ -6,7 +6,10 @@ fn test_find_tag_end_ignores_quotes() {
     let end_idx = find_tag_end(html, 0).expect("Should find true tag end");
     let tag_str = &html[0..=end_idx];
 
-    assert_eq!(tag_str, "<img src=\"test.jpg\" alt=\"x > y\" title=\"A > B\" />");
+    assert_eq!(
+        tag_str,
+        "<img src=\"test.jpg\" alt=\"x > y\" title=\"A > B\" />"
+    );
 }
 
 #[test]
@@ -15,5 +18,8 @@ fn test_extract_plain_text_no_stray_brackets() {
     let text = extract_plain_text(html);
 
     assert_eq!(text, "Hello world! Text after break");
-    assert!(!text.contains('>'), "Extracted text should not contain stray '>' brackets");
+    assert!(
+        !text.contains('>'),
+        "Extracted text should not contain stray '>' brackets"
+    );
 }

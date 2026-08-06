@@ -1,6 +1,6 @@
-# 📚 EBook-RS API Reference & Complete Documentation (v0.8.0)
+# 📚 EBook-RS API Reference & Complete Documentation (v0.9.0)
 
-`ebook-rs` (v0.8.0) is a multi-format pure Rust eBook engine supporting **EPUB 2**, **EPUB 3**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT (OpenDocument Text)**, **Plain Text (.txt)**, and **Markdown (.md)** formats with **Tree-sitter Code Block Parser**, **Regex Search**, **Structural EPUB Validator**, **Book Fingerprinting & Deduplication**, **Academic Citation Exporter**, and **Readium LCP/Locator** support.
+`ebook-rs` (v0.9.0) is a multi-format pure Rust eBook engine supporting **EPUB 2**, **EPUB 3**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT (OpenDocument Text)**, **Plain Text (.txt)**, and **Markdown (.md)** formats with **Synthetic FXL Spreads**, **TOC Deep Search**, **Tree-sitter Code Parser**, **Regex Search**, **Structural EPUB Validator**, **Book Fingerprinting & Deduplication**, **Academic Citation Exporter**, and **Readium LCP/Locator** support.
 
 ---
 
@@ -19,11 +19,13 @@
 12. [Book Fingerprinting & Deduplication (`ebook_rs::BookFingerprint`)](#12-book-fingerprinting--deduplication-ebook_rsbookfingerprint)
 13. [Academic Citation Exporter (`ebook_rs::CitationExporter`)](#13-academic-citation-exporter-ebook_rscitationexporter)
 14. [Tree-sitter Concrete Syntax Tree Engine (`ebook_rs::TreeSitterEngine`)](#14-tree-sitter-concrete-syntax-tree-engine-ebook_rstreesitterengine)
-15. [Readium Webpub Manifest Export (`ebook_rs::webpub`)](#15-readium-webpub-manifest-export-ebook_rswebpub)
-16. [Readium LCP DRM (`ebook_rs::lcp`)](#16-readium-lcp-drm-ebook_rslcp)
-17. [Readium Unified Locator Model (`ReadiumLocator`)](#17-readium-unified-locator-model-readiumlocator)
-18. [OPDS Catalog Client & Feed Generator (`ebook_rs::opds`)](#18-opds-catalog-client--feed-generator-ebook_rsopds)
-19. [HTTP Reader Server & Web UI (`ebook_rs::server`)](#19-http-reader-server--web-ui-ebook_rsserver)
+15. [Synthetic FXL 2-Page Spreads (`SyntheticSpread`)](#15-synthetic-fxl-2-page-spreads-syntheticspread)
+16. [Table of Contents Deep Search & Flattening (`NavPoint::search`, `NavPoint::flatten`)](#16-table-of-contents-deep-search--flattening-navpointsearch-navpointflatten)
+17. [Readium Webpub Manifest Export (`ebook_rs::webpub`)](#17-readium-webpub-manifest-export-ebook_rswebpub)
+18. [Readium LCP DRM (`ebook_rs::lcp`)](#18-readium-lcp-drm-ebook_rslcp)
+19. [Readium Unified Locator Model (`ReadiumLocator`)](#19-readium-unified-locator-model-readiumlocator)
+20. [OPDS Catalog Client & Feed Generator (`ebook_rs::opds`)](#20-opds-catalog-client--feed-generator-ebook_rsopds)
+21. [HTTP Reader Server & Web UI (`ebook_rs::server`)](#21-http-reader-server--web-ui-ebook_rsserver)
 
 ---
 
@@ -319,4 +321,47 @@ for block in blocks {
 
 // Tokenize standalone code snippet
 let ast_nodes = TreeSitterEngine::parse_code("fn main() {}", "rust");
+```
+
+---
+
+## 15. Synthetic FXL 2-Page Spreads (`SyntheticSpread`)
+
+Auto-synthesize responsive side-by-side two-page spread containers for EPUB 3 Fixed-Layout and comic books:
+
+```rust
+use ebook_rs::Book;
+
+let book = Book::from_file("comic.cbz")?;
+
+// Generate side-by-side synthetic spread for page 0 and page 1
+let spread = book.get_synthetic_spread(0, Some(1))?;
+
+println!("Left: {}, Right: {:?}", spread.left_index, spread.right_index);
+println!("Page dimensions: {:.0}x{:.0}", spread.width, spread.height);
+println!("Combined Spread HTML:\n{}", spread.combined_html);
+```
+
+---
+
+## 16. Table of Contents Deep Search & Flattening (`NavPoint::search`, `NavPoint::flatten`)
+
+Search TOC nodes down to any depth level with parent breadcrumbs and flatten TOC trees into linear depth lists:
+
+```rust
+use ebook_rs::Book;
+
+let book = Book::from_file("sample.epub")?;
+
+// 1. Deep TOC Search
+let matches = book.search_toc("quantum");
+for m in matches {
+    println!("Found: {} (Breadcrumb: '{}', Depth: {})", m.label, m.breadcrumb, m.depth);
+}
+
+// 2. Flatten TOC Tree
+let flat_toc = book.flatten_toc();
+for node in flat_toc {
+    println!("[Depth {}] {} -> {}", node.depth, node.breadcrumb, node.href);
+}
 ```
