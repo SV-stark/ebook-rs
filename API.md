@@ -16,8 +16,11 @@
 9. [Annotations Manager (`ebook_rs::AnnotationManager`)](#9-annotations-manager-ebook_rsannotationmanager)
 10. [Full-Text Search Engine (`ebook_rs::SearchEngine`)](#10-full-text-search-engine-ebook_rssearchengine)
 11. [Readium Webpub Manifest Export (`ebook_rs::webpub`)](#11-readium-webpub-manifest-export-ebook_rswebpub)
-12. [OPDS Catalog Client & Feed Generator (`ebook_rs::opds`)](#12-opds-catalog-client--feed-generator-ebook_rsopds)
-13. [HTTP Reader Server & Web UI (`ebook_rs::server`)](#13-http-reader-server--web-ui-ebook_rsserver)
+12. [Readium LCP DRM (`ebook_rs::lcp`)](#12-readium-lcp-drm-ebook_rslcp)
+13. [Readium Unified Locator Model (`ReadiumLocator`)](#13-readium-unified-locator-model-readiumlocator)
+14. [Readium Search Web Service API](#14-readium-search-web-service-api)
+15. [OPDS Catalog Client & Feed Generator (`ebook_rs::opds`)](#15-opds-catalog-client--feed-generator-ebook_rsopds)
+16. [HTTP Reader Server & Web UI (`ebook_rs::server`)](#16-http-reader-server--web-ui-ebook_rsserver)
 
 ---
 
@@ -105,4 +108,81 @@ for (smil_path, pkg) in &book.media_overlays {
     // Export SMIL package as JSON
     let json_str = pkg.to_smil_json()?;
 }
+```
+
+---
+
+## 12. Readium LCP DRM (`ebook_rs::lcp`)
+
+Parse and validate Readium **Lightweight Content Protection (LCP)** license files (`META-INF/license.lcpl`) and decrypt LCP-protected content:
+
+```rust
+use ebook_rs::lcp::{LcpLicense, LcpDecryptor};
+
+// Parse license.lcpl JSON
+let lcpl_json = std::fs::read_to_string("META-INF/license.lcpl")?;
+let license = LcpLicense::parse(&lcpl_json)?;
+
+println!("Provider: {}", license.provider);
+println!("User: {:?}", license.user.as_ref().map(|u| &u.name));
+
+// Check expiry against current ISO date
+if license.is_expired("2026-12-01T00:00:00Z") {
+    eprintln!("License expired!");
+}
+
+// Decrypt LCP AES-256-CBC encrypted content
+let encrypted_bytes: Vec<u8> = std::fs::read("content/chapter1.xhtml")?;
+let decrypted = LcpDecryptor::decrypt_bytes(&encrypted_bytes, "user_passphrase", &license)?;
+```
+
+---
+
+## 13. Readium Unified Locator Model (`ReadiumLocator`)
+
+Generate a W3C/Readium-standard `ReadiumLocator` JSON from any spine index and character offset for cross-platform reading position sync:
+
+```rust
+use ebook_rs::ReadiumLocator;
+
+let locator: ReadiumLocator = book.to_readium_locator(3, 250)?;
+
+// Locator contains:
+// - href: section file path
+// - type: "application/xhtml+xml"
+// - locations.cfi: "epubcfi(/6/8!/4/2/1:250)"
+// - locations.position: 14
+// - locations.progression: 0.42   (section progress)
+// - locations.totalProgression: 0.08  (whole-book progress)
+// - text.highlight: "...next 100 chars of text at offset..."
+
+let json = serde_json::to_string_pretty(&locator)?;
+println!("{}", json);
+```
+
+---
+
+## 14. Readium Search Web Service API
+
+Format `SearchResult` from `book.search()` into the Readium standard `application/vnd.readium.search+json` HTTP response schema:
+
+```rust
+use ebook_rs::SearchEngine;
+
+let results = book.search("Alice");
+let json = SearchEngine::to_readium_search_json(&results, "Alice")?;
+
+// Returns:
+// {
+//   "@context": "http://readium.org/webpub-manifest/context.jsonld",
+//   "metadata": { "numberOfResults": 399, "query": "Alice" },
+//   "locators": [
+//     { "href": "section_0.html", "type": "application/xhtml+xml",
+//       "locations": { "cfi": "epubcfi(/6/2!/4/2/1:42)", "position": 1 },
+//       "text": { "snippet": "...Alice was beginning to get very tired..." } },
+//     ...
+//   ]
+// }
+
+println!("{}", json);
 ```

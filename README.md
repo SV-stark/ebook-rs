@@ -37,6 +37,9 @@
 | **EPUB 3 Accessibility Metadata (a11y)** | ✅ `AccessibilityMetadata` | ❌ No | ⚠️ Partial | ❌ No |
 | **EPUB 3 Media Overlays (SMIL Sync)** | ✅ `MediaOverlayPackage` | ❌ No | ✅ Yes | ❌ No |
 | **Readium Webpub Manifest Export** | ✅ `to_webpub_manifest` | ❌ No | ✅ Yes | ❌ No |
+| **Readium LCP DRM Parsing** | ✅ `LcpLicense`, `LcpDecryptor` | ❌ No | ❌ No | ❌ No |
+| **Readium Unified Locator Model** | ✅ `to_readium_locator()` | ❌ No | ✅ Yes | ❌ No |
+| **Readium Search API (JSON)** | ✅ `to_readium_search_json()` | ❌ No | ❌ No | ❌ No |
 
 ---
 
@@ -72,9 +75,39 @@ fn main() -> Result<(), String> {
 
 ---
 
+## 🆕 What's New in v0.6.1
+
+- **Readium LCP DRM** — Parse `META-INF/license.lcpl` into `LcpLicense`, check expiry, and decrypt AES-256 encrypted content via `LcpDecryptor`.
+- **Readium Unified Locator Model** — Generate W3C-standard `ReadiumLocator` JSON (CFI + position + section/total progression) from any spine index and character offset using `book.to_readium_locator(spine_idx, char_offset)`.
+- **Readium Search API** — Format full-text `SearchResult` into the Readium standard `application/vnd.readium.search+json` schema using `SearchEngine::to_readium_search_json(&results, "query")`.
+
+```rust
+use ebook_rs::{Book, SearchEngine, lcp::{LcpLicense, LcpDecryptor}};
+
+let book = Book::from_file("book.epub")?;
+
+// Readium Unified Locator for cursor at section 2, char offset 500
+let locator = book.to_readium_locator(2, 500)?;
+println!("{}", serde_json::to_string_pretty(&locator).unwrap());
+
+// Readium Search API JSON output
+let results = book.search("Alice");
+let json = SearchEngine::to_readium_search_json(&results, "Alice")?;
+println!("{}", json);
+
+// Readium LCP license parsing
+let lcpl_json = std::fs::read_to_string("META-INF/license.lcpl")?;
+let license = LcpLicense::parse(&lcpl_json)?;
+if !license.is_expired("2026-08-06T00:00:00Z") {
+    let decrypted = LcpDecryptor::decrypt_bytes(&encrypted_bytes, "passphrase", &license)?;
+}
+```
+
+---
+
 ## 📖 Documentation & Wiki
 
-Detailed API documentation and integration guides are available in [docs/API.md](docs/API.md) and [WIKI.md](WIKI.md).
+Detailed API documentation and integration guides are available in [API.md](API.md) and the [GitHub Wiki](https://github.com/SV-stark/ebook-rs/wiki).
 
 ---
 
