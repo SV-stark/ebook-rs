@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.0] - 2026-08-06
+
+### Added
+- **OpenDocument Text (.odt) Parser**: Native parsing for `.odt` archives (`OdtBook`), extracting `content.xml` headings/paragraphs and `meta.xml` metadata.
+- **Plain Text (.txt) & Markdown (.md) Parsers**: Native parsing for `.txt` and `.md` files (`TxtBook`), mapping Markdown headings to `NavPoint` TOC nodes and section breaks.
+- **Regex Full-Text Search**: Full regular expression pattern search across chapter sections with `<mark>` context highlighting (`book.search_regex()`).
+- **EPUB Structural Validator**: Structural diagnostics engine (`EpubValidator` / `book.validate()`), returning `ValidationReport` with severity levels (`Error`, `Warning`, `Info`).
+- **Content Fingerprinting & Deduplication**: Metadata-independent content hashing (`BookFingerprint` / `book.fingerprint()`), calculating similarity scores (`match_score()`) to detect duplicate books across formats.
+- **Academic Citation Exporter**: Format eBook metadata into standard academic citations (**BibTeX**, **APA 7th**, **MLA 9th**, **Chicago 17th**) via `book.to_bibtex()`, `book.to_apa()`, `book.to_mla()`, and `book.to_chicago()`.
+
+---
+
+## [0.6.1] - 2026-08-06
+
+### Added
+- **Readium LCP DRM Parsing**: Parse `META-INF/license.lcpl` into `LcpLicense`, check expiry, and decrypt AES-256 encrypted content via `LcpDecryptor`.
+- **Readium Unified Locator Model**: Generate W3C/Readium-compliant `ReadiumLocator` JSON structures (CFI + position + section/total progression) via `book.to_readium_locator(spine_idx, char_offset)`.
+- **Readium Search Web Service API**: Format full-text `SearchResult` into Readium standard `application/vnd.readium.search+json` schema via `SearchEngine::to_readium_search_json(&results, query)`.
+
+---
+
+## [0.6.0] - 2026-08-06
+
+### Added
+- **PDF Text Extraction Support (`pdf` feature)**: Integrated `pdf_oxide` for opening pre-OCR PDF documents (`PdfBook`), converting pages into Markdown/HTML sections.
+- **EPUB 3 Accessibility Metadata (a11y)**: Parsed W3C EPUB Accessibility 1.1 and Schema.org metadata into `AccessibilityMetadata` (`schema:accessMode`, `schema:accessibilityFeature`, `a11y:certifiedBy`).
+- **EPUB 3 Media Overlays (SMIL Sync)**: Native SMIL 3.0 audio-text synchronization engine (`MediaOverlayPackage`), supporting reverse timestamp lookup (`find_text_ref_by_timestamp()`), text href lookup (`find_audio_clip_by_text_href()`), and SMIL JSON export.
+
+---
+
 ## [0.5.3] - 2026-08-06
 
 ### Fixed
