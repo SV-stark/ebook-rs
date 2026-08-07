@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.11.6] - 2026-08-07
+
+### Added
+
+- **Lazy On-Demand Section Loading (`book.load_section_lazy`)** (`src/book.rs`): New `load_section_lazy(index)` API parses and processes a single section directly from the archive on demand, without storing it in `self.sections`. Ideal for large 1000+ page books where eager-loading all sections wastes RAM.
+- **Real AES-256-CBC LCP Decryption (`src/lcp.rs`)**: Replaced XOR placeholder with proper AES-256-CBC + PKCS#7 unpadding via the `aes` + `cbc` + `cipher` crates. Key = `SHA-256(passphrase)`, IV = first 16 bytes of ciphertext — fully conformant with the Readium LCP specification.
+- **Async Book Loading API (`src/book.rs`)**: New `book::async_api` module (behind the `async` feature flag) exposes `from_file_async`, `from_bytes_async`, and `load_section_lazy_async` — non-blocking tokio-based wrappers for use in async server handlers and Axum/Actix-web routes.
+- **`serde` Feature Flag** (`Cargo.toml`): `serde` and `serde_json` are now optional dependencies gated behind the `serde` feature (enabled by default). Users who only need parsing can opt out to cut compile time.
+- **`tokio` Async Feature** (`Cargo.toml`): Added optional `tokio = { version = "1", features = ["rt", "fs", "io-util"] }` dependency, activated by the new `async` feature.
+- **cargo-fuzz Harnesses** (`fuzz/`): Added two libFuzzer harnesses — `fuzz_from_bytes` (fuzzes `Book::from_bytes` with arbitrary byte sequences across all format auto-detection paths) and `fuzz_cfi_parse` (fuzzes `Cfi::parse` with arbitrary UTF-8 strings). Run with `cargo +nightly fuzz run fuzz_from_bytes`.
+- **wasm-pack Integration Test** (`tests/test_wasm_integration.rs`): Added wasm-pack test stubs for `WasmBook::from_bytes` and `Cfi::parse`, gated behind `cfg(target_arch = "wasm32")` so they don't affect the native test suite.
+
+### Fixed
+
+- **CSS Versioned Href Resolution (`src/archive.rs`)**: `resolve_relative_path` now strips URL query strings (`?v=2`, `?cache=abc`) before archive lookup, so `<link href="style.css?v=2">` correctly inlines the `style.css` stylesheet.
+- **LCP Expiry Hardcoded Date (`src/lcp.rs`)**: Replaced hardcoded `"2026-08-07T18:14:00Z"` timestamp with a dynamic `chrono_now_iso()` function using `SystemTime::now()` for correct real-time expiry evaluation.
+
+---
+
 ## [0.11.5] - 2026-08-07
 
 ### Performance

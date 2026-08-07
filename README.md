@@ -1,4 +1,4 @@
-# 📖 EBook-RS: Multi-Format Rust EBook Parser and Reader Engine (v0.11.5)
+# 📖 EBook-RS: Multi-Format Rust EBook Parser and Reader Engine (v0.11.6)
 
 `ebook-rs` is a high-performance, 100% pure Rust parser and reader engine for **EPUB 2**, **EPUB 3**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT**, **TXT**, and **MD** formats, designed for full feature parity with **epub.js** and **foliate-js**.
 
@@ -61,32 +61,37 @@
 
 ### ⚙️ Performance & Architecture
 
-| Feature | 🚀 `ebook-rs` (v0.11.5) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.11.6) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **Zero-Copy Memory-Mapped I/O** | ✅ `Book::from_mmap` | ❌ No | ❌ No | ❌ No |
+| **Lazy On-Demand Section Loading** | ✅ `load_section_lazy(i)` | ❌ No | ✅ Yes | ❌ No |
+| **Async tokio API** | ✅ `book::async_api` feature | ❌ No | ❌ No | ❌ No |
 | **Zstd Compressed State Cache** | ✅ `export_zstd_cache` | ❌ No | ❌ No | ❌ No |
 | **O(1) Archive Asset Lookup** | ✅ Dual-HashMap ZIP index | ❌ No | ❌ No | ❌ No |
 | **SIMD UTF-8 Validation** | ✅ `simdutf8` (AVX2/NEON) | ❌ No | ❌ No | ❌ No |
 | **SIMD Substring Search** | ✅ `memchr` SIMD scanning | ❌ No | ❌ No | ❌ No |
 | **AHash Fast Hash Maps** | ✅ 3–5× faster lookups | ❌ No | ❌ No | ❌ No |
 | **Single-Pass CSS Inliner** | ✅ O(N) streaming builder | ❌ No | ❌ No | ❌ No |
+| **CSS Versioned Href Fix** | ✅ `style.css?v=2` inlined | ❌ No | ❌ No | ❌ No |
 | **Async Non-Blocking Web Font** | ✅ `media="print" onload` | ✅ Yes | ✅ Yes | ❌ No |
 | **Built-in Localhost Reader** | ✅ `tiny_http` web server | ✅ Yes | ✅ Yes | ❌ No |
 
 ### 🛡️ Security & Robustness
 
-| Feature | 🚀 `ebook-rs` (v0.11.5) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.11.6) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **Script Sanitizer (XSS Guard)** | ✅ 3-phase + entity decode | ✅ Partial | ✅ Partial | ❌ No |
 | **Fuzzy Malformed XML Recovery** | ✅ Entity repair + tag heal | ❌ No | ❌ No | ❌ No |
 | **Legacy Charset Decoding** | ✅ `decode_bytes_with_encoding` (encoding_rs) | ❌ No | ❌ No | ❌ No |
+| **LCP AES-256-CBC Decryption** | ✅ Real crypto via `aes`+`cbc` | ❌ No | ✅ Partial | ❌ No |
 | **DRM-Protected Book Detection** | ✅ ADEPT + LCP detection | ❌ No | ✅ Yes | ❌ No |
 | **HTTP Security Headers** | ✅ CSP / nosniff / SAMEORIGIN | ❌ No | ❌ No | ❌ No |
 | **CBR RAR Format Error Guard** | ✅ RAR v4 + v5 magic detection | ❌ No | ❌ No | ❌ No |
+| **libFuzzer Fuzz Harnesses** | ✅ `fuzz_from_bytes` + `fuzz_cfi_parse` | ❌ No | ❌ No | ❌ No |
 
 ### 🧩 Advanced & Developer Features
 
-| Feature | 🚀 `ebook-rs` (v0.11.5) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.11.6) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **Universal EPUB 3 Exporter** | ✅ Any format → EPUB3 bytes | ❌ No | ❌ No | ❌ No |
 | **Book Fingerprint / Identity** | ✅ SHA-based fingerprint | ❌ No | ❌ No | ❌ No |
@@ -95,9 +100,20 @@
 | **TreeSitter Code Highlighter** | ✅ AST extraction | ❌ No | ❌ No | ❌ No |
 | **Lightweight DOM AST Engine** | ✅ `EbookDomTree` / `DomNode` | ❌ No | ❌ No | ❌ No |
 | **EPUB Structural Validator** | ✅ OPF + Spine + Manifest checks | ❌ No | ❌ No | ❌ No |
+| **Optional `serde` Feature** | ✅ Compile without serde overhead | ❌ N/A | ❌ N/A | ❌ No |
 | **WASM-Ready (no_std compat)** | ✅ WASM build support | ✅ Yes | ✅ Yes | ❌ No |
 
 ---
+
+## 🆕 What's New in v0.11.6
+
+- **Lazy On-Demand Section Loading** — `book.load_section_lazy(i)` parses one section directly from the archive without caching all sections in RAM — essential for large books.
+- **Real AES-256-CBC LCP Decryption** — `LcpDecryptor` now uses proper `aes` + `cbc` + `cipher` crates (key = `SHA-256(passphrase)`, IV = first 16 bytes of ciphertext) per the Readium LCP spec.
+- **Async API** — New `book::async_api` module with `from_file_async`, `from_bytes_async`, and `load_section_lazy_async` via tokio (enable with `features = ["async"]`).
+- **`serde` Feature Flag** — `serde` / `serde_json` are now optional (default on). Opt out with `default-features = false` to slash compile time for pure parsing use-cases.
+- **CSS Versioned Href Fix** — `style.css?v=2`, `style.css?cache=abc` now correctly resolve and inline in the archive.
+- **cargo-fuzz Harnesses** — `fuzz_from_bytes` and `fuzz_cfi_parse` libFuzzer harnesses in `fuzz/`. Run with `cargo +nightly fuzz run fuzz_from_bytes`.
+- **Dynamic LCP Expiry** — `LcpDecryptor` now evaluates license expiration against the real system clock instead of a hardcoded date.
 
 ## 🆕 What's New in v0.11.5
 
