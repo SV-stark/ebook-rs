@@ -19,6 +19,15 @@ pub struct Section {
     pub viewport_height: Option<f64>, // FXL viewport target height
 }
 
+/// Tokenized word entry with character range offsets for SpeechSynthesis TTS word synchronization.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TtsWordToken {
+    pub index: usize,
+    pub word: String,
+    pub char_start: usize,
+    pub char_end: usize,
+}
+
 impl Section {
     /// Create and process a section from archive content using default Base64 inlining.
     pub fn new(
@@ -77,6 +86,63 @@ impl Section {
         } else {
             None
         }
+    }
+
+    /// Tokenizes plain text into word tokens with exact character start/end offsets for SpeechSynthesis TTS synchronization.
+    pub fn tokenize_tts_words(&self) -> Vec<TtsWordToken> {
+        let mut tokens = Vec::new();
+        let mut word_index = 0;
+        let mut byte_offset = 0;
+
+        for word in self.plain_text.split_whitespace() {
+            if let Some(pos) = self.plain_text[byte_offset..].find(word) {
+                let abs_start = byte_offset + pos;
+                let abs_end = abs_start + word.len();
+                tokens.push(TtsWordToken {
+                    index: word_index,
+                    word: word.to_string(),
+                    char_start: abs_start,
+                    char_end: abs_end,
+                });
+                word_index += 1;
+                byte_offset = abs_end;
+            }
+        }
+
+        tokens
+    }
+
+    /// Wraps plain text words in the processed HTML with `<span id="tts-w-{index}" class="tts-word">` for live SpeechSynthesis word-by-word visual highlighting.
+    pub fn to_tts_annotated_html(&self) -> String {
+        let tokens = self.tokenize_tts_words();
+        if tokens.is_empty() {
+            return self.processed_html.clone();
+        }
+
+        let mut annotated = String::with_capacity(self.processed_html.len() + tokens.len() * 40);
+        let mut token_idx = 0;
+        let mut search_idx = 0;
+
+        while search_idx < self.processed_html.len() {
+            if token_idx < tokens.len() {
+                let token = &tokens[token_idx];
+                if let Some(pos) = self.processed_html[search_idx..].find(&token.word) {
+                    let abs_pos = search_idx + pos;
+                    annotated.push_str(&self.processed_html[search_idx..abs_pos]);
+                    annotated.push_str(&format!(
+                        "<span id=\"tts-w-{}\" class=\"tts-word\" data-start=\"{}\" data-end=\"{}\">{}</span>",
+                        token.index, token.char_start, token.char_end, token.word
+                    ));
+                    search_idx = abs_pos + token.word.len();
+                    token_idx += 1;
+                    continue;
+                }
+            }
+            annotated.push_str(&self.processed_html[search_idx..]);
+            break;
+        }
+
+        annotated
     }
 
     /// Strip embedded <script> tags, inline event attributes (on*="..."), and javascript: URIs.

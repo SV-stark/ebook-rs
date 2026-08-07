@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.11.1] - 2026-08-07
+
+### Added
+- **Browser SpeechSynthesis (TTS) Word-by-Word Synchronizer (`TtsWordToken`)**: Added `book.get_tts_tokens(section_index)` and `book.get_tts_section_html(section_index)`. Tokenizes text into word tokens (`TtsWordToken`) with exact character offsets (`char_start`, `char_end`) and wraps HTML text words in `<span id="tts-w-{index}" class="tts-word">` tags for live Web Speech API `SpeechSynthesisUtterance` boundary event word-by-word visual highlighting.
+
+---
+
 ## [0.11.0] - 2026-08-07
 
 ### Added

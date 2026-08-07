@@ -46,3 +46,34 @@ fn test_zstd_compressed_state_caching() {
     assert_eq!(restored_book.opf.metadata.title, book.opf.metadata.title);
     assert_eq!(restored_book.sections.len(), book.sections.len());
 }
+
+#[test]
+fn test_speech_synthesis_tts_word_synchronizer() {
+    let book = Book::from_file("samples/Alice in Wonderland - Lewis Carroll EPUB3.epub")
+        .expect("Sample EPUB should parse");
+
+    let tts_tokens = book
+        .get_tts_tokens(0)
+        .expect("Should extract TTS tokens for section 0");
+    assert!(
+        !tts_tokens.is_empty(),
+        "TTS tokens list should not be empty"
+    );
+
+    let first_token = &tts_tokens[0];
+    assert_eq!(first_token.index, 0);
+    assert!(!first_token.word.is_empty());
+    assert!(first_token.char_end > first_token.char_start);
+
+    let tts_html = book
+        .get_tts_section_html(0)
+        .expect("Should generate TTS annotated HTML");
+    assert!(
+        tts_html.contains("id=\"tts-w-0\""),
+        "TTS annotated HTML must contain id=\"tts-w-0\""
+    );
+    assert!(
+        tts_html.contains("class=\"tts-word\""),
+        "TTS annotated HTML must contain class=\"tts-word\""
+    );
+}

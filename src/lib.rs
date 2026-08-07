@@ -76,7 +76,7 @@ pub use paginator::{PageRange, ReflowPaginator, SectionPageMap};
 pub use pdf::PdfBook;
 pub use sample_builder::generate_sample_epub;
 pub use search::{SearchEngine, SearchResult};
-pub use section::Section;
+pub use section::{Section, TtsWordToken};
 pub use stream_zip::{ZipEntryLocation, ZipHeaderReader};
 pub use treesitter::{ExtractedCodeBlock, SyntaxNodeInfo, TreeSitterEngine};
 pub use txt::TxtBook;

@@ -348,6 +348,21 @@ impl Book {
         })
     }
 
+    /// Retrieve tokenized TTS words with character range offsets for SpeechSynthesis word synchronization.
+    pub fn get_tts_tokens(
+        &self,
+        index: usize,
+    ) -> Result<Vec<crate::section::TtsWordToken>, String> {
+        let section = self.get_section(index)?;
+        Ok(section.tokenize_tts_words())
+    }
+
+    /// Retrieve section HTML annotated with `<span id="tts-w-{index}">` tags for live SpeechSynthesis word-by-word visual highlighting.
+    pub fn get_tts_section_html(&self, index: usize) -> Result<String, String> {
+        let section = self.get_section(index)?;
+        Ok(section.to_tts_annotated_html())
+    }
+
     /// Retrieve a section by spine index (applying pre-display hooks and automatic RTL dir="rtl" injection).
     pub fn get_section(&self, index: usize) -> Result<Section, String> {
         let mut section = self

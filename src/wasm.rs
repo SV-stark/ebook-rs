@@ -46,6 +46,22 @@ impl WasmBook {
         Ok(sec.processed_html.clone())
     }
 
+    /// Get tokenized SpeechSynthesis TTS word tokens with character offsets as JSON string.
+    pub fn get_tts_words_json(&self, index: usize) -> Result<String, JsValue> {
+        let tokens = self
+            .inner
+            .get_tts_tokens(index)
+            .map_err(|e| JsValue::from_str(&e))?;
+        serde_json::to_string(&tokens).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Get section HTML with `<span id="tts-w-{index}">` tags for SpeechSynthesis word-by-word visual highlighting.
+    pub fn get_tts_annotated_html(&self, index: usize) -> Result<String, JsValue> {
+        self.inner
+            .get_tts_section_html(index)
+            .map_err(|e| JsValue::from_str(&e))
+    }
+
     /// Perform full-text search across chapters.
     pub fn search_json(&self, query: &str) -> Result<String, JsValue> {
         let results = self.inner.search(query);

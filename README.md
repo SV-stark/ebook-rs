@@ -1,4 +1,4 @@
-# 📖 EBook-RS: Multi-Format Rust EBook Parser and Reader Engine (v0.11.0)
+# 📖 EBook-RS: Multi-Format Rust EBook Parser and Reader Engine (v0.11.1)
 
 `ebook-rs` is a high-performance, 100% pure Rust parser and reader engine for **EPUB 2**, **EPUB 3**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT**, **TXT**, and **MD** formats, designed for full feature parity with **epub.js** and **foliate-js**.
 
@@ -6,18 +6,18 @@
 
 ## ⚡ Feature Parity Matrix
 
-| Feature | 🚀 `ebook-rs` (v0.11.0) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.11.1) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **EPUB 2 & 3 Support** | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes |
 | **MOBI & AZW3 Support** | ✅ Native PalmDOC LZ77 | ❌ No | ✅ Yes | ❌ No |
 | **FB2 (FictionBook 2) Support** | ✅ Native XML | ❌ No | ✅ Yes | ❌ No |
 | **KEPUB & LIT Support** | ✅ Native | ❌ No | ✅ Yes | ❌ No |
 | **CBZ Comic Archive Support** | ✅ Native ZIP Images | ❌ No | ✅ Yes | ❌ No |
-| **PDF Document Text Extraction** | ✅ `PdfBook` (pdf_oxide) | ❌ No | ✅ Yes | ❌ No |
-| **ODT OpenDocument Text Support** | ✅ `OdtBook` | ❌ No | ❌ No | ❌ No |
-| **Plain Text & Markdown Support** | ✅ `TxtBook` | ❌ No | ❌ No | ❌ No |
+| **SpeechSynthesis TTS Word Synchronizer** | ✅ `get_tts_tokens` | ❌ No | ✅ Yes | ❌ No |
 | **Legacy Charset Decoding** | ✅ `decode_bytes_with_encoding` | ❌ No | ❌ No | ❌ No |
 | **Auto Language Detection** | ✅ `detect_language` | ❌ No | ❌ No | ❌ No |
+| **Zstd Compressed State Caching** | ✅ `export_zstd_cache` | ❌ No | ❌ No | ❌ No |
+| **Universal EPUB 3 Exporter** | ✅ `export_epub3_bytes` | ❌ No | ❌ No | ❌ No |
 | **Zstd Compressed State Caching** | ✅ `export_zstd_cache` | ❌ No | ❌ No | ❌ No |
 | **Universal EPUB 3 Exporter** | ✅ `export_epub3_bytes` | ❌ No | ❌ No | ❌ No |
 | **Zero-Copy Memory-Mapped I/O** | ✅ `Book::from_mmap` | ❌ No | ❌ No | ❌ No |
