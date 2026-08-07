@@ -207,8 +207,10 @@ pub fn normalize_path(path: &str) -> String {
 pub fn resolve_relative_path(base_dir: &str, relative: &str) -> String {
     // 1. Strip URL fragment identifier (#fragment)
     let rel_no_frag = relative.split('#').next().unwrap_or(relative);
+    // 1b. Strip URL query string (?v=2, ?cache=...) — CSS versioned hrefs
+    let rel_no_query = rel_no_frag.split('?').next().unwrap_or(rel_no_frag);
     // 2. Percent-decode URI path (%20, non-ASCII)
-    let decoded = percent_encoding::percent_decode_str(rel_no_frag)
+    let decoded = percent_encoding::percent_decode_str(rel_no_query)
         .decode_utf8_lossy()
         .to_string();
 

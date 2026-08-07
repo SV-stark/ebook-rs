@@ -395,6 +395,56 @@ impl Book {
         Ok(section.to_tts_annotated_html())
     }
 
+    /// Lazy-load a section by spine index directly from the archive without caching in `self.sections`.
+    /// This is ideal for large books (1000+ pages) where eager-loading all sections wastes RAM.
+    /// The returned `Section` is fully processed (inlined assets, RTL injection, hooks applied).
+    pub fn load_section_lazy(&self, index: usize) -> Result<Section, String> {
+        let spine_item = self
+            .opf
+            .spine
+            .get(index)
+            .ok_or_else(|| format!("Spine index out of bounds: {}", index))?;
+        let man_item =
+            self.opf.manifest.get(&spine_item.idref).ok_or_else(|| {
+                format!("Manifest item not found for idref: {}", spine_item.idref)
+            })?;
+        let mut section = Section::new(
+            index,
+            spine_item.idref.clone(),
+            man_item.href.clone(),
+            man_item.full_path.clone(),
+            &self.archive,
+        )?;
+        // Inline assets
+        section.processed_html = crate::section::process_section_resources(
+            &section.raw_html,
+            &section.full_path,
+            &self.archive,
+        );
+        // RTL injection
+        if self.opf.metadata.direction == crate::metadata::PageProgressionDirection::Rtl {
+            if !section.processed_html.contains("dir=\"rtl\"")
+                && !section.processed_html.contains("dir='rtl'")
+            {
+                section.processed_html =
+                    section.processed_html.replace("<html", "<html dir=\"rtl\"");
+                if !section.processed_html.contains("dir=\"rtl\"") {
+                    section.processed_html =
+                        section.processed_html.replace("<body", "<body dir=\"rtl\"");
+                }
+            }
+        }
+        // Script sanitization
+        if !self.layout.allow_scripted_content {
+            section.strip_script_content();
+        }
+        // Apply before_display hooks
+        for hook in &self.before_display_hooks {
+            hook(&mut section.processed_html, &section.full_path);
+        }
+        Ok(section)
+    }
+
     /// Retrieve a section by spine index (applying pre-display hooks and automatic RTL dir="rtl" injection).
     pub fn get_section(&self, index: usize) -> Result<Section, String> {
         let mut section = self
@@ -979,4 +1029,50 @@ pub struct BookCacheState {
     pub archive_files: HashMap<String, Vec<u8>>,
     pub annotations: AnnotationManager,
     pub media_overlays: HashMap<String, crate::media_overlay::MediaOverlayPackage>,
+}
+
+// ─── Async API (requires `async` feature + tokio) ──────────────────────────
+
+/// Non-blocking async eBook loading API.
+/// These functions require the `async` feature and a tokio runtime.
+#[cfg(feature = "async")]
+pub mod async_api {
+    use super::Book;
+
+    /// Asynchronously load an eBook from a filesystem path.
+    /// Uses `tokio::fs::read` for non-blocking I/O — ideal for async server handlers.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let book = ebook_rs::book::async_api::from_file_async("book.epub").await?;
+    /// ```
+    pub async fn from_file_async(path: &str) -> Result<Book, String> {
+        let bytes = tokio::fs::read(path)
+            .await
+            .map_err(|e| format!("Async read failed for {}: {}", path, e))?;
+        let filename = std::path::Path::new(path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("eBook");
+        Book::from_bytes_with_title(&bytes, filename)
+    }
+
+    /// Asynchronously load an eBook by reading bytes via any async reader.
+    /// Returns a parsed `Book` or a descriptive error string.
+    pub async fn from_bytes_async(bytes: Vec<u8>) -> Result<Book, String> {
+        tokio::task::spawn_blocking(move || Book::from_bytes(&bytes))
+            .await
+            .map_err(|e| format!("Async book parse task failed: {}", e))?
+    }
+
+    /// Asynchronously lazy-load a section by index.
+    /// Parses and processes one section without blocking the async runtime.
+    pub async fn load_section_lazy_async(
+        book: std::sync::Arc<Book>,
+        index: usize,
+    ) -> Result<super::super::section::Section, String> {
+        tokio::task::spawn_blocking(move || book.load_section_lazy(index))
+            .await
+            .map_err(|e| format!("Async section load task failed: {}", e))?
+    }
 }

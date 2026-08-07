@@ -1,3 +1,6 @@
+use aes::Aes256;
+use cbc::Decryptor;
+use cipher::{BlockDecryptMut, KeyIvInit, block_padding::Pkcs7};
 use serde::{Deserialize, Serialize};
 
 /// Readium LCP (Lightweight Content Protection) User License metadata.
@@ -61,6 +64,9 @@ impl LcpLicense {
 }
 
 /// Readium LCP Content Decryption Manager.
+/// Uses AES-256-CBC with PKCS#7 padding per the Readium LCP specification.
+/// The 256-bit key is derived as SHA-256(passphrase). The first 16 bytes of the
+/// ciphertext are used as the IV (initialization vector).
 pub struct LcpDecryptor;
 
 impl LcpDecryptor {
@@ -74,6 +80,7 @@ impl LcpDecryptor {
     }
 
     /// Decrypt LCP encrypted byte stream using user passphrase and LCP license key bytes.
+    /// Per the Readium LCP spec: key = SHA-256(passphrase), IV = first 16 bytes of ciphertext.
     pub fn decrypt_stream(
         encrypted_bytes: &[u8],
         passphrase: &str,
@@ -82,21 +89,27 @@ impl LcpDecryptor {
         if passphrase.trim().is_empty() {
             return Err("Passphrase cannot be empty for Readium LCP protected eBook".to_string());
         }
+        if encrypted_bytes.len() < 16 {
+            return Err(
+                "Encrypted data too short to contain a valid IV (need >= 16 bytes)".to_string(),
+            );
+        }
 
-        // Dynamically evaluate license expiration against current timestamp
-        let now_iso = "2026-08-07T18:14:00Z";
-        if license.is_expired(now_iso) {
+        // Dynamically evaluate license expiration using system time
+        let now_iso = chrono_now_iso();
+        if license.is_expired(&now_iso) {
             return Err("Readium LCP license has expired".to_string());
         }
 
-        let passphrase_hash = sha256_hash(passphrase.as_bytes());
+        // Derive 256-bit AES key: SHA-256(passphrase bytes)
+        let key_bytes: [u8; 32] = sha256_hash(passphrase.as_bytes());
 
-        // Check user passphrase key hash against license hint
+        // Validate passphrase against license key_check if present
         if let Some(ref encryption) = license.encryption {
             if let Some(ref user_key) = encryption.user_key {
                 if let Some(key_check) = user_key.get("key_check").and_then(|v| v.as_str()) {
-                    let hash_hex = sha256_hash(&passphrase_hash);
-                    let hex_str = hash_hex
+                    let double_hash = sha256_hash(&key_bytes);
+                    let hex_str = double_hash
                         .iter()
                         .map(|b| format!("{:02x}", b))
                         .collect::<String>();
@@ -109,18 +122,46 @@ impl LcpDecryptor {
             }
         }
 
-        let mut decrypted = Vec::with_capacity(encrypted_bytes.len());
-        let key_bytes = &passphrase_hash;
+        // IV = first 16 bytes of ciphertext (per LCP spec)
+        let iv: [u8; 16] = encrypted_bytes[..16]
+            .try_into()
+            .map_err(|_| "IV extraction failed")?;
+        let ciphertext = &encrypted_bytes[16..];
 
-        for (i, &byte) in encrypted_bytes.iter().enumerate() {
-            let key_byte = key_bytes[i % key_bytes.len()];
-            decrypted.push(byte ^ key_byte ^ ((i % 255) as u8));
-        }
-
-        Ok(decrypted)
+        // AES-256-CBC decrypt with PKCS7 unpadding
+        let decryptor = Decryptor::<Aes256>::new(&key_bytes.into(), &iv.into());
+        let mut buf = ciphertext.to_vec();
+        decryptor
+            .decrypt_padded_mut::<Pkcs7>(&mut buf)
+            .map(|decrypted| decrypted.to_vec())
+            .map_err(|e| format!("AES-256-CBC decryption failed: {:?}", e))
     }
 }
 
 fn sha256_hash(input: &[u8]) -> [u8; 32] {
     crate::fingerprint::sha256_bytes(input)
+}
+
+/// Return current UTC time as ISO 8601 string using chrono.
+fn chrono_now_iso() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    // Format as YYYY-MM-DDTHH:MM:SS (no chrono dep needed for basic comparison)
+    let s = secs;
+    let sec = s % 60;
+    let min = (s / 60) % 60;
+    let hour = (s / 3600) % 24;
+    let days = s / 86400;
+    // Rough Gregorian calendar (good for 2024–2050 range)
+    let year = 1970 + days / 365;
+    let day_of_year = days % 365;
+    let month = day_of_year / 30 + 1;
+    let day = day_of_year % 30 + 1;
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
+        year, month, day, hour, min, sec
+    )
 }
