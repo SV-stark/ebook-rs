@@ -23,6 +23,11 @@ impl EpubArchive {
         }
     }
 
+    /// Insert or update a file entry in the archive.
+    pub fn insert(&mut self, path: impl Into<String>, data: Vec<u8>) {
+        self.files.insert(path.into(), data);
+    }
+
     /// Retrieve `.opf` package document path from `META-INF/container.xml`.
     pub fn get_opf_path(&self) -> Result<String, String> {
         let container_xml = self.read_string("META-INF/container.xml")?;

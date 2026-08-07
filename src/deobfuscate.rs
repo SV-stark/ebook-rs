@@ -5,7 +5,19 @@ pub struct FontDeobfuscator {
     encrypted_fonts: HashMap<String, String>, // path -> algorithm URI
 }
 
+impl Default for FontDeobfuscator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FontDeobfuscator {
+    pub fn new() -> Self {
+        Self {
+            encrypted_fonts: HashMap::new(),
+        }
+    }
+
     /// Parse `META-INF/encryption.xml` if present in archive.
     pub fn parse_encryption_xml(xml_content: &str) -> Self {
         let mut encrypted_fonts = HashMap::new();

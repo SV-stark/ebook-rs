@@ -1,6 +1,6 @@
-# 📚 EBook-RS API Reference & Complete Documentation (v0.10.5)
+# 📚 EBook-RS API Reference & Complete Documentation (v0.11.0)
 
-`ebook-rs` (v0.10.5) is a multi-format pure Rust eBook engine supporting **EPUB 2**, **EPUB 3**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT (OpenDocument Text)**, **Plain Text (.txt)**, and **Markdown (.md)** formats with **Performance Accelerators (`compact_str`, `ahash`, `simdutf8`, `zlib-rs`, `memchr`, `parking_lot`)**, **Universal EPUB 3 Exporter**, **Zero-Copy mmap**, **Lightweight DOM AST Tree**, **Fuzzy XML Recovery**, **Synthetic FXL Spreads**, **TOC Deep Search**, **Tree-sitter Code Parser**, **Regex Search**, **Structural EPUB Validator**, **Book Fingerprinting & Deduplication**, **Academic Citation Exporter**, and **Readium LCP/Locator** support.
+`ebook-rs` (v0.11.0) is a multi-format pure Rust eBook engine supporting **EPUB 2**, **EPUB 3**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT (OpenDocument Text)**, **Plain Text (.txt)**, and **Markdown (.md)** formats with **Legacy Non-UTF-8 Charset Decoding**, **Automatic Language Detection**, **Zstd Compressed State Caching**, **Universal EPUB 3 Exporter**, **Zero-Copy mmap**, **Lightweight DOM AST Tree**, **Fuzzy XML Recovery**, **CFI**, and **Readium LCP/Locator** support.
 
 ---
 
@@ -25,12 +25,15 @@
 18. [Zero-Copy Memory-Mapped I/O (`Book::from_mmap`)](#18-zero-copy-memory-mapped-io-bookfrom_mmap)
 19. [Lightweight DOM AST Tree (`EbookDomTree`, `DomNode`)](#19-lightweight-dom-ast-tree-ebookdomtree-domnode)
 20. [Fuzzy XML / HTML Recovery Parser (`sanitize_and_repair_xml`)](#20-fuzzy-xml--html-recovery-parser-sanitize_and_repair_xml)
-21. [Readium Webpub Manifest Export (`ebook_rs::webpub`)](#21-readium-webpub-manifest-export-ebook_rswebpub)
-22. [Readium LCP DRM (`ebook_rs::lcp`)](#22-readium-lcp-drm-ebook_rslcp)
-23. [Readium Unified Locator Model (`ReadiumLocator`)](#23-readium-unified-locator-model-readiumlocator)
-24. [OPDS Catalog Client & Feed Generator (`ebook_rs::opds`)](#24-opds-catalog-client--feed-generator-ebook_rsopds)
-25. [HTTP Reader Server & Web UI (`ebook_rs::server`)](#25-http-reader-server--web-ui-ebook_rsserver)
-26. [Performance Accelerators (`compact_str`, `ahash`, `simdutf8`, `zlib-rs`, `memchr`, `parking_lot`)](#26-performance-accelerators-compact_str-ahash-simdutf8-zlib-rs-memchr-parking_lot)
+21. [Legacy Non-UTF-8 Charset Decoding (`decode_bytes_with_encoding`)](#21-legacy-non-utf-8-charset-decoding-decode_bytes_with_encoding)
+22. [Automatic Language Detection (`book.detect_language()`)](#22-automatic-language-detection-bookdetect_language)
+23. [Zstd Compressed State Caching (`export_zstd_cache`, `from_zstd_cache`)](#23-zstd-compressed-state-caching-export_zstd_cache-from_zstd_cache)
+24. [Readium Webpub Manifest Export (`ebook_rs::webpub`)](#24-readium-webpub-manifest-export-ebook_rswebpub)
+25. [Readium LCP DRM (`ebook_rs::lcp`)](#25-readium-lcp-drm-ebook_rslcp)
+26. [Readium Unified Locator Model (`ReadiumLocator`)](#23-readium-unified-locator-model-readiumlocator)
+27. [OPDS Catalog Client & Feed Generator (`ebook_rs::opds`)](#24-opds-catalog-client--feed-generator-ebook_rsopds)
+28. [HTTP Reader Server & Web UI (`ebook_rs::server`)](#25-http-reader-server--web-ui-ebook_rsserver)
+29. [Performance Accelerators (`compact_str`, `ahash`, `simdutf8`, `zlib-rs`, `memchr`, `parking_lot`)](#26-performance-accelerators-compact_str-ahash-simdutf8-zlib-rs-memchr-parking_lot)
 
 ---
 
@@ -432,7 +435,51 @@ use ebook_rs::sanitize_and_repair_xml;
 
 let broken_xml = "<package><title>AT&T & R&D Guide</title></package>";
 let repaired = sanitize_and_repair_xml(broken_xml);
-println!("Repaired XML: {}", repaired); // <package><title>AT&amp;T &amp; R&amp;D Guide</title></package>
+---
+
+## 21. Legacy Non-UTF-8 Charset Decoding (`decode_bytes_with_encoding`)
+
+Decode raw byte slices from legacy encodings (`Windows-1252`, `Shift-JIS`, `GBK`, `ISO-8859-1`) into clean Rust UTF-8 strings:
+
+```rust
+use ebook_rs::decode_bytes_with_encoding;
+
+let win1252_bytes = b"Hello \x93World\x94";
+let decoded = decode_bytes_with_encoding(win1252_bytes, Some("windows-1252"));
+println!("Decoded: {}", decoded);
+```
+
+---
+
+## 22. Automatic Language Detection (`book.detect_language()`)
+
+Fast statistical language identification on text content when OPF metadata `dc:language` is missing:
+
+```rust
+use ebook_rs::Book;
+
+let book = Book::from_file("sample.epub")?;
+if let Some(lang) = book.detect_language() {
+    println!("Detected Language: {}", lang); // "eng", "fra", "deu", etc.
+}
+```
+
+---
+
+## 23. Zstd Compressed State Caching (`export_zstd_cache`, `from_zstd_cache`)
+
+Compress and restore parsed book states in sub-milliseconds for high-throughput server caching and WebAssembly state persistence:
+
+```rust
+use ebook_rs::Book;
+
+let book = Book::from_file("sample.epub")?;
+
+// Export sub-millisecond compressed state cache
+let zstd_cache: Vec<u8> = book.export_zstd_cache()?;
+
+// Instantly restore parsed Book from cache
+let restored_book = Book::from_zstd_cache(&zstd_cache)?;
 ```
 
 ---

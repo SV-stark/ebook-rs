@@ -14,6 +14,19 @@ pub enum DomNode {
     Comment(String),
 }
 
+/// Decodes a raw byte slice into a UTF-8 String using `encoding_rs`.
+/// Supports legacy non-UTF-8 encodings such as "windows-1252", "shift_jis", "gbk", "iso-8859-1", etc.
+pub fn decode_bytes_with_encoding(bytes: &[u8], encoding_label: Option<&str>) -> String {
+    if let Some(label) = encoding_label {
+        if let Some(encoding) = encoding_rs::Encoding::for_label(label.as_bytes()) {
+            let (cow, _malformed, _replacements) = encoding.decode(bytes);
+            return cow.into_owned();
+        }
+    }
+    let (cow, _malformed, _replacements) = encoding_rs::UTF_8.decode(bytes);
+    cow.into_owned()
+}
+
 /// Lightweight, zero-alloc DOM AST tree parser and manipulator for eBook HTML sections.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EbookDomTree {

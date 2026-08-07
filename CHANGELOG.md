@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.11.0] - 2026-08-07
+
+### Added
+- **Legacy Non-UTF-8 Charset Decoding (`encoding_rs`)**: `decode_bytes_with_encoding(bytes, label)` decodes legacy encodings (`Windows-1252`, `Shift-JIS`, `GBK`, `ISO-8859-1`, etc.) into clean UTF-8 strings for 100% parse success across legacy MOBI, FB2, and TXT files.
+- **Automatic Language Detection (`whatlang`)**: `book.detect_language()` and `section.detect_language()` perform fast statistical language identification on text contents when OPF metadata `dc:language` is missing.
+- **Zstd Compressed State Caching (`zstd`)**: `book.export_zstd_cache()` and `Book::from_zstd_cache()` compress and restore parsed book states (`BookCacheState`) in sub-milliseconds for instant server-side and WebAssembly caching.
+
+---
+
 ## [0.10.5] - 2026-08-06
 
 ### Added

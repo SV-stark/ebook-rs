@@ -3,7 +3,7 @@ use crate::metadata::{GuideItem, ManifestItem, Metadata, PageProgressionDirectio
 use ahash::AHashMap;
 use roxmltree::Document;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct OpfPackage {
     pub version: String,
     pub opf_path: String,

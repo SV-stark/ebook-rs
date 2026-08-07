@@ -1,9 +1,9 @@
 [package]
 name = "ebook-rs"
-version = "0.10.7"
+version = "0.11.0"
 edition = "2024"
 authors = ["SV-Stark"]
-description = "Pure Rust multi-format eBook engine (EPUB2/3, MOBI, AZW3, FB2, LIT, CBZ, PDF, ODT, TXT, MD) with Universal EPUB3 Exporter, Zero-Copy mmap, Lightweight DOM AST, Fuzzy XML Recovery, CFI, Tree-sitter Code Parser, Readium LCP/Locator, and Citation Export APIs."
+description = "Pure Rust multi-format eBook engine (EPUB2/3, MOBI, AZW3, FB2, LIT, CBZ, PDF, ODT, TXT, MD) with Legacy Charset Decoding, Auto Language Detection, Zstd State Caching, Universal EPUB3 Exporter, Zero-Copy mmap, Lightweight DOM AST, Fuzzy XML Recovery, CFI, and Readium LCP/Locator APIs."
 license = "MIT"
 repository = "https://github.com/SV-stark/ebook-rs"
 homepage = "https://github.com/SV-stark/ebook-rs"
@@ -51,6 +51,9 @@ zlib-rs = "0.6"
 flate2 = { version = "1.0", features = ["zlib-rs"] }
 memchr = "2.7"
 parking_lot = "0.12"
+encoding_rs = "0.8"
+whatlang = "0.16"
+zstd = "0.13"
 
 [profile.release]
 opt-level = 3

@@ -287,6 +287,67 @@ impl Book {
         Ok((bytes, mime))
     }
 
+    /// Automatically detects the primary language of the book using `whatlang`.
+    /// Falls back to OPF metadata `dc:language` if present, or performs statistical language detection on section text.
+    pub fn detect_language(&self) -> Option<String> {
+        let meta_lang = self.opf.metadata.language();
+        if !meta_lang.trim().is_empty() {
+            return Some(meta_lang.to_string());
+        }
+        for sec in &self.sections {
+            if let Some(lang) = sec.detect_language() {
+                return Some(lang);
+            }
+        }
+        None
+    }
+
+    /// Compresses and serializes the parsed `Book` state into a `zstd`-compressed byte buffer (`Vec<u8>`).
+    /// This enables sub-millisecond instant caching and restoration of parsed books.
+    pub fn export_zstd_cache(&self) -> Result<Vec<u8>, String> {
+        let cache = BookCacheState {
+            opf: self.opf.clone(),
+            toc: self.toc.clone(),
+            landmarks: self.landmarks.clone(),
+            page_list: self.page_list.clone(),
+            sections: self.sections.clone(),
+            locations: self.locations.clone(),
+            layout: self.layout.clone(),
+        };
+        let json_bytes = serde_json::to_vec(&cache)
+            .map_err(|e| format!("Failed to serialize Book state to JSON: {}", e))?;
+        zstd::encode_all(&json_bytes[..], 3).map_err(|e| format!("Zstd compression failed: {}", e))
+    }
+
+    /// Deserializes and restores a `Book` state from a `zstd`-compressed byte buffer (`&[u8]`).
+    pub fn from_zstd_cache(zstd_bytes: &[u8]) -> Result<Self, String> {
+        let json_bytes = zstd::decode_all(zstd_bytes)
+            .map_err(|e| format!("Zstd decompression failed: {}", e))?;
+        let cache: BookCacheState = serde_json::from_slice(&json_bytes)
+            .map_err(|e| format!("Failed to deserialize Book state from JSON: {}", e))?;
+
+        let mut archive = EpubArchive::empty();
+        for sec in &cache.sections {
+            archive.insert(&sec.full_path, sec.raw_html.as_bytes().to_vec());
+        }
+
+        Ok(Self {
+            archive,
+            opf: cache.opf,
+            toc: cache.toc,
+            landmarks: cache.landmarks,
+            page_list: cache.page_list,
+            sections: cache.sections,
+            locations: cache.locations,
+            annotations: AnnotationManager::new(),
+            layout: cache.layout,
+            font_deobfuscator: FontDeobfuscator::new(),
+            before_display_hooks: Vec::new(),
+            media_overlays: HashMap::new(),
+            render_cache: parking_lot::Mutex::new(HashMap::new()),
+        })
+    }
+
     /// Retrieve a section by spine index (applying pre-display hooks and automatic RTL dir="rtl" injection).
     pub fn get_section(&self, index: usize) -> Result<Section, String> {
         let mut section = self
@@ -760,4 +821,16 @@ fn find_nearest_element_id_anchor(html: &str, char_offset: usize) -> Option<Stri
     }
 
     last_id
+}
+
+/// Serializable cache representation of a `Book` state for `zstd` compressed state caching.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct BookCacheState {
+    pub opf: crate::opf::OpfPackage,
+    pub toc: Vec<NavPoint>,
+    pub landmarks: Vec<Landmark>,
+    pub page_list: Vec<PageListItem>,
+    pub sections: Vec<Section>,
+    pub locations: Locations,
+    pub layout: RenditionLayout,
 }

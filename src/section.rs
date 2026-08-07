@@ -70,6 +70,15 @@ impl Section {
         })
     }
 
+    /// Detects the primary language of this section's plain text content using `whatlang`.
+    pub fn detect_language(&self) -> Option<String> {
+        if self.plain_text.len() >= 30 {
+            whatlang::detect(&self.plain_text).map(|info| info.lang().code().to_string())
+        } else {
+            None
+        }
+    }
+
     /// Strip embedded <script> tags, inline event attributes (on*="..."), and javascript: URIs.
     pub fn strip_script_content(&mut self) {
         self.processed_html = sanitize_html_scripts(&self.processed_html);

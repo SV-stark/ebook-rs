@@ -49,7 +49,7 @@ pub use cbz::CbzBook;
 pub use cfi::{Cfi, CfiDomTarget, CfiOffset, CfiPath, CfiStep};
 pub use citation::{CitationExporter, CitationStyle};
 pub use deobfuscate::FontDeobfuscator;
-pub use dom::{DomNode, EbookDomTree, sanitize_and_repair_xml};
+pub use dom::{DomNode, EbookDomTree, decode_bytes_with_encoding, sanitize_and_repair_xml};
 pub use fb2::Fb2Book;
 pub use fingerprint::{BookFingerprint, FingerprintGenerator};
 pub use footnote::Footnote;

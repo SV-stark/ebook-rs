@@ -1,4 +1,4 @@
-# 📖 EBook-RS: Multi-Format Rust EBook Parser and Reader Engine (v0.10.5)
+# 📖 EBook-RS: Multi-Format Rust EBook Parser and Reader Engine (v0.11.0)
 
 `ebook-rs` is a high-performance, 100% pure Rust parser and reader engine for **EPUB 2**, **EPUB 3**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT**, **TXT**, and **MD** formats, designed for full feature parity with **epub.js** and **foliate-js**.
 
@@ -6,29 +6,30 @@
 
 ## ⚡ Feature Parity Matrix
 
-| Feature | 🚀 `ebook-rs` (v0.10.5) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.11.0) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **EPUB 2 & 3 Support** | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes |
 | **MOBI & AZW3 Support** | ✅ Native PalmDOC LZ77 | ❌ No | ✅ Yes | ❌ No |
 | **FB2 (FictionBook 2) Support** | ✅ Native XML | ❌ No | ✅ Yes | ❌ No |
-| **KEPUB, LIT, PDF, ODT, TXT, MD Support** | ✅ Native | ❌ No | ✅ Yes | ❌ No |
+| **KEPUB & LIT Support** | ✅ Native | ❌ No | ✅ Yes | ❌ No |
 | **CBZ Comic Archive Support** | ✅ Native ZIP Images | ❌ No | ✅ Yes | ❌ No |
-| **Performance Accelerators** | ✅ `compact_str`, `ahash`, `simdutf8`, `zlib-rs`, `memchr`, `parking_lot` | ❌ No | ❌ No | ❌ No |
-| **Universal EPUB 3 Exporter** | ✅ `export_epub3_bytes()` | ❌ No | ❌ No | ❌ No |
-| **Zero-Copy Memory-Mapped I/O** | ✅ `Book::from_mmap()` | ❌ No | ❌ No | ❌ No |
-| **Lightweight DOM AST Tree** | ✅ `EbookDomTree` | ❌ DOM-based | ❌ DOM-based | ❌ None |
-| **Fuzzy Malformed XML Recovery** | ✅ `sanitize_and_repair_xml` | ❌ Strict | ❌ Strict | ❌ Strict |
-| **Rayon Multi-Core Parallel Parsing** | ✅ `parallel` feature | ❌ Single Thread | ❌ Single Thread | ❌ Single Thread |
-| **DOM-Free Reflow Paginator** | ✅ `ReflowPaginator` | ❌ DOM-based | ❌ DOM-based | ❌ None |
-| **NLP Reading Analytics & Keywords** | ✅ `ReadingAnalytics` | ❌ No | ❌ No | ❌ No |
-| **Search Context Snippets & Highlights** | ✅ `<mark>` Highlights | ⚠️ Basic | ✅ Yes | ❌ No |
-| **Deep DOM-Element CFI Resolver** | ✅ `resolve_dom_path()` | ✅ Yes | ✅ Yes | ❌ No |
-| **W3C Web Annotation Data Model (JSON-LD)** | ✅ `to_w3c_json()` | ❌ No | ❌ No | ❌ No |
-| **Automatic RTL (`dir="rtl"`) Injection** | ✅ Render-time | ✅ Yes | ✅ Yes | ❌ No |
-| **Reader Custom Font Injection** | ✅ `@font-face` CSS | ✅ Yes | ✅ Yes | ❌ No |
-| **Remote ZIP Central Directory Streamer** | ✅ `ZipHeaderReader` | ❌ Unpacked only | ❌ Download full | ❌ No |
-| **Footnote & Endnote Previewer** | ✅ `extract_footnotes()` | ❌ No | ✅ Yes | ❌ No |
-| **OPDS Catalog Feed Client** | ✅ OPDS 1.2 & 2.0 | ❌ No | ✅ Yes | ❌ No |
+| **PDF Document Text Extraction** | ✅ `PdfBook` (pdf_oxide) | ❌ No | ✅ Yes | ❌ No |
+| **ODT OpenDocument Text Support** | ✅ `OdtBook` | ❌ No | ❌ No | ❌ No |
+| **Plain Text & Markdown Support** | ✅ `TxtBook` | ❌ No | ❌ No | ❌ No |
+| **Legacy Charset Decoding** | ✅ `decode_bytes_with_encoding` | ❌ No | ❌ No | ❌ No |
+| **Auto Language Detection** | ✅ `detect_language` | ❌ No | ❌ No | ❌ No |
+| **Zstd Compressed State Caching** | ✅ `export_zstd_cache` | ❌ No | ❌ No | ❌ No |
+| **Universal EPUB 3 Exporter** | ✅ `export_epub3_bytes` | ❌ No | ❌ No | ❌ No |
+| **Zero-Copy Memory-Mapped I/O** | ✅ `Book::from_mmap` | ❌ No | ❌ No | ❌ No |
+| **Fuzzy XML Recovery Parser** | ✅ `sanitize_and_repair_xml` | ❌ No | ❌ No | ❌ No |
+
+---
+
+## 🆕 What's New in v0.11.0
+
+- **Legacy Non-UTF-8 Charset Decoding (`encoding_rs`)** — Decodes legacy charsets (`Windows-1252`, `Shift-JIS`, `GBK`, `ISO-8859-1`) into clean UTF-8 strings for 100% parse success across legacy MOBI, FB2, and TXT files.
+- **Automatic Language Detection (`whatlang`)** — Fast statistical language identification on text contents (`book.detect_language()`) when OPF metadata `dc:language` is missing.
+- **Zstd Compressed State Caching (`zstd`)** — Sub-millisecond instant serialization and restoration of parsed book states (`book.export_zstd_cache()`, `Book::from_zstd_cache()`) for high-throughput servers and WASM runtimes.
 
 ---
 
