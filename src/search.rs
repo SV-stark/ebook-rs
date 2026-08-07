@@ -73,11 +73,12 @@ impl SearchEngine {
                         return false;
                     }
                 } else {
-                    if tc != qc
-                        && !tc.eq_ignore_ascii_case(&qc)
-                        && tc.to_lowercase().to_string() != qc.to_lowercase().to_string()
-                    {
-                        return false;
+                    if tc != qc && !tc.eq_ignore_ascii_case(&qc) {
+                        let tc_low = tc.to_lowercase();
+                        let qc_low = qc.to_lowercase();
+                        if tc_low.ne(qc_low) {
+                            return false;
+                        }
                     }
                 }
             }

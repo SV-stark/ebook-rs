@@ -72,8 +72,8 @@ impl Book {
                 }
             }
             crate::cbz::CbzBook::parse(bytes, title_fallback)
-        } else if let Ok(mobi) = crate::mobi::MobiBook::parse(bytes) {
-            Ok(mobi)
+        } else if is_mobi_bytes(bytes) {
+            crate::mobi::MobiBook::parse(bytes)
         } else if let Ok(fb2) = crate::fb2::Fb2Book::parse(bytes) {
             Ok(fb2)
         } else if let Ok(lit) = crate::lit::LitBook::parse(bytes) {
@@ -336,6 +336,18 @@ impl Book {
         for sec in &cache.sections {
             if !archive.files().contains_key(&sec.full_path) {
                 archive.insert(&sec.full_path, sec.raw_html.as_bytes().to_vec());
+            }
+        }
+
+        // B6 Fix: Enforce Readium LCP DRM protection check on restored cache
+        if archive.contains("META-INF/license.lcpl") {
+            if let Ok(license_str) = archive.read_string("META-INF/license.lcpl") {
+                if let Ok(lcp) = crate::lcp::LcpLicense::parse(&license_str) {
+                    if lcp.encryption.is_some() {
+                        return Err("Readium LCP protected eBook requires passphrase validation"
+                            .to_string());
+                    }
+                }
             }
         }
 
@@ -628,16 +640,22 @@ impl Book {
                 zip.start_file(&sec_path, deflated_options)
                     .map_err(|e| format!("Failed to write {}: {}", sec_path, e))?;
 
-                let trimmed = section.processed_html.trim();
+                let html_source = if section.raw_html.is_empty() {
+                    &section.processed_html
+                } else {
+                    &section.raw_html
+                };
+
+                let trimmed = html_source.trim();
                 let doc_html = if trimmed.starts_with("<!DOCTYPE")
                     || trimmed.to_lowercase().starts_with("<html")
                 {
-                    section.processed_html.clone()
+                    html_source.to_string()
                 } else {
                     format!(
                         "<!DOCTYPE html>\n<html xmlns=\"http://www.w3.org/1999/xhtml\">\n<head><title>Section {}</title></head>\n<body>\n{}\n</body>\n</html>",
                         section.index + 1,
-                        section.processed_html
+                        html_source
                     )
                 };
                 zip.write_all(doc_html.as_bytes())
@@ -709,8 +727,16 @@ impl Book {
     }
 }
 
+fn is_mobi_bytes(bytes: &[u8]) -> bool {
+    if bytes.len() < 68 {
+        return false;
+    }
+    let type_creator = &bytes[60..68];
+    type_creator == b"BOOKMOBI" || type_creator == b"TEXtRECD" || &bytes[60..64] == b"BOOK"
+}
+
 fn starts_with_ignore_case(s: &str, prefix: &str) -> bool {
-    if s.len() < prefix.len() {
+    if s.len() < prefix.len() || !s.is_char_boundary(prefix.len()) {
         return false;
     }
     s[..prefix.len()].eq_ignore_ascii_case(prefix)

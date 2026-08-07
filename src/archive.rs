@@ -132,36 +132,43 @@ impl EpubArchive {
         Ok(Self { files })
     }
 
-    /// Read raw bytes of a file in the archive.
+    /// Read raw bytes of a file in the archive (cloning into a new Vec<u8>).
     pub fn read_bytes(&self, path: &str) -> Result<Vec<u8>, String> {
+        self.read_bytes_ref(path).map(|bytes| bytes.to_vec())
+    }
+
+    /// Zero-copy reference getter for raw file bytes in the archive (P6 Fix).
+    pub fn read_bytes_ref(&self, path: &str) -> Result<&[u8], String> {
         let clean = normalize_path(path);
-        // Strip anchor fragment if passed
         let clean_no_frag = clean.split('#').next().unwrap_or(&clean);
         if let Some(data) = self.files.get(clean_no_frag) {
-            return Ok(data.clone());
+            return Ok(data.as_slice());
         }
         let lower = clean_no_frag.to_lowercase();
         if let Some(data) = self.files.get(&lower) {
-            return Ok(data.clone());
+            return Ok(data.as_slice());
         }
-        // Fallback case-insensitive search
-        if let Some((_, data)) = self.files.iter().find(|(k, _)| k.to_lowercase() == lower) {
-            return Ok(data.clone());
+        if let Some((_, data)) = self
+            .files
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(clean_no_frag))
+        {
+            return Ok(data.as_slice());
         }
         Err(format!("File not found in archive: {}", path))
     }
 
     /// Read text content of a file in the archive with SIMD UTF-8 decoding.
     pub fn read_string(&self, path: &str) -> Result<String, String> {
-        let bytes = self.read_bytes(path)?;
-        if let Ok(s) = simdutf8::basic::from_utf8(&bytes) {
+        let bytes = self.read_bytes_ref(path)?;
+        if let Ok(s) = simdutf8::basic::from_utf8(bytes) {
             Ok(s.to_string())
         } else {
-            Ok(String::from_utf8_lossy(&bytes).to_string())
+            Ok(String::from_utf8_lossy(bytes).to_string())
         }
     }
 
-    /// Check if a file exists in the archive.
+    /// Check if a file exists in the archive (P5 Fix: O(1) lookup with ascii case fallback).
     pub fn contains(&self, path: &str) -> bool {
         let clean = normalize_path(path);
         let clean_no_frag = clean.split('#').next().unwrap_or(&clean);
@@ -170,7 +177,7 @@ impl EpubArchive {
             || self
                 .files
                 .keys()
-                .any(|k| k.to_lowercase() == clean_no_frag.to_lowercase())
+                .any(|k| k.eq_ignore_ascii_case(clean_no_frag))
     }
 
     /// List all unique file entry paths inside the archive.

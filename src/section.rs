@@ -92,21 +92,32 @@ impl Section {
     pub fn tokenize_tts_words(&self) -> Vec<TtsWordToken> {
         let mut tokens = Vec::new();
         let mut word_index = 0;
-        let mut byte_offset = 0;
+        let mut char_offset = 0;
+        let plain_chars: Vec<char> = self.plain_text.chars().collect();
 
-        for word in self.plain_text.split_whitespace() {
-            if let Some(pos) = self.plain_text[byte_offset..].find(word) {
-                let abs_start = byte_offset + pos;
-                let abs_end = abs_start + word.len();
-                tokens.push(TtsWordToken {
-                    index: word_index,
-                    word: word.to_string(),
-                    char_start: abs_start,
-                    char_end: abs_end,
-                });
-                word_index += 1;
-                byte_offset = abs_end;
+        let mut i = 0;
+        while i < plain_chars.len() {
+            if plain_chars[i].is_whitespace() {
+                i += 1;
+                char_offset += 1;
+                continue;
             }
+
+            let start_char = char_offset;
+            let mut word = String::new();
+            while i < plain_chars.len() && !plain_chars[i].is_whitespace() {
+                word.push(plain_chars[i]);
+                i += 1;
+                char_offset += 1;
+            }
+
+            tokens.push(TtsWordToken {
+                index: word_index,
+                word,
+                char_start: start_char,
+                char_end: char_offset,
+            });
+            word_index += 1;
         }
 
         tokens
@@ -119,27 +130,57 @@ impl Section {
             return self.processed_html.clone();
         }
 
-        let mut annotated = String::with_capacity(self.processed_html.len() + tokens.len() * 40);
+        let mut annotated = String::with_capacity(self.processed_html.len() + tokens.len() * 50);
         let mut token_idx = 0;
-        let mut search_idx = 0;
+        let mut in_tag = false;
+        let mut in_quote: Option<char> = None;
 
-        while search_idx < self.processed_html.len() {
+        let html_chars: Vec<char> = self.processed_html.chars().collect();
+        let mut i = 0;
+
+        while i < html_chars.len() {
+            let ch = html_chars[i];
+            if !in_tag && ch == '<' {
+                in_tag = true;
+                in_quote = None;
+                annotated.push(ch);
+                i += 1;
+                continue;
+            }
+
+            if in_tag {
+                annotated.push(ch);
+                if let Some(q) = in_quote {
+                    if ch == q {
+                        in_quote = None;
+                    }
+                } else if ch == '"' || ch == '\'' {
+                    in_quote = Some(ch);
+                } else if ch == '>' {
+                    in_tag = false;
+                }
+                i += 1;
+                continue;
+            }
+
             if token_idx < tokens.len() {
                 let token = &tokens[token_idx];
-                if let Some(pos) = self.processed_html[search_idx..].find(&token.word) {
-                    let abs_pos = search_idx + pos;
-                    annotated.push_str(&self.processed_html[search_idx..abs_pos]);
+                let token_chars: Vec<char> = token.word.chars().collect();
+                let t_len = token_chars.len();
+
+                if i + t_len <= html_chars.len() && html_chars[i..i + t_len] == token_chars[..] {
                     annotated.push_str(&format!(
                         "<span id=\"tts-w-{}\" class=\"tts-word\" data-start=\"{}\" data-end=\"{}\">{}</span>",
                         token.index, token.char_start, token.char_end, token.word
                     ));
-                    search_idx = abs_pos + token.word.len();
+                    i += t_len;
                     token_idx += 1;
                     continue;
                 }
             }
-            annotated.push_str(&self.processed_html[search_idx..]);
-            break;
+
+            annotated.push(ch);
+            i += 1;
         }
 
         annotated
@@ -201,25 +242,6 @@ fn starts_with_ignore_case(s: &str, prefix: &str) -> bool {
     }
 }
 
-fn contains_ignore_case(s: &str, pat: &str) -> bool {
-    if pat.is_empty() {
-        return true;
-    }
-    if s.len() < pat.len() {
-        return false;
-    }
-    for i in 0..=s.len() - pat.len() {
-        if s.is_char_boundary(i) {
-            if let Some(sub) = s.get(i..i + pat.len()) {
-                if sub.eq_ignore_ascii_case(pat) {
-                    return true;
-                }
-            }
-        }
-    }
-    false
-}
-
 /// Extract clean plain text from HTML content by stripping tags, styles, and scripts.
 /// UTF-8 char boundary safe and quote-aware extraction.
 pub fn extract_plain_text(html: &str) -> String {
@@ -247,17 +269,6 @@ pub fn extract_plain_text(html: &str) -> String {
                     || (tag == "script" && starts_with_ignore_case(slice, "</script"))
                 {
                     skipping_tag = None;
-                } else if (tag == "style" && !contains_ignore_case(slice, "</style"))
-                    || (tag == "script" && !contains_ignore_case(slice, "</script"))
-                {
-                    if starts_with_ignore_case(slice, "<p")
-                        || starts_with_ignore_case(slice, "<div")
-                        || starts_with_ignore_case(slice, "<body")
-                        || starts_with_ignore_case(slice, "<h")
-                        || starts_with_ignore_case(slice, "<section")
-                    {
-                        skipping_tag = None;
-                    }
                 }
             }
             text.push(' ');
@@ -293,7 +304,6 @@ pub fn extract_plain_text(html: &str) -> String {
         }
     }
 
-    // Collapse multiple whitespace spaces into single space
     let mut result = String::with_capacity(text.len());
     let mut prev_space = false;
     for ch in text.chars() {
@@ -307,6 +317,7 @@ pub fn extract_plain_text(html: &str) -> String {
             prev_space = false;
         }
     }
+
     result.trim().to_string()
 }
 
@@ -509,7 +520,7 @@ fn regex_find_attr(html: &str, attr: &str) -> Vec<(String, String)> {
     list
 }
 
-/// Inline fonts and images inside CSS stylesheet content.
+/// Inline fonts and images inside CSS stylesheet content (P7 Fix: Single-pass streaming builder).
 fn process_css_resources(css: &str, css_path: &str, archive: &EpubArchive) -> String {
     let css_dir = if let Some(idx) = css_path.rfind('/') {
         &css_path[..idx]
@@ -517,11 +528,13 @@ fn process_css_resources(css: &str, css_path: &str, archive: &EpubArchive) -> St
         ""
     };
 
-    let mut replacements = Vec::new();
+    let mut output = String::with_capacity(css.len());
     let mut search_idx = 0;
 
     while let Some(url_idx) = css[search_idx..].find("url(") {
         let abs_url = search_idx + url_idx;
+        output.push_str(&css[search_idx..abs_url]);
+
         let val_start = abs_url + 4;
         if let Some(close_idx) = css[val_start..].find(')') {
             let abs_close = val_start + close_idx;
@@ -529,27 +542,30 @@ fn process_css_resources(css: &str, css_path: &str, archive: &EpubArchive) -> St
                 .trim()
                 .trim_matches('\'')
                 .trim_matches('"');
+
             if !raw_url.starts_with("data:") && !raw_url.starts_with("http") {
                 let res_path = resolve_relative_path(css_dir, raw_url);
                 if let Ok(bytes) = archive.read_bytes(&res_path) {
                     let mime = EpubArchive::get_mime_type(&res_path);
                     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                    let data_uri = format!("data:{};base64,{}", mime, b64);
-                    let target_str = css[abs_url..=abs_close].to_string();
-                    let replacement = format!("url(\"{}\")", data_uri);
-                    replacements.push((target_str, replacement));
+                    output.push_str(&format!("url(\"data:{};base64,{}\")", mime, b64));
+                    search_idx = abs_close + 1;
+                    continue;
                 }
             }
+            output.push_str(&css[abs_url..=abs_close]);
             search_idx = abs_close + 1;
         } else {
+            output.push_str(&css[abs_url..]);
+            search_idx = css.len();
             break;
         }
     }
 
-    let mut output = css.to_string();
-    for (target, repl) in replacements {
-        output = output.replace(&target, &repl);
+    if search_idx < css.len() {
+        output.push_str(&css[search_idx..]);
     }
+
     output
 }
 
@@ -639,7 +655,7 @@ pub fn sanitize_html_scripts(html: &str) -> String {
                     i = end_pos;
                     continue;
                 } else {
-                    // Unclosed tag: strip just the opening tag element to prevent document swallowing
+                    // Unclosed tag: strip just opening tag element
                     i = close_tag_pos + 1;
                     continue;
                 }
@@ -657,7 +673,7 @@ pub fn sanitize_html_scripts(html: &str) -> String {
         }
     }
 
-    // Phase 2: Strip inline event attributes like onload=, onclick= (quoted or unquoted, whitespace tolerant)
+    // Phase 2 (B8 Fix): Strip inline event attributes like onload=, onclick= (quoted or unquoted, whitespace/slash tolerant)
     let mut sanitized = String::with_capacity(output.len());
     let mut idx = 0;
 
@@ -668,10 +684,10 @@ pub fn sanitize_html_scripts(html: &str) -> String {
         }
         let slice = &output[idx..];
         if let Some(ch) = slice.chars().next() {
-            if ch.is_whitespace() || ch == '<' {
+            if ch.is_whitespace() || ch == '<' || ch == '/' {
                 let rest = &slice[ch.len_utf8()..];
                 let trimmed_rest = rest.trim_start();
-                let _ws_len = rest.len() - trimmed_rest.len();
+                let ws_bytes = &rest[..rest.len() - trimmed_rest.len()];
 
                 if starts_with_ignore_case(trimmed_rest, "on") {
                     let mut attr_len = 2;
@@ -682,9 +698,12 @@ pub fn sanitize_html_scripts(html: &str) -> String {
                     }
                     let after_attr = trimmed_rest[attr_len..].trim_start();
                     if let Some(_stripped) = after_attr.strip_prefix('=') {
-                        let attr_total_len = (rest.len() - after_attr.len()) + 1;
                         sanitized.push(ch);
-                        idx += ch.len_utf8() + attr_total_len;
+                        sanitized.push_str(ws_bytes);
+                        idx += ch.len_utf8()
+                            + ws_bytes.len()
+                            + (trimmed_rest.len() - after_attr.len())
+                            + 1;
 
                         if idx < output.len() {
                             let val_slice = &output[idx..];
@@ -702,7 +721,7 @@ pub fn sanitize_html_scripts(html: &str) -> String {
                                 } else {
                                     while idx < output.len() {
                                         let c = output[idx..].chars().next().unwrap_or(' ');
-                                        if c.is_whitespace() || c == '>' {
+                                        if c.is_whitespace() || c == '>' || c == '/' {
                                             break;
                                         }
                                         idx += c.len_utf8();
@@ -722,7 +741,7 @@ pub fn sanitize_html_scripts(html: &str) -> String {
         }
     }
 
-    // Phase 3: Neutralize javascript: URIs (decoding HTML entities first)
+    // Phase 3 (B9 Fix): Neutralize javascript:, vbscript:, data:text/html URIs (decoding all HTML entities first)
     let mut final_sanitized = String::with_capacity(sanitized.len());
     let mut cur_idx = 0;
     while cur_idx < sanitized.len() {
@@ -734,9 +753,13 @@ pub fn sanitize_html_scripts(html: &str) -> String {
         let decoded_slice = decode_html_entities_for_uri(slice);
         if starts_with_ignore_case(&decoded_slice, "javascript:")
             || starts_with_ignore_case(slice, "javascript:")
+            || starts_with_ignore_case(&decoded_slice, "vbscript:")
+            || starts_with_ignore_case(slice, "vbscript:")
+            || starts_with_ignore_case(&decoded_slice, "data:text/html")
+            || starts_with_ignore_case(slice, "data:text/html")
         {
-            final_sanitized.push_str("#disabled_js:");
-            cur_idx += "javascript:".len();
+            final_sanitized.push_str("#disabled_uri:");
+            cur_idx += "javascript:".len().min(slice.len());
         } else if let Some(ch) = slice.chars().next() {
             final_sanitized.push(ch);
             cur_idx += ch.len_utf8();
@@ -749,11 +772,44 @@ pub fn sanitize_html_scripts(html: &str) -> String {
 }
 
 fn decode_html_entities_for_uri(input: &str) -> String {
-    let mut out = input.to_string();
-    out = out.replace("&#x73;", "s").replace("&#115;", "s");
-    out = out.replace("&#x53;", "S").replace("&#83;", "S");
-    out = out.replace("&#x61;", "a").replace("&#97;", "a");
-    out = out.replace("&#x6a;", "j").replace("&#106;", "j");
-    out = out.replace("&#x3a;", ":").replace("&#58;", ":");
+    let mut out = String::with_capacity(input.len());
+    let mut i = 0;
+    let bytes = input.as_bytes();
+
+    while i < bytes.len() {
+        if bytes[i] == b'&' && i + 2 < bytes.len() {
+            if bytes[i + 1] == b'#' {
+                let is_hex = bytes[i + 2] == b'x' || bytes[i + 2] == b'X';
+                let start = if is_hex { i + 3 } else { i + 2 };
+                let mut end = start;
+                while end < bytes.len() && bytes[end] != b';' && (end - start) < 8 {
+                    end += 1;
+                }
+                if end < bytes.len() && bytes[end] == b';' {
+                    let num_str = &input[start..end];
+                    let parsed = if is_hex {
+                        u32::from_str_radix(num_str, 16).ok()
+                    } else {
+                        num_str.parse::<u32>().ok()
+                    };
+                    if let Some(code) = parsed {
+                        if let Some(ch) = char::from_u32(code) {
+                            if !ch.is_control() {
+                                out.push(ch);
+                            }
+                            i = end + 1;
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(ch) = input[i..].chars().next() {
+            out.push(ch);
+            i += ch.len_utf8();
+        } else {
+            i += 1;
+        }
+    }
     out
 }

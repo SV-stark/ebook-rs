@@ -114,9 +114,9 @@ impl MobiBook {
         let rec0 = &bytes[rec0_offset..rec0_end];
         let compression = u16::from_be_bytes([rec0[0], rec0[1]]);
         let mut text_record_count = u16::from_be_bytes([rec0[8], rec0[9]]) as usize;
+        let max_text_recs = if num_records > 1 { num_records - 1 } else { 1 };
         if text_record_count == 0 || text_record_count >= num_records {
-            // E3 Fix: Cap text_record_count to 1 or safe bound to prevent reading image/metadata PDB records as text
-            text_record_count = 1.min(num_records.saturating_sub(1));
+            text_record_count = 1.min(max_text_recs);
         }
 
         let mut title = if name.is_empty() {

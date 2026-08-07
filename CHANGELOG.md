@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.11.3] - 2026-08-07
+
+### Fixed & Optimized (Comprehensive 17 Bugs + 8 Bottlenecks Resolution)
+- **TTS Character Offsets & HTML Tag Integrity (`src/section.rs`)**: `tokenize_tts_words` now outputs true Unicode character index offsets instead of byte offsets. `to_tts_annotated_html` parses DOM structure to wrap words ONLY outside HTML tags/attributes, preserving HTML validity.
+- **Sanitizer HTML Event Handlers & Entity Decoding (`src/section.rs`)**: Phase 2 now strips inline event handlers separated by slashes (`<img/onload=...>`) while preserving whitespace formatting. Phase 3 dynamically decodes all numeric HTML entities (`&#x...;`, `&#...;`) and neutralizes `javascript:`, `vbscript:`, and `data:text/html` URIs.
+- **UTF-8 Char-Boundary Guard & Style Tag Skipping (`src/book.rs`, `src/section.rs`)**: Added character boundary checks to `starts_with_ignore_case` to prevent non-ASCII slicing panics. Fixed `<style>` tag stripping in `extract_plain_text` so CSS containing selector patterns (e.g. `p`, `div`) does not leak into plain text.
+- **Readium LCP Cache DRM Gate & EPUB 3 Inlined Base64 Output (`src/book.rs`)**: Enforced Readium LCP license checks inside `from_zstd_cache` to prevent DRM bypasses via cached states. Updated `export_epub3_bytes` to export clean HTML source (`raw_html`) instead of Base64-inlined `processed_html`, halving exported EPUB file size.
+- **Single-Record MOBI Text Count & PDB Fallthrough (`src/mobi.rs`, `src/book.rs`)**: Fixed single-record MOBI file bounds calculation (`text_record_count`) so 1-record MOBI books read text records cleanly. Added MOBI header signature checks (`is_mobi_bytes`) before invoking MOBI PDB parser on non-MOBI binary streams.
+- **Server Connection Cap & Performance Optimizations (`src/server.rs`, `src/archive.rs`, `src/search.rs`)**: Capped active connection handling threads at 64 (`ThreadGuard`) to prevent thread exhaustion DoS. Added zero-copy `read_bytes_ref` to `EpubArchive` and removed heap string allocations inside `search_section` character comparisons.
+
+---
+
 ## [0.11.2] - 2026-08-07
 
 ### Fixed & Hardened (Full 24-Point Comprehensive Audit Fixes)

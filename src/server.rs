@@ -33,11 +33,22 @@ impl ReaderServer {
         );
         println!("Press Ctrl+C to exit.");
 
+        let active_threads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
         for mut request in server.incoming_requests() {
             let book_arc = Arc::clone(&self.book);
+            let active_cnt = Arc::clone(&active_threads);
 
-            // P6 Fix: Dispatch request handling to a background thread to prevent slow requests from blocking HTTP loop
+            if active_cnt.load(std::sync::atomic::Ordering::Relaxed) >= 64 {
+                let res = Response::from_string("503 Service Unavailable: Server busy")
+                    .with_status_code(StatusCode(503));
+                let _ = request.respond(res);
+                continue;
+            }
+
+            active_cnt.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             std::thread::spawn(move || {
+                let _guard = ThreadGuard(active_cnt);
                 let url_str = format!("http://localhost{}", request.url());
                 let parsed_url = Url::parse(&url_str)
                     .unwrap_or_else(|_| Url::parse("http://localhost/").unwrap());
@@ -241,4 +252,12 @@ fn send_response<R: std::io::Read>(request: tiny_http::Request, response: Respon
             .unwrap(),
         );
     let _ = request.respond(res);
+}
+
+struct ThreadGuard(Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for ThreadGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
 }
