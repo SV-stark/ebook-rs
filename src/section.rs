@@ -138,6 +138,9 @@ impl Section {
         let html_chars: Vec<char> = self.processed_html.chars().collect();
         let mut i = 0;
 
+        let token_char_vecs: Vec<Vec<char>> =
+            tokens.iter().map(|t| t.word.chars().collect()).collect();
+
         while i < html_chars.len() {
             let ch = html_chars[i];
             if !in_tag && ch == '<' {
@@ -165,7 +168,7 @@ impl Section {
 
             if token_idx < tokens.len() {
                 let token = &tokens[token_idx];
-                let token_chars: Vec<char> = token.word.chars().collect();
+                let token_chars = &token_char_vecs[token_idx];
                 let t_len = token_chars.len();
 
                 if i + t_len <= html_chars.len() && html_chars[i..i + t_len] == token_chars[..] {
@@ -272,7 +275,7 @@ pub fn extract_plain_text(html: &str) -> String {
                 };
                 if starts_with_ignore_case(slice, close_tag) {
                     skipping_tag = None;
-                } else if find_ignore_case(html, close_tag).is_none() {
+                } else if find_ignore_case(slice, close_tag).is_none() {
                     // Unclosed style/script recovery: if no closing tag exists anywhere in document,
                     // recover when encountering structural HTML block tags (<p, <div, <body, <h, <section)
                     if starts_with_ignore_case(slice, "<p")

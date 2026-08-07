@@ -43,5 +43,5 @@ fn test_blackbox_locations_generation() {
     assert_eq!(loc1.unwrap().location, 1);
 
     let pct = book.locations.percentage_from_location(1);
-    assert!(pct >= 0.0 && pct <= 1.0);
+    assert!((0.0..=1.0).contains(&pct));
 }

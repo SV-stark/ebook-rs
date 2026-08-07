@@ -154,13 +154,13 @@ impl SearchEngine {
                 let suffix = if end_c < text_chars.len() { "..." } else { "" };
 
                 let snippet = format!("{}{}{}", prefix, highlighted, suffix);
-                let cfi = Cfi::from_spine_index(section.index, None, abs_idx).to_string();
+                let cfi = Cfi::from_spine_index(section.index, None, char_idx).to_string();
 
                 results.push(SearchResult {
                     spine_index: section.index,
                     snippet,
                     cfi,
-                    char_offset: abs_idx,
+                    char_offset: char_idx,
                 });
             }
         }

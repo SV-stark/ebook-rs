@@ -1,26 +1,26 @@
 use crate::annotations::Annotation;
 use crate::book::Book;
 use crate::web_ui::READER_HTML;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use tiny_http::{Header, Response, Server, StatusCode};
 use url::Url;
 
 /// Embedded HTTP Reader Server.
 pub struct ReaderServer {
-    book: Arc<Mutex<Book>>,
+    book: Arc<RwLock<Book>>,
     port: u16,
 }
 
 impl ReaderServer {
     pub fn new(book: Book, port: u16) -> Self {
         Self {
-            book: Arc::new(Mutex::new(book)),
+            book: Arc::new(RwLock::new(book)),
             port,
         }
     }
 
     /// Start listening and serving incoming HTTP requests.
-    /// P6 & B7 Fix: Thread-pool request dispatching with mutex poison protection.
+    /// P6 & B7 Fix: Thread-pool request dispatching with rwlock poison protection.
     pub fn listen(&self) -> Result<(), String> {
         let addr = format!("127.0.0.1:{}", self.port);
         let server = Arc::new(
@@ -67,7 +67,7 @@ impl ReaderServer {
                         );
                     }
                     "/api/book/metadata" => {
-                        let book = book_arc.lock().unwrap_or_else(|e| e.into_inner());
+                        let book = book_arc.read().unwrap_or_else(|e| e.into_inner());
                         let json = serde_json::to_string(book.metadata()).unwrap_or_default();
                         let header =
                             Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
@@ -75,7 +75,7 @@ impl ReaderServer {
                         send_response(request, Response::from_string(json).with_header(header));
                     }
                     "/api/book/toc" => {
-                        let book = book_arc.lock().unwrap_or_else(|e| e.into_inner());
+                        let book = book_arc.read().unwrap_or_else(|e| e.into_inner());
                         let json = serde_json::to_string(book.toc()).unwrap_or_default();
                         let header =
                             Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
@@ -83,7 +83,7 @@ impl ReaderServer {
                         send_response(request, Response::from_string(json).with_header(header));
                     }
                     "/api/book/spine" => {
-                        let book = book_arc.lock().unwrap_or_else(|e| e.into_inner());
+                        let book = book_arc.read().unwrap_or_else(|e| e.into_inner());
                         let json = serde_json::to_string(book.spine()).unwrap_or_default();
                         let header =
                             Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
@@ -93,7 +93,7 @@ impl ReaderServer {
                     _ if path.starts_with("/api/book/section/") => {
                         let idx_str = path.trim_start_matches("/api/book/section/");
                         let idx: usize = idx_str.parse().unwrap_or(0);
-                        let book = book_arc.lock().unwrap_or_else(|e| e.into_inner());
+                        let book = book_arc.read().unwrap_or_else(|e| e.into_inner());
 
                         match book.get_section(idx) {
                             Ok(sec) => {
@@ -120,7 +120,7 @@ impl ReaderServer {
                             .strip_prefix("/api/resource/")
                             .or_else(|| path.strip_prefix("/resource/"))
                             .unwrap_or(path);
-                        let book = book_arc.lock().unwrap_or_else(|e| e.into_inner());
+                        let book = book_arc.read().unwrap_or_else(|e| e.into_inner());
 
                         match book.get_resource_bytes(clean_path) {
                             Ok((bytes, mime)) => {
@@ -147,14 +147,9 @@ impl ReaderServer {
                             .map(|(_, v)| v.to_string())
                             .unwrap_or_default();
 
-                        // Clone sections list so lock is dropped immediately before search execution
-                        let sections = {
-                            let book = book_arc.lock().unwrap_or_else(|e| e.into_inner());
-                            book.sections.clone()
-                        };
-
+                        let book = book_arc.read().unwrap_or_else(|e| e.into_inner());
                         let mut results =
-                            crate::search::SearchEngine::search(&sections, &query, false);
+                            crate::search::SearchEngine::search(&book.sections, &query, false);
                         if results.len() > 500 {
                             results.truncate(500);
                         }
@@ -166,7 +161,7 @@ impl ReaderServer {
                         send_response(request, Response::from_string(json).with_header(header));
                     }
                     "/api/book/locations" => {
-                        let book = book_arc.lock().unwrap_or_else(|e| e.into_inner());
+                        let book = book_arc.read().unwrap_or_else(|e| e.into_inner());
                         let json = serde_json::to_string(&book.locations).unwrap_or_default();
                         let header =
                             Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
@@ -174,7 +169,7 @@ impl ReaderServer {
                         send_response(request, Response::from_string(json).with_header(header));
                     }
                     "/api/book/cover" => {
-                        let book = book_arc.lock().unwrap_or_else(|e| e.into_inner());
+                        let book = book_arc.read().unwrap_or_else(|e| e.into_inner());
                         if let Some((bytes, mime)) = book.cover_image() {
                             let header =
                                 Header::from_bytes(&b"Content-Type"[..], mime.as_bytes()).unwrap();
@@ -196,7 +191,7 @@ impl ReaderServer {
                                 .take(2 * 1024 * 1024)
                                 .read_to_string(&mut body_str);
                             if let Ok(ann) = serde_json::from_str::<Annotation>(&body_str) {
-                                let mut book = book_arc.lock().unwrap_or_else(|e| e.into_inner());
+                                let mut book = book_arc.write().unwrap_or_else(|e| e.into_inner());
                                 book.annotations.add(ann);
                                 let header = Header::from_bytes(
                                     &b"Content-Type"[..],
@@ -216,7 +211,7 @@ impl ReaderServer {
                                 );
                             }
                         } else {
-                            let book = book_arc.lock().unwrap_or_else(|e| e.into_inner());
+                            let book = book_arc.read().unwrap_or_else(|e| e.into_inner());
                             let json =
                                 serde_json::to_string(&book.annotations.list()).unwrap_or_default();
                             let header =
