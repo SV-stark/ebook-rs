@@ -41,72 +41,80 @@ impl SearchEngine {
         }
     }
 
-    /// Search a single section.
+    /// Search a single section safely without cross-string offset mismatch panics.
     pub fn search_section(
         section: &Section,
         query: &str,
         case_sensitive: bool,
     ) -> Vec<SearchResult> {
         let mut results = Vec::new();
-        if query.is_empty() {
+        if query.trim().is_empty() || section.plain_text.is_empty() {
             return results;
         }
 
-        let query_cmp = if case_sensitive {
-            query.to_string()
-        } else {
-            query.to_lowercase()
-        };
-
-        let text_ref = if case_sensitive {
-            &section.plain_text
-        } else {
-            &section.plain_text_lower
-        };
-
         let text_chars: Vec<char> = section.plain_text.chars().collect();
-        let q_char_len = query.chars().count();
-        let mut search_idx = 0;
+        let query_chars: Vec<char> = query.chars().collect();
+        let t_len = text_chars.len();
+        let q_len = query_chars.len();
 
-        while search_idx < text_ref.len() {
-            if let Some(match_idx) = text_ref[search_idx..].find(&query_cmp) {
-                let abs_idx = search_idx + match_idx;
+        if q_len > t_len {
+            return results;
+        }
 
-                // Safely count character index from text_ref (text_ref[..abs_idx] is guaranteed char boundary safe in text_ref)
-                let char_idx = text_ref[..abs_idx].chars().count();
+        let matches_at = |idx: usize| -> bool {
+            if idx + q_len > t_len {
+                return false;
+            }
+            for i in 0..q_len {
+                let tc = text_chars[idx + i];
+                let qc = query_chars[i];
+                if case_sensitive {
+                    if tc != qc {
+                        return false;
+                    }
+                } else {
+                    if tc != qc
+                        && !tc.eq_ignore_ascii_case(&qc)
+                        && tc.to_lowercase().to_string() != qc.to_lowercase().to_string()
+                    {
+                        return false;
+                    }
+                }
+            }
+            true
+        };
 
-                let start_c = char_idx.saturating_sub(40);
-                let end_c = (char_idx + q_char_len + 40).min(text_chars.len());
+        let mut idx = 0;
+        while idx <= t_len.saturating_sub(q_len) {
+            if matches_at(idx) {
+                let start_c = idx.saturating_sub(40);
+                let end_c = (idx + q_len + 40).min(t_len);
 
                 let raw_snippet: String = text_chars[start_c..end_c].iter().collect();
-                let query_str: String = text_chars
-                    [char_idx..(char_idx + q_char_len).min(text_chars.len())]
-                    .iter()
-                    .collect();
-                let highlighted = if query_str.is_empty() {
+                let match_str: String = text_chars[idx..idx + q_len].iter().collect();
+                let highlighted = if match_str.is_empty() {
                     raw_snippet.clone()
                 } else {
-                    raw_snippet.replace(&query_str, &format!("<mark>{}</mark>", query_str))
+                    raw_snippet.replace(&match_str, &format!("<mark>{}</mark>", match_str))
                 };
 
                 let prefix = if start_c > 0 { "..." } else { "" };
-                let suffix = if end_c < text_chars.len() { "..." } else { "" };
+                let suffix = if end_c < t_len { "..." } else { "" };
 
                 let snippet = format!("{}{}{}", prefix, highlighted, suffix);
 
-                // Generate target CFI with true character index char_idx
-                let cfi = Cfi::from_spine_index(section.index, None, char_idx).to_string();
+                let cfi = Cfi::from_spine_index(section.index, None, idx).to_string();
 
                 results.push(SearchResult {
                     spine_index: section.index,
                     snippet,
                     cfi,
-                    char_offset: char_idx,
+                    char_offset: idx,
                 });
 
-                search_idx = abs_idx + query_cmp.len().max(1);
+                idx += q_len.max(1);
             } else {
-                break;
+                idx += 1;
             }
         }
 

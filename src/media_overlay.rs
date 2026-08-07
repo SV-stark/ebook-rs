@@ -7,11 +7,14 @@ pub struct SmilClock;
 impl SmilClock {
     /// Parse SMIL NPT time string into seconds as f64.
     pub fn parse_npt_seconds(npt_str: &str) -> f64 {
-        let clean = npt_str
-            .trim()
-            .trim_start_matches("npt=")
+        let trimmed = npt_str.trim().trim_start_matches("npt=");
+        let is_hours = trimmed.ends_with('h');
+        let is_mins = trimmed.ends_with('m');
+        let clean = trimmed
             .trim_end_matches('s')
-            .trim_end_matches('h');
+            .trim_end_matches('h')
+            .trim_end_matches('m');
+
         if clean.contains(':') {
             let parts: Vec<&str> = clean.split(':').collect();
             match parts.len() {
@@ -29,7 +32,14 @@ impl SmilClock {
                 _ => 0.0,
             }
         } else {
-            clean.parse::<f64>().unwrap_or(0.0)
+            let val = clean.parse::<f64>().unwrap_or(0.0);
+            if is_hours {
+                val * 3600.0
+            } else if is_mins {
+                val * 60.0
+            } else {
+                val
+            }
         }
     }
 
@@ -207,9 +217,17 @@ impl MediaOverlayPackage {
         for seq in &self.sequences {
             for par in &seq.parallels {
                 if let Some(ref audio) = par.audio {
-                    if (audio.src.ends_with(clean_audio) || audio.full_path.ends_with(clean_audio))
+                    let clip_end = if audio.clip_end > 0.0 {
+                        audio.clip_end
+                    } else {
+                        f64::MAX
+                    };
+
+                    if (audio.src == clean_audio
+                        || audio.full_path == clean_audio
+                        || audio.src.ends_with(clean_audio))
                         && timestamp_secs >= audio.clip_begin
-                        && timestamp_secs <= audio.clip_end
+                        && timestamp_secs <= clip_end
                     {
                         return par.text.clone();
                     }

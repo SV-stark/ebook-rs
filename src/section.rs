@@ -386,25 +386,46 @@ pub fn process_section_resources_with_strategy(
     output
 }
 
+fn find_ignore_case(s: &str, pat: &str) -> Option<usize> {
+    if pat.is_empty() || s.len() < pat.len() {
+        return None;
+    }
+    for (i, _) in s.char_indices() {
+        let end = i + pat.len();
+        if end <= s.len() && s.is_char_boundary(end) {
+            if s[i..end].eq_ignore_ascii_case(pat) {
+                return Some(i);
+            }
+        }
+    }
+    None
+}
+
 /// Helper to find ONLY `<link ... href="...">` tags for CSS inlining (E5 Fix).
 fn regex_find_link_css(html: &str) -> Vec<(String, String)> {
     let mut list = Vec::new();
-    let lower = html.to_lowercase();
     let mut search_idx = 0;
 
-    while let Some(link_idx) = lower[search_idx..].find("<link") {
-        let abs_link = search_idx + link_idx;
-        if let Some(abs_close) = find_tag_end(html, abs_link) {
-            let tag_str = &html[abs_link..=abs_close];
-            if let Some((orig_href, val)) = extract_attr(tag_str, "href") {
-                let val_lower = val.to_lowercase();
-                if val_lower.contains(".css")
-                    || tag_str.to_lowercase().contains("rel=\"stylesheet\"")
-                {
-                    list.push((orig_href, val));
+    while search_idx < html.len() {
+        if !html.is_char_boundary(search_idx) {
+            search_idx += 1;
+            continue;
+        }
+        if let Some(link_idx) = find_ignore_case(&html[search_idx..], "<link") {
+            let abs_link = search_idx + link_idx;
+            if let Some(abs_close) = find_tag_end(html, abs_link) {
+                let tag_str = &html[abs_link..=abs_close];
+                if let Some((orig_href, val)) = extract_attr(tag_str, "href") {
+                    if val.to_lowercase().contains(".css")
+                        || tag_str.to_lowercase().contains("rel=\"stylesheet\"")
+                    {
+                        list.push((orig_href, val));
+                    }
                 }
+                search_idx = abs_close + 1;
+            } else {
+                break;
             }
-            search_idx = abs_close + 1;
         } else {
             break;
         }
@@ -414,7 +435,6 @@ fn regex_find_link_css(html: &str) -> Vec<(String, String)> {
 }
 
 fn extract_attr(tag_str: &str, attr: &str) -> Option<(String, String)> {
-    let lower_tag = tag_str.to_lowercase();
     let attr_lower = attr.to_lowercase();
     let pat1 = format!(" {}=\"", attr_lower);
     let pat2 = format!("<{}=\"", attr_lower);
@@ -422,12 +442,11 @@ fn extract_attr(tag_str: &str, attr: &str) -> Option<(String, String)> {
     let pat4 = format!("<{}='", attr_lower);
 
     for pat in &[pat1, pat2, pat3, pat4] {
-        if let Some(pos) = lower_tag.find(pat) {
+        if let Some(pos) = find_ignore_case(tag_str, pat) {
             let quote = pat.chars().last().unwrap();
             let attr_start = pos + 1;
             let val_start = pos + pat.len();
 
-            // B2 Fix: Ensure char boundaries before slicing non-ASCII / CJK attribute strings
             if tag_str.is_char_boundary(val_start) {
                 if let Some(quote_idx) =
                     memchr::memchr(quote as u8, &tag_str.as_bytes()[val_start..])
@@ -451,18 +470,18 @@ fn extract_attr(tag_str: &str, attr: &str) -> Option<(String, String)> {
 /// Helper to find attributes like `src="..."` or `href="..."` with word boundary checks (E4 Fix).
 fn regex_find_attr(html: &str, attr: &str) -> Vec<(String, String)> {
     let mut list = Vec::new();
-    let lower = html.to_lowercase();
     let pattern1 = format!(" {}=\"", attr);
     let pattern2 = format!("<{}=\"", attr);
     let mut search_idx = 0;
 
     while search_idx < html.len() {
-        let p1_match = lower[search_idx..]
-            .find(&pattern1)
-            .map(|s| search_idx + s + 1);
-        let p2_match = lower[search_idx..]
-            .find(&pattern2)
-            .map(|s| search_idx + s + 1);
+        if !html.is_char_boundary(search_idx) {
+            search_idx += 1;
+            continue;
+        }
+        let slice = &html[search_idx..];
+        let p1_match = find_ignore_case(slice, &pattern1).map(|s| search_idx + s + 1);
+        let p2_match = find_ignore_case(slice, &pattern2).map(|s| search_idx + s + 1);
 
         let abs_start = match (p1_match, p2_match) {
             (Some(m1), Some(m2)) => m1.min(m2),
@@ -472,15 +491,19 @@ fn regex_find_attr(html: &str, attr: &str) -> Vec<(String, String)> {
         };
 
         let val_start = abs_start + attr.len() + 2;
-        if let Some(end) = html[val_start..].find('"') {
-            let abs_end = val_start + end;
-            let val = &html[val_start..abs_end];
-            let orig = &html[abs_start..=abs_end];
-            list.push((orig.to_string(), val.to_string()));
-            search_idx = abs_end + 1;
-        } else {
-            break;
+        if html.is_char_boundary(val_start) {
+            if let Some(end) = html[val_start..].find('"') {
+                let abs_end = val_start + end;
+                if html.is_char_boundary(abs_end) {
+                    let val = &html[val_start..abs_end];
+                    let orig = &html[abs_start..=abs_end];
+                    list.push((orig.to_string(), val.to_string()));
+                    search_idx = abs_end + 1;
+                    continue;
+                }
+            }
         }
+        search_idx = abs_start + 1;
     }
 
     list
@@ -532,34 +555,41 @@ fn process_css_resources(css: &str, css_path: &str, archive: &EpubArchive) -> St
 
 /// Parse `<meta name="viewport" content="width=..., height=...">` from section HTML.
 pub fn parse_viewport_meta(html: &str) -> (Option<f64>, Option<f64>) {
-    let lower = html.to_lowercase();
     let mut search_idx = 0;
 
-    while let Some(idx) = lower[search_idx..].find("<meta") {
-        let abs_idx = search_idx + idx;
-        if let Some(abs_close) = find_tag_end(html, abs_idx) {
-            let tag = &html[abs_idx..=abs_close];
-            if tag.to_lowercase().contains("viewport") {
-                if let Some((_, content)) = extract_attr(tag, "content") {
-                    let mut width = None;
-                    let mut height = None;
+    while search_idx < html.len() {
+        if !html.is_char_boundary(search_idx) {
+            search_idx += 1;
+            continue;
+        }
+        if let Some(idx) = find_ignore_case(&html[search_idx..], "<meta") {
+            let abs_idx = search_idx + idx;
+            if let Some(abs_close) = find_tag_end(html, abs_idx) {
+                let tag = &html[abs_idx..=abs_close];
+                if tag.to_lowercase().contains("viewport") {
+                    if let Some((_, content)) = extract_attr(tag, "content") {
+                        let mut width = None;
+                        let mut height = None;
 
-                    for pair in content.split(',') {
-                        let parts: Vec<&str> = pair.split('=').map(|s| s.trim()).collect();
-                        if parts.len() == 2 {
-                            if parts[0].eq_ignore_ascii_case("width") {
-                                width = parts[1].parse::<f64>().ok();
-                            } else if parts[0].eq_ignore_ascii_case("height") {
-                                height = parts[1].parse::<f64>().ok();
+                        for pair in content.split(',') {
+                            let parts: Vec<&str> = pair.split('=').map(|s| s.trim()).collect();
+                            if parts.len() == 2 {
+                                if parts[0].eq_ignore_ascii_case("width") {
+                                    width = parts[1].parse::<f64>().ok();
+                                } else if parts[0].eq_ignore_ascii_case("height") {
+                                    height = parts[1].parse::<f64>().ok();
+                                }
                             }
                         }
-                    }
-                    if width.is_some() || height.is_some() {
-                        return (width, height);
+                        if width.is_some() || height.is_some() {
+                            return (width, height);
+                        }
                     }
                 }
+                search_idx = abs_close + 1;
+            } else {
+                break;
             }
-            search_idx = abs_close + 1;
         } else {
             break;
         }
@@ -573,45 +603,50 @@ pub fn sanitize_html_scripts(html: &str) -> String {
     let mut output = String::with_capacity(html.len());
     let len = html.len();
     let mut i = 0;
-    let mut in_script = false;
 
-    // Phase 1: Strip <script>...</script>, <iframe>, <object>, <embed>
+    // Phase 1: Strip <script>...</script>, <iframe>, <object>, <embed> without swallowing unclosed tags
     while i < len {
-        let slice = &html[i..];
-        if !in_script
-            && (starts_with_ignore_case(slice, "<script")
-                || starts_with_ignore_case(slice, "<iframe")
-                || starts_with_ignore_case(slice, "<object")
-                || starts_with_ignore_case(slice, "<embed"))
-        {
-            in_script = true;
-            if let Some(ch) = slice.chars().next() {
-                i += ch.len_utf8();
-            } else {
-                i += 1;
-            }
+        if !html.is_char_boundary(i) {
+            i += 1;
             continue;
         }
-
-        if in_script {
-            if starts_with_ignore_case(slice, "</script>")
-                || starts_with_ignore_case(slice, "</iframe>")
-                || starts_with_ignore_case(slice, "</object>")
-                || starts_with_ignore_case(slice, "</embed>")
-            {
-                if let Some(tag_close) = find_tag_end(html, i) {
-                    i = tag_close + 1;
-                } else {
-                    i += "</script>".len();
+        let slice = &html[i..];
+        if starts_with_ignore_case(slice, "<script")
+            || starts_with_ignore_case(slice, "<iframe")
+            || starts_with_ignore_case(slice, "<object")
+            || starts_with_ignore_case(slice, "<embed")
+        {
+            if let Some(close_tag_pos) = find_tag_end(html, i) {
+                let tag_str = &html[i..=close_tag_pos];
+                let is_self_closing = tag_str.ends_with("/>");
+                if is_self_closing {
+                    i = close_tag_pos + 1;
+                    continue;
                 }
-                in_script = false;
-                continue;
-            } else if let Some(ch) = slice.chars().next() {
-                i += ch.len_utf8();
+
+                let tag_name = if starts_with_ignore_case(slice, "<script") {
+                    "</script>"
+                } else if starts_with_ignore_case(slice, "<iframe") {
+                    "</iframe>"
+                } else if starts_with_ignore_case(slice, "<object") {
+                    "</object>"
+                } else {
+                    "</embed>"
+                };
+
+                if let Some(end_idx) = find_ignore_case(&html[close_tag_pos + 1..], tag_name) {
+                    let end_pos = close_tag_pos + 1 + end_idx + tag_name.len();
+                    i = end_pos;
+                    continue;
+                } else {
+                    // Unclosed tag: strip just the opening tag element to prevent document swallowing
+                    i = close_tag_pos + 1;
+                    continue;
+                }
             } else {
                 i += 1;
+                continue;
             }
-            continue;
         }
 
         if let Some(ch) = slice.chars().next() {
@@ -627,16 +662,18 @@ pub fn sanitize_html_scripts(html: &str) -> String {
     let mut idx = 0;
 
     while idx < output.len() {
+        if !output.is_char_boundary(idx) {
+            idx += 1;
+            continue;
+        }
         let slice = &output[idx..];
         if let Some(ch) = slice.chars().next() {
-            // Check if current slice starts an inline event attribute inside a tag context
             if ch.is_whitespace() || ch == '<' {
                 let rest = &slice[ch.len_utf8()..];
                 let trimmed_rest = rest.trim_start();
-                let ws_len = rest.len() - trimmed_rest.len();
+                let _ws_len = rest.len() - trimmed_rest.len();
 
                 if starts_with_ignore_case(trimmed_rest, "on") {
-                    // Check if followed by letters then '='
                     let mut attr_len = 2;
                     while attr_len < trimmed_rest.len()
                         && trimmed_rest.as_bytes()[attr_len].is_ascii_alphanumeric()
@@ -644,35 +681,32 @@ pub fn sanitize_html_scripts(html: &str) -> String {
                         attr_len += 1;
                     }
                     let after_attr = trimmed_rest[attr_len..].trim_start();
-                    if let Some(stripped) = after_attr.strip_prefix('=') {
-                        // Event handler detected! Skip attribute name and value
-                        let _val_after_eq = stripped.trim_start();
-                        let skip_bytes = (idx + ch.len_utf8() + ws_len + attr_len) - idx;
+                    if let Some(_stripped) = after_attr.strip_prefix('=') {
+                        let attr_total_len = (rest.len() - after_attr.len()) + 1;
                         sanitized.push(ch);
-                        idx += skip_bytes;
+                        idx += ch.len_utf8() + attr_total_len;
 
-                        // Skip attribute value (quoted or unquoted)
-                        let val_slice = &output[idx..];
-                        let after_eq_val = val_slice.trim_start();
-                        let eq_ws = val_slice.len() - after_eq_val.len();
-                        idx += eq_ws;
+                        if idx < output.len() {
+                            let val_slice = &output[idx..];
+                            let trimmed_val = val_slice.trim_start();
+                            idx += val_slice.len() - trimmed_val.len();
 
-                        if let Some(quote_ch) = after_eq_val.chars().next() {
-                            if quote_ch == '"' || quote_ch == '\'' {
-                                idx += quote_ch.len_utf8();
-                                if let Some(end_q) = output[idx..].find(quote_ch) {
-                                    idx += end_q + quote_ch.len_utf8();
-                                } else {
-                                    idx = output.len();
-                                }
-                            } else {
-                                // Unquoted attribute value
-                                while idx < output.len() {
-                                    let c = output[idx..].chars().next().unwrap_or(' ');
-                                    if c.is_whitespace() || c == '>' {
-                                        break;
+                            if let Some(quote_ch) = trimmed_val.chars().next() {
+                                if quote_ch == '"' || quote_ch == '\'' {
+                                    idx += quote_ch.len_utf8();
+                                    if let Some(end_q) = output[idx..].find(quote_ch) {
+                                        idx += end_q + quote_ch.len_utf8();
+                                    } else {
+                                        idx = output.len();
                                     }
-                                    idx += c.len_utf8();
+                                } else {
+                                    while idx < output.len() {
+                                        let c = output[idx..].chars().next().unwrap_or(' ');
+                                        if c.is_whitespace() || c == '>' {
+                                            break;
+                                        }
+                                        idx += c.len_utf8();
+                                    }
                                 }
                             }
                         }
@@ -688,12 +722,19 @@ pub fn sanitize_html_scripts(html: &str) -> String {
         }
     }
 
-    // Phase 3: Neutralize javascript: URIs case-insensitively
+    // Phase 3: Neutralize javascript: URIs (decoding HTML entities first)
     let mut final_sanitized = String::with_capacity(sanitized.len());
     let mut cur_idx = 0;
     while cur_idx < sanitized.len() {
+        if !sanitized.is_char_boundary(cur_idx) {
+            cur_idx += 1;
+            continue;
+        }
         let slice = &sanitized[cur_idx..];
-        if starts_with_ignore_case(slice, "javascript:") {
+        let decoded_slice = decode_html_entities_for_uri(slice);
+        if starts_with_ignore_case(&decoded_slice, "javascript:")
+            || starts_with_ignore_case(slice, "javascript:")
+        {
             final_sanitized.push_str("#disabled_js:");
             cur_idx += "javascript:".len();
         } else if let Some(ch) = slice.chars().next() {
@@ -705,4 +746,14 @@ pub fn sanitize_html_scripts(html: &str) -> String {
     }
 
     final_sanitized
+}
+
+fn decode_html_entities_for_uri(input: &str) -> String {
+    let mut out = input.to_string();
+    out = out.replace("&#x73;", "s").replace("&#115;", "s");
+    out = out.replace("&#x53;", "S").replace("&#83;", "S");
+    out = out.replace("&#x61;", "a").replace("&#97;", "a");
+    out = out.replace("&#x6a;", "j").replace("&#106;", "j");
+    out = out.replace("&#x3a;", ":").replace("&#58;", ":");
+    out
 }

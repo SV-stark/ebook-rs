@@ -79,8 +79,15 @@ impl LcpDecryptor {
         passphrase: &str,
         license: &LcpLicense,
     ) -> Result<Vec<u8>, String> {
-        if license.is_expired("2026-08-07T00:00:00Z") {
-            return Err("Readium LCP license has expired".to_string());
+        if passphrase.trim().is_empty() {
+            return Err("Passphrase cannot be empty for Readium LCP protected eBook".to_string());
+        }
+
+        // Dynamically evaluate license expiration
+        if let Some(end_date) = license.rights.as_ref().and_then(|r| r.end.as_ref()) {
+            if license.is_expired(end_date) {
+                return Err("Readium LCP license has expired".to_string());
+            }
         }
 
         let passphrase_hash = sha256_hash(passphrase.as_bytes());

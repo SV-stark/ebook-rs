@@ -77,7 +77,12 @@ impl TxtBook {
                         plain_text_buf.clear();
                     }
 
-                    let h_tag = format!("<h{}>{}</h{}>", level.min(6), heading_text, level.min(6));
+                    let h_tag = format!(
+                        "<h{}>{}</h{}>",
+                        level.min(6),
+                        xml_escape(heading_text),
+                        level.min(6)
+                    );
                     current_section_html.push_str(&h_tag);
                     current_section_html.push('\n');
                     plain_text_buf.push_str(heading_text);
@@ -92,7 +97,7 @@ impl TxtBook {
                         subitems: Vec::new(),
                     });
                 } else if !trimmed.is_empty() {
-                    let p_html = format!("<p>{}</p>", trimmed);
+                    let p_html = format!("<p>{}</p>", xml_escape(trimmed));
                     current_section_html.push_str(&p_html);
                     current_section_html.push('\n');
                     plain_text_buf.push_str(trimmed);
@@ -140,7 +145,7 @@ impl TxtBook {
             for paragraph in text.split("\n\n") {
                 let p_clean = paragraph.trim();
                 if !p_clean.is_empty() {
-                    html_buf.push_str(&format!("<p>{}</p>\n", p_clean));
+                    html_buf.push_str(&format!("<p>{}</p>\n", xml_escape(p_clean)));
                     plain_text_buf.push_str(p_clean);
                     plain_text_buf.push('\n');
                 }
@@ -232,4 +237,13 @@ impl TxtBook {
         book.generate_locations(1000);
         Ok(book)
     }
+}
+
+fn xml_escape(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }

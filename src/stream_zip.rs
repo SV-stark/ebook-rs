@@ -7,14 +7,19 @@ pub struct ZipEntryLocation {
     pub local_header_offset: u64,
     pub compressed_size: u64,
     pub uncompressed_size: u64,
+    #[serde(default)]
+    pub extra_field_len: u64,
 }
 
 impl ZipEntryLocation {
     /// Generate HTTP Range header for fetching this entry over HTTP.
     pub fn to_http_range_header(&self) -> (String, String) {
         // Range header spanning local header offset + entry payload
-        let end_byte =
-            self.local_header_offset + 30 + self.file_name.len() as u64 + self.compressed_size + 64;
+        let end_byte = self.local_header_offset
+            + 30
+            + self.file_name.len() as u64
+            + self.extra_field_len.max(64)
+            + self.compressed_size;
         (
             "Range".to_string(),
             format!("bytes={}-{}", self.local_header_offset, end_byte),
@@ -115,6 +120,7 @@ impl ZipHeaderReader {
                     local_header_offset: offset,
                     compressed_size: comp_size,
                     uncompressed_size: uncomp_size,
+                    extra_field_len: extra_len as u64,
                 });
             }
 

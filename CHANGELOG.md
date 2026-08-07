@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.11.2] - 2026-08-07
+
+### Fixed & Hardened (Full 24-Point Comprehensive Audit Fixes)
+- **Cross-String Indexing Panic in Search (`search.rs`)**: Re-aligned character indexing directly on `plain_text` characters, resolving panics when searching texts containing multi-byte characters like Turkish `İ`.
+- **Lower-Case String Offset Slicing (`section.rs`, `footnote.rs`)**: Replaced lower-cased offset slicing in `regex_find_attr`, `regex_find_link_css`, and `parse_viewport_meta` with character boundary-safe string matching (`find_ignore_case`).
+- **NCX Navigation Unbounded Recursion & Empty HREF Subtrees (`nav.rs`)**: Implemented `depth > 32` recursion guard and preserved child subitem hierarchies when grouping parent `navPoint` nodes omit `src="..."` attributes.
+- **Sanitizer HTML Entity Bypasses & Attribute Slicing (`section.rs`)**: Added entity decoding prior to URI check, fixed Phase 2 attribute `=` offset calculation, and prevented unclosed `<script>` / `<iframe>` tags from swallowing documents.
+- **Readium LCP Expiry & Passphrase Validation (`lcp.rs`)**: Replaced hardcoded date literal with dynamic expiration checks and restored empty passphrase validation.
+- **Server Route, Mutex Lock & Security Headers (`server.rs`)**: Added `/resource/` endpoint for streaming assets, added HTTP security headers (`nosniff`, `SAMEORIGIN`, `CSP`), and released global `book_arc` mutex lock prior to running parallel searches.
+- **EPUB 3 Exporter & Zstd State Restoration (`book.rs`)**: Remapped TOC HREFs to `section_N.html`, cleaned XML header double-wrapping, exported valid UUID identifiers, and preserved full archive asset files across Zstd cache compression/restoration cycles.
+- **MOBI, FB2, CBZ, Media Overlay, CFI, and Citation Fixes**: Sorted MOBI kindle embed indices in descending order, supported FB2 `xlink:href`, fixed SMIL NPT clock hour parsing/`clipEnd` defaults, inverted MLA/Chicago author names, and updated documentation labels.
+
+---
+
 ## [0.11.1] - 2026-08-07
 
 ### Added

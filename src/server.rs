@@ -50,17 +50,18 @@ impl ReaderServer {
                             &b"text/html; charset=utf-8"[..],
                         )
                         .unwrap();
-                        let response = Response::from_string(READER_HTML).with_header(header);
-                        let _ = request.respond(response);
+                        send_response(
+                            request,
+                            Response::from_string(READER_HTML).with_header(header),
+                        );
                     }
                     "/api/book/metadata" => {
-                        // B7 Fix: Use into_inner on poison error to prevent server crash
                         let book = book_arc.lock().unwrap_or_else(|e| e.into_inner());
                         let json = serde_json::to_string(book.metadata()).unwrap_or_default();
                         let header =
                             Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
                                 .unwrap();
-                        let _ = request.respond(Response::from_string(json).with_header(header));
+                        send_response(request, Response::from_string(json).with_header(header));
                     }
                     "/api/book/toc" => {
                         let book = book_arc.lock().unwrap_or_else(|e| e.into_inner());
@@ -68,7 +69,7 @@ impl ReaderServer {
                         let header =
                             Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
                                 .unwrap();
-                        let _ = request.respond(Response::from_string(json).with_header(header));
+                        send_response(request, Response::from_string(json).with_header(header));
                     }
                     "/api/book/spine" => {
                         let book = book_arc.lock().unwrap_or_else(|e| e.into_inner());
@@ -76,7 +77,7 @@ impl ReaderServer {
                         let header =
                             Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
                                 .unwrap();
-                        let _ = request.respond(Response::from_string(json).with_header(header));
+                        send_response(request, Response::from_string(json).with_header(header));
                     }
                     _ if path.starts_with("/api/book/section/") => {
                         let idx_str = path.trim_start_matches("/api/book/section/");
@@ -90,12 +91,39 @@ impl ReaderServer {
                                     &b"text/html; charset=utf-8"[..],
                                 )
                                 .unwrap();
-                                let _ = request.respond(
+                                send_response(
+                                    request,
                                     Response::from_string(&sec.processed_html).with_header(header),
                                 );
                             }
                             Err(err) => {
-                                let _ = request.respond(
+                                send_response(
+                                    request,
+                                    Response::from_string(err).with_status_code(StatusCode(404)),
+                                );
+                            }
+                        }
+                    }
+                    _ if path.starts_with("/resource/") || path.starts_with("/api/resource/") => {
+                        let clean_path = path
+                            .strip_prefix("/api/resource/")
+                            .or_else(|| path.strip_prefix("/resource/"))
+                            .unwrap_or(path);
+                        let book = book_arc.lock().unwrap_or_else(|e| e.into_inner());
+
+                        match book.get_resource_bytes(clean_path) {
+                            Ok((bytes, mime)) => {
+                                let header =
+                                    Header::from_bytes(&b"Content-Type"[..], mime.as_bytes())
+                                        .unwrap();
+                                send_response(
+                                    request,
+                                    Response::from_data(bytes).with_header(header),
+                                );
+                            }
+                            Err(err) => {
+                                send_response(
+                                    request,
                                     Response::from_string(err).with_status_code(StatusCode(404)),
                                 );
                             }
@@ -108,15 +136,23 @@ impl ReaderServer {
                             .map(|(_, v)| v.to_string())
                             .unwrap_or_default();
 
-                        let results = {
+                        // Clone sections list so lock is dropped immediately before search execution
+                        let sections = {
                             let book = book_arc.lock().unwrap_or_else(|e| e.into_inner());
-                            book.search(&query)
+                            book.sections.clone()
                         };
+
+                        let mut results =
+                            crate::search::SearchEngine::search(&sections, &query, false);
+                        if results.len() > 500 {
+                            results.truncate(500);
+                        }
+
                         let json = serde_json::to_string(&results).unwrap_or_default();
                         let header =
                             Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
                                 .unwrap();
-                        let _ = request.respond(Response::from_string(json).with_header(header));
+                        send_response(request, Response::from_string(json).with_header(header));
                     }
                     "/api/book/locations" => {
                         let book = book_arc.lock().unwrap_or_else(|e| e.into_inner());
@@ -124,16 +160,17 @@ impl ReaderServer {
                         let header =
                             Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
                                 .unwrap();
-                        let _ = request.respond(Response::from_string(json).with_header(header));
+                        send_response(request, Response::from_string(json).with_header(header));
                     }
                     "/api/book/cover" => {
                         let book = book_arc.lock().unwrap_or_else(|e| e.into_inner());
                         if let Some((bytes, mime)) = book.cover_image() {
                             let header =
                                 Header::from_bytes(&b"Content-Type"[..], mime.as_bytes()).unwrap();
-                            let _ = request.respond(Response::from_data(bytes).with_header(header));
+                            send_response(request, Response::from_data(bytes).with_header(header));
                         } else {
-                            let _ = request.respond(
+                            send_response(
+                                request,
                                 Response::from_string("No cover found")
                                     .with_status_code(StatusCode(404)),
                             );
@@ -155,12 +192,14 @@ impl ReaderServer {
                                     &b"application/json"[..],
                                 )
                                 .unwrap();
-                                let _ = request.respond(
+                                send_response(
+                                    request,
                                     Response::from_string("{\"status\":\"ok\"}")
                                         .with_header(header),
                                 );
                             } else {
-                                let _ = request.respond(
+                                send_response(
+                                    request,
                                     Response::from_string("Invalid JSON or payload too large")
                                         .with_status_code(StatusCode(400)),
                                 );
@@ -172,12 +211,12 @@ impl ReaderServer {
                             let header =
                                 Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
                                     .unwrap();
-                            let _ =
-                                request.respond(Response::from_string(json).with_header(header));
+                            send_response(request, Response::from_string(json).with_header(header));
                         }
                     }
                     _ => {
-                        let _ = request.respond(
+                        send_response(
+                            request,
                             Response::from_string("404 Not Found")
                                 .with_status_code(StatusCode(404)),
                         );
@@ -188,4 +227,18 @@ impl ReaderServer {
 
         Ok(())
     }
+}
+
+fn send_response<R: std::io::Read>(request: tiny_http::Request, response: Response<R>) {
+    let res = response
+        .with_header(Header::from_bytes(&b"X-Content-Type-Options"[..], &b"nosniff"[..]).unwrap())
+        .with_header(Header::from_bytes(&b"X-Frame-Options"[..], &b"SAMEORIGIN"[..]).unwrap())
+        .with_header(
+            Header::from_bytes(
+                &b"Content-Security-Policy"[..],
+                &b"default-src 'self' 'unsafe-inline' data: blob:"[..],
+            )
+            .unwrap(),
+        );
+    let _ = request.respond(res);
 }

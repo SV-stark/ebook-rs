@@ -97,12 +97,27 @@ pub fn parse_footnotes_from_html(html: &str) -> Vec<Footnote> {
 }
 
 /// Helper to extract footnote target HTML and plain text by element ID.
-fn extract_footnote_target(html: &str, target_id: &str) -> Option<(String, String)> {
-    let lower = html.to_lowercase();
-    let pattern1 = format!("id=\"{}\"", target_id.to_lowercase());
-    let pattern2 = format!("id='{}'", target_id.to_lowercase());
+fn find_ignore_case(s: &str, pat: &str) -> Option<usize> {
+    if pat.is_empty() || s.len() < pat.len() {
+        return None;
+    }
+    for (i, _) in s.char_indices() {
+        let end = i + pat.len();
+        if end <= s.len() && s.is_char_boundary(end) {
+            if s[i..end].eq_ignore_ascii_case(pat) {
+                return Some(i);
+            }
+        }
+    }
+    None
+}
 
-    let target_idx = lower.find(&pattern1).or_else(|| lower.find(&pattern2))?;
+fn extract_footnote_target(html: &str, target_id: &str) -> Option<(String, String)> {
+    let pattern1 = format!("id=\"{}\"", target_id);
+    let pattern2 = format!("id='{}'", target_id);
+
+    let target_idx =
+        find_ignore_case(html, &pattern1).or_else(|| find_ignore_case(html, &pattern2))?;
 
     // Find opening tag start '<'
     let tag_start = html[..target_idx].rfind('<')?;
@@ -111,10 +126,10 @@ fn extract_footnote_target(html: &str, target_id: &str) -> Option<(String, Strin
     let tag_name_end = html[tag_start + 1..]
         .find(|ch: char| ch.is_whitespace() || ch == '>')
         .unwrap_or(5);
-    let tag_name = &lower[tag_start + 1..tag_start + 1 + tag_name_end];
+    let tag_name = &html[tag_start + 1..tag_start + 1 + tag_name_end];
     let close_tag = format!("</{}>", tag_name);
 
-    if let Some(close_idx) = lower[tag_start..].find(&close_tag) {
+    if let Some(close_idx) = find_ignore_case(&html[tag_start..], &close_tag) {
         let full_html = html[tag_start..tag_start + close_idx + close_tag.len()].to_string();
         let plain_text = extract_plain_text(&full_html);
         Some((full_html, plain_text))
@@ -129,12 +144,14 @@ fn extract_footnote_target(html: &str, target_id: &str) -> Option<(String, Strin
 
 fn extract_attr(tag_str: &str, attr: &str) -> Option<(String, String)> {
     let pattern = format!("{}=\"", attr);
-    if let Some(start) = tag_str.to_lowercase().find(&pattern) {
+    if let Some(start) = find_ignore_case(tag_str, &pattern) {
         let val_start = start + pattern.len();
-        if let Some(end) = tag_str[val_start..].find('"') {
-            let val = &tag_str[val_start..val_start + end];
-            let orig = &tag_str[start..=val_start + end];
-            return Some((orig.to_string(), val.to_string()));
+        if tag_str.is_char_boundary(val_start) {
+            if let Some(end) = tag_str[val_start..].find('"') {
+                let val = &tag_str[val_start..val_start + end];
+                let orig = &tag_str[start..=val_start + end];
+                return Some((orig.to_string(), val.to_string()));
+            }
         }
     }
     None

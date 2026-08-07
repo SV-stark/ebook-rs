@@ -75,7 +75,7 @@ impl CitationExporter {
         let author = if metadata.creator().is_empty() {
             String::new()
         } else {
-            format!("{}. ", metadata.creator())
+            format!("{}. ", invert_author_name(metadata.creator()))
         };
         let title = if metadata.title.is_empty() {
             "Untitled"
@@ -91,7 +91,7 @@ impl CitationExporter {
             .unwrap_or_default();
 
         format!(
-            "{}{}*. {}eBook ed., {}.",
+            "{}*{}*. {}{}.",
             author,
             title,
             publisher,
@@ -104,7 +104,7 @@ impl CitationExporter {
         let author = if metadata.creator().is_empty() {
             "Unknown Author".to_string()
         } else {
-            metadata.creator().to_string()
+            invert_author_name(metadata.creator())
         };
         let title = if metadata.title.is_empty() {
             "Untitled"
@@ -120,6 +120,17 @@ impl CitationExporter {
             "{}. *{}*. {}: {}, {}.",
             author, title, "N.p.", publisher, year
         )
+    }
+}
+
+fn invert_author_name(creator: &str) -> String {
+    let parts: Vec<&str> = creator.split_whitespace().collect();
+    if parts.len() >= 2 {
+        let last = parts.last().unwrap();
+        let firsts = parts[..parts.len() - 1].join(" ");
+        format!("{}, {}", last, firsts)
+    } else {
+        creator.to_string()
     }
 }
 

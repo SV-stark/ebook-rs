@@ -81,6 +81,15 @@ impl OdtBook {
             buf
         }
 
+        fn xml_escape(input: &str) -> String {
+            input
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;")
+                .replace('"', "&quot;")
+                .replace('\'', "&apos;")
+        }
+
         for node in doc.descendants() {
             if node.is_element() {
                 let tag_name = node.tag_name().name();
@@ -129,7 +138,7 @@ impl OdtBook {
                         }
 
                         current_heading = h_text.to_string();
-                        current_html.push_str(&format!("<h2>{}</h2>\n", h_text));
+                        current_html.push_str(&format!("<h2>{}</h2>\n", xml_escape(h_text)));
                         current_text.push_str(h_text);
                         current_text.push('\n');
 
@@ -146,7 +155,7 @@ impl OdtBook {
                     let text_raw = collect_descendant_text(&node);
                     let p_text = text_raw.trim();
                     if !p_text.is_empty() {
-                        current_html.push_str(&format!("<p>{}</p>\n", p_text));
+                        current_html.push_str(&format!("<p>{}</p>\n", xml_escape(p_text)));
                         current_text.push_str(p_text);
                         current_text.push('\n');
                     }

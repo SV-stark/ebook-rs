@@ -28,6 +28,11 @@ impl EpubArchive {
         self.files.insert(path.into(), data);
     }
 
+    /// Access reference to underlying files map in the archive.
+    pub fn files(&self) -> &HashMap<String, Vec<u8>> {
+        &self.files
+    }
+
     /// Retrieve `.opf` package document path from `META-INF/container.xml`.
     pub fn get_opf_path(&self) -> Result<String, String> {
         let container_xml = self.read_string("META-INF/container.xml")?;

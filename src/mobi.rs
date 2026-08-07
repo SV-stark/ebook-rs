@@ -458,7 +458,11 @@ fn process_mobi_images(
 
     let mut output = html.to_string();
 
-    for (img_num, data_uri) in &image_map {
+    // Sort image entries in DESCENDING numerical order so that multi-digit indices (e.g. 10, 100) are replaced before single-digit indices (e.g. 1)
+    let mut sorted_entries: Vec<(usize, String)> = image_map.into_iter().collect();
+    sorted_entries.sort_by_key(|b| std::cmp::Reverse(b.0));
+
+    for (img_num, data_uri) in sorted_entries {
         let rec_str1 = format!("recindex=\"{}\"", img_num);
         let rec_str2 = format!("recindex=\"{:05}\"", img_num);
         output = output.replace(&rec_str1, &format!("src=\"{}\"", data_uri));
@@ -467,9 +471,9 @@ fn process_mobi_images(
         let kindle_str1 = format!("kindle:embed:{:04}", img_num);
         let kindle_str2 = format!("kindle:embed:{:05}", img_num);
         let kindle_str3 = format!("kindle:embed:{}", img_num);
-        output = output.replace(&kindle_str1, data_uri);
-        output = output.replace(&kindle_str2, data_uri);
-        output = output.replace(&kindle_str3, data_uri);
+        output = output.replace(&kindle_str1, &data_uri);
+        output = output.replace(&kindle_str2, &data_uri);
+        output = output.replace(&kindle_str3, &data_uri);
 
         let file_str1 = format!("src=\"{:05}.jpg\"", img_num);
         let file_str2 = format!("src=\"{:04}.jpg\"", img_num);

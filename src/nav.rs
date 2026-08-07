@@ -142,7 +142,7 @@ pub fn parse_ncx(xml_content: &str, ncx_path: &str) -> Result<Vec<NavPoint>, Str
         if node.has_tag_name("navMap") {
             for child in node.children() {
                 if child.has_tag_name("navPoint") {
-                    if let Some(nav_pt) = parse_ncx_navpoint(&child, ncx_dir) {
+                    if let Some(nav_pt) = parse_ncx_navpoint(&child, ncx_dir, 0) {
                         points.push(nav_pt);
                     }
                 }
@@ -153,7 +153,11 @@ pub fn parse_ncx(xml_content: &str, ncx_path: &str) -> Result<Vec<NavPoint>, Str
     Ok(points)
 }
 
-fn parse_ncx_navpoint(node: &roxmltree::Node, base_dir: &str) -> Option<NavPoint> {
+fn parse_ncx_navpoint(node: &roxmltree::Node, base_dir: &str, depth: usize) -> Option<NavPoint> {
+    if depth > 32 {
+        return None;
+    }
+
     let id = node.attribute("id").unwrap_or("").to_string();
     let mut label = String::new();
     let mut href = String::new();
@@ -178,7 +182,7 @@ fn parse_ncx_navpoint(node: &roxmltree::Node, base_dir: &str) -> Option<NavPoint
                 }
             }
             "navPoint" => {
-                if let Some(sub) = parse_ncx_navpoint(&child, base_dir) {
+                if let Some(sub) = parse_ncx_navpoint(&child, base_dir, depth + 1) {
                     subitems.push(sub);
                 }
             }
@@ -187,7 +191,20 @@ fn parse_ncx_navpoint(node: &roxmltree::Node, base_dir: &str) -> Option<NavPoint
     }
 
     if href.is_empty() {
-        return None;
+        if subitems.is_empty() {
+            return None;
+        }
+        return Some(NavPoint {
+            id,
+            label: if label.is_empty() {
+                "Untitled Container".to_string()
+            } else {
+                label
+            },
+            href: String::new(),
+            full_path: String::new(),
+            subitems,
+        });
     }
 
     let full_path = resolve_relative_path(base_dir, &href);

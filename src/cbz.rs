@@ -50,15 +50,12 @@ impl CbzBook {
                 || lower.ends_with(".gif")
                 || lower.ends_with(".bmp")
                 || lower.ends_with(".tif")
-                || lower.ends_with(".tiff")
-                || (!lower.ends_with(".xml")
-                    && !lower.ends_with(".txt")
-                    && !lower.ends_with(".json")
-                    && !lower.ends_with(".html")
-                    && !lower.ends_with(".htm")
-                    && file.size() > 100);
+                || lower.ends_with(".tiff");
 
             if is_image {
+                if file.size() > 100 * 1024 * 1024 {
+                    return Err("CBZ image entry exceeds 100MB limit".to_string());
+                }
                 let mut data = Vec::new();
                 if file.read_to_end(&mut data).is_ok() && !data.is_empty() {
                     image_entries.push((name, data));
@@ -78,12 +75,17 @@ impl CbzBook {
         let mut toc = Vec::with_capacity(image_entries.len());
 
         for (idx, (name, data)) in image_entries.into_iter().enumerate() {
-            let mime = if name.to_lowercase().ends_with(".png") {
+            let lower_name = name.to_lowercase();
+            let mime = if lower_name.ends_with(".png") {
                 "image/png"
-            } else if name.to_lowercase().ends_with(".webp") {
+            } else if lower_name.ends_with(".webp") {
                 "image/webp"
-            } else if name.to_lowercase().ends_with(".gif") {
+            } else if lower_name.ends_with(".gif") {
                 "image/gif"
+            } else if lower_name.ends_with(".bmp") {
+                "image/bmp"
+            } else if lower_name.ends_with(".tif") || lower_name.ends_with(".tiff") {
+                "image/tiff"
             } else {
                 "image/jpeg"
             };

@@ -253,18 +253,24 @@ fn convert_fb2_section_to_html(
                 let text = collect_descendant_text(&node);
                 let trimmed = text.trim();
                 if !trimmed.is_empty() {
-                    html.push_str(&format!("<h2>{}</h2>", trimmed));
+                    html.push_str(&format!("<h2>{}</h2>", xml_escape(trimmed)));
                 }
             }
             "p" => {
                 let text = collect_descendant_text(&node);
                 let trimmed = text.trim();
                 if !trimmed.is_empty() {
-                    html.push_str(&format!("<p>{}</p>", trimmed));
+                    html.push_str(&format!("<p>{}</p>", xml_escape(trimmed)));
                 }
             }
             "image" => {
-                if let Some(href) = node.attribute("href").or_else(|| node.attribute("l:href")) {
+                let href_opt = node
+                    .attribute("href")
+                    .or_else(|| node.attribute("l:href"))
+                    .or_else(|| node.attribute("xlink:href"))
+                    .or_else(|| node.attribute(("http://www.w3.org/1999/xlink", "href")));
+
+                if let Some(href) = href_opt {
                     let key = href.trim_start_matches('#');
                     let data_uri = binary_map
                         .get(key)
@@ -281,4 +287,13 @@ fn convert_fb2_section_to_html(
 
     html.push_str("</div>");
     html
+}
+
+fn xml_escape(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }

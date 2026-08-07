@@ -313,6 +313,9 @@ impl Book {
             sections: self.sections.clone(),
             locations: self.locations.clone(),
             layout: self.layout.clone(),
+            archive_files: self.archive.files().clone(),
+            annotations: self.annotations.clone(),
+            media_overlays: self.media_overlays.clone(),
         };
         let json_bytes = serde_json::to_vec(&cache)
             .map_err(|e| format!("Failed to serialize Book state to JSON: {}", e))?;
@@ -327,8 +330,13 @@ impl Book {
             .map_err(|e| format!("Failed to deserialize Book state from JSON: {}", e))?;
 
         let mut archive = EpubArchive::empty();
+        for (path, bytes) in &cache.archive_files {
+            archive.insert(path, bytes.clone());
+        }
         for sec in &cache.sections {
-            archive.insert(&sec.full_path, sec.raw_html.as_bytes().to_vec());
+            if !archive.files().contains_key(&sec.full_path) {
+                archive.insert(&sec.full_path, sec.raw_html.as_bytes().to_vec());
+            }
         }
 
         Ok(Self {
@@ -339,11 +347,11 @@ impl Book {
             page_list: cache.page_list,
             sections: cache.sections,
             locations: cache.locations,
-            annotations: AnnotationManager::new(),
+            annotations: cache.annotations,
             layout: cache.layout,
             font_deobfuscator: FontDeobfuscator::new(),
             before_display_hooks: Vec::new(),
-            media_overlays: HashMap::new(),
+            media_overlays: cache.media_overlays,
             render_cache: parking_lot::Mutex::new(HashMap::new()),
         })
     }
@@ -848,4 +856,7 @@ pub struct BookCacheState {
     pub sections: Vec<Section>,
     pub locations: Locations,
     pub layout: RenditionLayout,
+    pub archive_files: HashMap<String, Vec<u8>>,
+    pub annotations: AnnotationManager,
+    pub media_overlays: HashMap<String, crate::media_overlay::MediaOverlayPackage>,
 }
