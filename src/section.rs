@@ -265,10 +265,24 @@ pub fn extract_plain_text(html: &str) -> String {
                     skipping_tag = Some("script");
                 }
             } else if let Some(tag) = skipping_tag {
-                if (tag == "style" && starts_with_ignore_case(slice, "</style"))
-                    || (tag == "script" && starts_with_ignore_case(slice, "</script"))
-                {
+                let close_tag = if tag == "style" {
+                    "</style"
+                } else {
+                    "</script"
+                };
+                if starts_with_ignore_case(slice, close_tag) {
                     skipping_tag = None;
+                } else if find_ignore_case(html, close_tag).is_none() {
+                    // Unclosed style/script recovery: if no closing tag exists anywhere in document,
+                    // recover when encountering structural HTML block tags (<p, <div, <body, <h, <section)
+                    if starts_with_ignore_case(slice, "<p")
+                        || starts_with_ignore_case(slice, "<div")
+                        || starts_with_ignore_case(slice, "<body")
+                        || starts_with_ignore_case(slice, "<h")
+                        || starts_with_ignore_case(slice, "<section")
+                    {
+                        skipping_tag = None;
+                    }
                 }
             }
             text.push(' ');
@@ -673,9 +687,11 @@ pub fn sanitize_html_scripts(html: &str) -> String {
         }
     }
 
-    // Phase 2 (B8 Fix): Strip inline event attributes like onload=, onclick= (quoted or unquoted, whitespace/slash tolerant)
+    // Phase 2 (B8 Fix): Strip inline event attributes like onload=, onclick= (only inside HTML tags)
     let mut sanitized = String::with_capacity(output.len());
     let mut idx = 0;
+    let mut in_tag = false;
+    let mut in_quote: Option<char> = None;
 
     while idx < output.len() {
         if !output.is_char_boundary(idx) {
@@ -684,7 +700,23 @@ pub fn sanitize_html_scripts(html: &str) -> String {
         }
         let slice = &output[idx..];
         if let Some(ch) = slice.chars().next() {
-            if ch.is_whitespace() || ch == '<' || ch == '/' {
+            if !in_tag && ch == '<' {
+                in_tag = true;
+                in_quote = None;
+            } else if in_tag {
+                if let Some(q) = in_quote {
+                    if ch == q {
+                        in_quote = None;
+                    }
+                } else if ch == '"' || ch == '\'' {
+                    in_quote = Some(ch);
+                } else if ch == '>' {
+                    in_tag = false;
+                    in_quote = None;
+                }
+            }
+
+            if in_tag && (ch.is_whitespace() || ch == '<' || ch == '/') {
                 let rest = &slice[ch.len_utf8()..];
                 let trimmed_rest = rest.trim_start();
                 let ws_bytes = &rest[..rest.len() - trimmed_rest.len()];
@@ -722,6 +754,9 @@ pub fn sanitize_html_scripts(html: &str) -> String {
                                     while idx < output.len() {
                                         let c = output[idx..].chars().next().unwrap_or(' ');
                                         if c.is_whitespace() || c == '>' || c == '/' {
+                                            if c == '>' {
+                                                in_tag = false;
+                                            }
                                             break;
                                         }
                                         idx += c.len_utf8();

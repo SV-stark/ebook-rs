@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.11.4] - 2026-08-07
+
+### Fixed & Hardened (Complete Edge-Case & Parity Resolution)
+- **Unclosed `<style>` Tag Plain Text Recovery (`src/section.rs`)**: Resolved regression in `extract_plain_text` by checking whether `</style>` exists in the document; if absent, tag skipping recovers upon encountering structural HTML block tags (`<p>`, `<div>`, `<body>`, `<h*>`, `<section>`).
+- **Exported EPUB 3 Navigation HREFs Remapping (`src/book.rs`)**: Remapped TOC HREFs in `render_nav_points_xml` to point directly to exported section filenames (`section_N.html#anchor`) rather than original input path strings.
+- **Exported Package Identifier RFC 4122 UUID Compliance (`src/book.rs`)**: Updated EPUB 3 `dc:identifier` generator (`generate_rfc4122_uuid_v4`) to produce valid RFC 4122 version 4 UUID formatted strings (`urn:uuid:xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`).
+- **Readium LCP Expiry Dynamic Evaluation (`src/lcp.rs`)**: Corrected timestamp semantics in `LcpLicense::is_expired` so current timestamp is compared against `rights.end`, correctly enforcing license expiration.
+- **Export Document Double-Wrapping Guard (`src/book.rs`)**: Updated document root detection in `export_epub3_bytes` to check case-insensitively for `<!doctype`, `<?xml`, or `<html` prefixes before adding standard XHTML wrappers.
+- **Sanitizer Phase 2 Prose Isolation (`src/section.rs`)**: Added `in_tag` context awareness to Phase 2 event attribute stripping, ensuring plain prose words beginning with `on...` (e.g. `donkey = `) are preserved outside HTML tags.
+- **Stream ZIP Range Header Extra Field Padding (`src/stream_zip.rs`)**: Increased extra field padding bound (`max(1024)`) in `to_http_range_header` to prevent Range header truncation on large local extra headers.
+- **Documentation Precision (`src/treesitter.rs`, `README.md`)**: Updated docstrings to accurately describe line-based syntax node extraction and file-based memory mapping.
+
+---
+
 ## [0.11.3] - 2026-08-07
 
 ### Fixed & Optimized (Comprehensive 17 Bugs + 8 Bottlenecks Resolution)

@@ -22,11 +22,11 @@ pub struct ExtractedCodeBlock {
     pub ast_nodes: Vec<SyntaxNodeInfo>,
 }
 
-/// Tree-sitter concrete syntax tree parsing & code highlight engine.
+/// Pure-Rust code block line extractor & syntax node parser.
 pub struct TreeSitterEngine;
 
 impl TreeSitterEngine {
-    /// Tokenize and parse source code snippet into Tree-sitter syntax nodes.
+    /// Tokenize source code snippet into line-based syntax nodes.
     pub fn parse_code(code: &str, _language: &str) -> Vec<SyntaxNodeInfo> {
         let mut nodes = Vec::new();
         let lines: Vec<&str> = code.lines().collect();

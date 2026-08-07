@@ -647,8 +647,10 @@ impl Book {
                 };
 
                 let trimmed = html_source.trim();
-                let doc_html = if trimmed.starts_with("<!DOCTYPE")
-                    || trimmed.to_lowercase().starts_with("<html")
+                let trimmed_low = trimmed.to_lowercase();
+                let doc_html = if trimmed_low.starts_with("<!doctype")
+                    || trimmed_low.starts_with("<?xml")
+                    || trimmed_low.starts_with("<html")
                 {
                     html_source.to_string()
                 } else {
@@ -667,7 +669,7 @@ impl Book {
             let mut nav_html = String::from(
                 "<!DOCTYPE html>\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\">\n<head><title>Navigation</title></head>\n<body>\n<nav epub:type=\"toc\" id=\"toc\">\n",
             );
-            render_nav_points_xml(&self.toc, &mut nav_html);
+            render_nav_points_xml(&self.toc, &mut nav_html, &self.sections);
             nav_html.push_str("</nav>\n</body>\n</html>");
             zip.write_all(nav_html.as_bytes())
                 .map_err(|e| format!("Failed to write nav.xhtml content: {}", e))?;
@@ -675,23 +677,19 @@ impl Book {
             zip.start_file("OEBPS/content.opf", deflated_options)
                 .map_err(|e| format!("Failed to write content.opf: {}", e))?;
 
+            let uuid_str = generate_rfc4122_uuid_v4(&self.opf.metadata.title);
             let mut opf_xml = format!(
                 r#"<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-    <dc:identifier id="pub-id">urn:uuid:ebook-rs-export-{}</dc:identifier>
+    <dc:identifier id="pub-id">urn:uuid:{}</dc:identifier>
     <dc:title>{}</dc:title>
     <dc:language>{}</dc:language>
   </metadata>
   <manifest>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
 "#,
-                self.opf
-                    .metadata
-                    .title
-                    .chars()
-                    .filter(|c| c.is_alphanumeric())
-                    .collect::<String>(),
+                uuid_str,
                 xml_escape(&self.opf.metadata.title),
                 xml_escape(
                     self.opf
@@ -803,28 +801,92 @@ fn xml_escape(s: &str) -> String {
         .replace('\'', "&apos;")
 }
 
-fn render_nav_points_xml(pts: &[NavPoint], out: &mut String) {
-    render_nav_points_xml_depth(pts, out, 0);
+fn render_nav_points_xml(pts: &[NavPoint], out: &mut String, sections: &[Section]) {
+    render_nav_points_xml_depth(pts, out, 0, sections);
 }
 
-fn render_nav_points_xml_depth(pts: &[NavPoint], out: &mut String, depth: usize) {
+fn render_nav_points_xml_depth(
+    pts: &[NavPoint],
+    out: &mut String,
+    depth: usize,
+    sections: &[Section],
+) {
     if depth > 32 || pts.is_empty() {
         return;
     }
     out.push_str("<ol>\n");
     for pt in pts {
+        let remapped_href = remap_toc_href(&pt.href, sections);
         out.push_str(&format!(
             "<li><a href=\"{}\">{}</a>",
-            xml_escape(&pt.href),
+            xml_escape(&remapped_href),
             xml_escape(&pt.label)
         ));
         if !pt.subitems.is_empty() {
             out.push('\n');
-            render_nav_points_xml_depth(&pt.subitems, out, depth + 1);
+            render_nav_points_xml_depth(&pt.subitems, out, depth + 1, sections);
         }
         out.push_str("</li>\n");
     }
     out.push_str("</ol>\n");
+}
+
+fn remap_toc_href(href: &str, sections: &[Section]) -> String {
+    let parts: Vec<&str> = href.split('#').collect();
+    let path = parts[0];
+    let anchor = if parts.len() > 1 {
+        format!("#{}", parts[1])
+    } else {
+        String::new()
+    };
+
+    let norm_path = crate::archive::normalize_path(path);
+
+    for sec in sections {
+        let sec_norm = crate::archive::normalize_path(&sec.full_path);
+        if sec_norm == norm_path || sec_norm.ends_with(&norm_path) || norm_path.ends_with(&sec_norm)
+        {
+            return format!("section_{}.html{}", sec.index, anchor);
+        }
+    }
+
+    if let Some(sec) = sections.first() {
+        format!("section_{}.html{}", sec.index, anchor)
+    } else {
+        href.to_string()
+    }
+}
+
+fn generate_rfc4122_uuid_v4(seed_text: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    seed_text.hash(&mut hasher);
+    let h1 = hasher.finish();
+
+    let mut hasher2 = DefaultHasher::new();
+    (h1, seed_text).hash(&mut hasher2);
+    let h2 = hasher2.finish();
+
+    let bytes1 = h1.to_be_bytes();
+    let bytes2 = h2.to_be_bytes();
+
+    let mut b = [0u8; 16];
+    b[..8].copy_from_slice(&bytes1);
+    b[8..].copy_from_slice(&bytes2);
+
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+
+    format!(
+        "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
+        u32::from_be_bytes([b[0], b[1], b[2], b[3]]),
+        u16::from_be_bytes([b[4], b[5]]),
+        u16::from_be_bytes([b[6], b[7]]),
+        u16::from_be_bytes([b[8], b[9]]),
+        ((u64::from_be_bytes([b[10], b[11], b[12], b[13], b[14], b[15], 0, 0])) >> 16)
+    )
 }
 
 fn find_nearest_element_id_anchor(html: &str, char_offset: usize) -> Option<String> {

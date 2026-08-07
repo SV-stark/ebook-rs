@@ -18,7 +18,7 @@ impl ZipEntryLocation {
         let end_byte = self.local_header_offset
             + 30
             + self.file_name.len() as u64
-            + self.extra_field_len.max(64)
+            + self.extra_field_len.max(1024)
             + self.compressed_size;
         (
             "Range".to_string(),
