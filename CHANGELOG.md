@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.11.7] - 2026-08-08
+
+### Changed & Dependencies
+
+- **Upgraded Cryptography & Language Detection Dependencies**:
+  - `aes`: `0.8.4` ➔ `0.9.2` (latest)
+  - `cbc`: `0.1.2` ➔ `0.2.1` (latest)
+  - `cipher`: `0.4.4` ➔ `0.5.2` (latest)
+  - `generic-array`: `0.14.7` ➔ `0.14.9` (latest)
+  - `whatlang`: `0.16.4` ➔ `0.18.0` (latest)
+- **LCP Decryptor API Alignment (`src/lcp.rs`)**: Updated `LcpDecryptor` to conform to `cipher` 0.5 and `cbc` 0.2 `BlockModeDecrypt` trait signatures.
+
+---
+
 ## [0.11.6] - 2026-08-07
 
 ### Added

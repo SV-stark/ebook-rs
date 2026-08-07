@@ -1,6 +1,6 @@
 use aes::Aes256;
-use cbc::Decryptor;
-use cipher::{BlockDecryptMut, KeyIvInit, block_padding::Pkcs7};
+use cbc::cipher::block_padding::Pkcs7;
+use cbc::cipher::{BlockModeDecrypt, KeyIvInit};
 use serde::{Deserialize, Serialize};
 
 /// Readium LCP (Lightweight Content Protection) User License metadata.
@@ -129,10 +129,10 @@ impl LcpDecryptor {
         let ciphertext = &encrypted_bytes[16..];
 
         // AES-256-CBC decrypt with PKCS7 unpadding
-        let decryptor = Decryptor::<Aes256>::new(&key_bytes.into(), &iv.into());
+        let decryptor = cbc::Decryptor::<Aes256>::new(&key_bytes.into(), &iv.into());
         let mut buf = ciphertext.to_vec();
         decryptor
-            .decrypt_padded_mut::<Pkcs7>(&mut buf)
+            .decrypt_padded::<Pkcs7>(&mut buf)
             .map(|decrypted| decrypted.to_vec())
             .map_err(|e| format!("AES-256-CBC decryption failed: {:?}", e))
     }
