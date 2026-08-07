@@ -28,6 +28,7 @@ pub struct Book {
     pub font_deobfuscator: FontDeobfuscator,
     pub before_display_hooks: Vec<BeforeDisplayHook>,
     pub media_overlays: HashMap<String, crate::media_overlay::MediaOverlayPackage>,
+    pub render_cache: parking_lot::Mutex<HashMap<usize, String>>,
 }
 
 impl Book {
@@ -197,6 +198,7 @@ impl Book {
             font_deobfuscator,
             before_display_hooks: Vec::new(),
             media_overlays,
+            render_cache: parking_lot::Mutex::new(HashMap::new()),
         })
     }
 
@@ -542,11 +544,18 @@ impl Book {
                 zip.start_file(&sec_path, deflated_options)
                     .map_err(|e| format!("Failed to write {}: {}", sec_path, e))?;
 
-                let doc_html = format!(
-                    "<!DOCTYPE html>\n<html xmlns=\"http://www.w3.org/1999/xhtml\">\n<head><title>Section {}</title></head>\n<body>\n{}\n</body>\n</html>",
-                    section.index + 1,
-                    section.processed_html
-                );
+                let trimmed = section.processed_html.trim();
+                let doc_html = if trimmed.starts_with("<!DOCTYPE")
+                    || trimmed.to_lowercase().starts_with("<html")
+                {
+                    section.processed_html.clone()
+                } else {
+                    format!(
+                        "<!DOCTYPE html>\n<html xmlns=\"http://www.w3.org/1999/xhtml\">\n<head><title>Section {}</title></head>\n<body>\n{}\n</body>\n</html>",
+                        section.index + 1,
+                        section.processed_html
+                    )
+                };
                 zip.write_all(doc_html.as_bytes())
                     .map_err(|e| format!("Failed to write {} content: {}", sec_path, e))?;
             }
@@ -554,15 +563,10 @@ impl Book {
             zip.start_file("OEBPS/nav.xhtml", deflated_options)
                 .map_err(|e| format!("Failed to write nav.xhtml: {}", e))?;
             let mut nav_html = String::from(
-                "<!DOCTYPE html>\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\">\n<head><title>Navigation</title></head>\n<body>\n<nav epub:type=\"toc\" id=\"toc\">\n<ol>\n",
+                "<!DOCTYPE html>\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\">\n<head><title>Navigation</title></head>\n<body>\n<nav epub:type=\"toc\" id=\"toc\">\n",
             );
-            for pt in &self.toc {
-                nav_html.push_str(&format!(
-                    "<li><a href=\"{}\">{}</a></li>\n",
-                    pt.href, pt.label
-                ));
-            }
-            nav_html.push_str("</ol>\n</nav>\n</body>\n</html>");
+            render_nav_points_xml(&self.toc, &mut nav_html);
+            nav_html.push_str("</nav>\n</body>\n</html>");
             zip.write_all(nav_html.as_bytes())
                 .map_err(|e| format!("Failed to write nav.xhtml content: {}", e))?;
 
@@ -586,13 +590,15 @@ impl Book {
                     .chars()
                     .filter(|c| c.is_alphanumeric())
                     .collect::<String>(),
-                self.opf.metadata.title,
-                self.opf
-                    .metadata
-                    .languages
-                    .first()
-                    .cloned()
-                    .unwrap_or_else(|| "en".to_string())
+                xml_escape(&self.opf.metadata.title),
+                xml_escape(
+                    self.opf
+                        .metadata
+                        .languages
+                        .first()
+                        .map(|s| s.as_str())
+                        .unwrap_or("en")
+                )
             );
 
             for section in &self.sections {
@@ -634,13 +640,47 @@ fn extract_first_img_src(html: &str) -> Option<String> {
     None
 }
 
-fn find_nearest_element_id_anchor(html: &str, _char_offset: usize) -> Option<String> {
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+fn render_nav_points_xml(pts: &[NavPoint], out: &mut String) {
+    out.push_str("<ol>\n");
+    for pt in pts {
+        out.push_str(&format!(
+            "<li><a href=\"{}\">{}</a>",
+            xml_escape(&pt.href),
+            xml_escape(&pt.label)
+        ));
+        if !pt.subitems.is_empty() {
+            out.push('\n');
+            render_nav_points_xml(&pt.subitems, out);
+        }
+        out.push_str("</li>\n");
+    }
+    out.push_str("</ol>\n");
+}
+
+fn find_nearest_element_id_anchor(html: &str, char_offset: usize) -> Option<String> {
     let lower = html.to_lowercase();
     let mut search_idx = 0;
     let mut last_id: Option<String> = None;
 
+    let max_byte_offset = html
+        .char_indices()
+        .nth(char_offset)
+        .map(|(i, _)| i)
+        .unwrap_or_else(|| html.len());
+
     while let Some(idx) = lower[search_idx..].find(" id=\"") {
         let abs_idx = search_idx + idx + 5;
+        if abs_idx > max_byte_offset {
+            break;
+        }
         if let Some(end_quote) = html[abs_idx..].find('"') {
             let id_val = &html[abs_idx..abs_idx + end_quote];
             if !id_val.trim().is_empty() {
@@ -649,6 +689,18 @@ fn find_nearest_element_id_anchor(html: &str, _char_offset: usize) -> Option<Str
             search_idx = abs_idx + end_quote + 1;
         } else {
             break;
+        }
+    }
+
+    if last_id.is_none() {
+        if let Some(idx) = lower.find(" id=\"") {
+            let abs_idx = idx + 5;
+            if let Some(end_quote) = html[abs_idx..].find('"') {
+                let id_val = &html[abs_idx..abs_idx + end_quote];
+                if !id_val.trim().is_empty() {
+                    return Some(id_val.to_string());
+                }
+            }
         }
     }
 

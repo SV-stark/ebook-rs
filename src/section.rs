@@ -146,13 +146,19 @@ pub fn extract_plain_text(html: &str) -> String {
             } else if let Some(tag) = skipping_tag {
                 if (tag == "style" && slice.starts_with(b"</style"))
                     || (tag == "script" && slice.starts_with(b"</script"))
-                    || slice.starts_with(b"<p")
-                    || slice.starts_with(b"<div")
-                    || slice.starts_with(b"<body")
-                    || slice.starts_with(b"<h")
-                    || slice.starts_with(b"<section")
                 {
                     skipping_tag = None;
+                } else if (tag == "style" && !lower[i..].contains("</style"))
+                    || (tag == "script" && !lower[i..].contains("</script"))
+                {
+                    if slice.starts_with(b"<p")
+                        || slice.starts_with(b"<div")
+                        || slice.starts_with(b"<body")
+                        || slice.starts_with(b"<h")
+                        || slice.starts_with(b"<section")
+                    {
+                        skipping_tag = None;
+                    }
                 }
             }
             text.push(' ');

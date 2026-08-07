@@ -226,6 +226,7 @@ impl TxtBook {
             before_display_hooks: Vec::new(),
             font_deobfuscator: FontDeobfuscator::parse_encryption_xml(""),
             media_overlays: HashMap::new(),
+            render_cache: parking_lot::Mutex::new(HashMap::new()),
         };
 
         book.generate_locations(1000);

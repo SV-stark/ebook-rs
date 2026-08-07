@@ -106,10 +106,14 @@ impl EpubArchive {
         Err(format!("File not found in archive: {}", path))
     }
 
-    /// Read text content of a file in the archive.
+    /// Read text content of a file in the archive with SIMD UTF-8 decoding.
     pub fn read_string(&self, path: &str) -> Result<String, String> {
         let bytes = self.read_bytes(path)?;
-        Ok(String::from_utf8_lossy(&bytes).to_string())
+        if let Ok(s) = simdutf8::basic::from_utf8(&bytes) {
+            Ok(s.to_string())
+        } else {
+            Ok(String::from_utf8_lossy(&bytes).to_string())
+        }
     }
 
     /// Check if a file exists in the archive.

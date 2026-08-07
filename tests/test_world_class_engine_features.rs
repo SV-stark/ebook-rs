@@ -75,3 +75,28 @@ fn test_performance_crate_accelerators() {
     let lock = parking_lot::Mutex::new(42);
     assert_eq!(*lock.lock(), 42);
 }
+
+#[test]
+fn test_utf8_non_ascii_xml_repair() {
+    let broken_xml = "<package><title>AT&T & über & 日本語</title></package>";
+    let repaired = sanitize_and_repair_xml(broken_xml);
+    println!("Repaired XML: {}", repaired);
+
+    assert!(repaired.contains("&amp;"));
+    assert!(repaired.contains("über"));
+    assert!(repaired.contains("日本語"));
+}
+
+#[test]
+fn test_nested_dom_ast_tree_hierarchy() {
+    let html = "<div><h1>Title</h1><p>Paragraph with <span>nested span</span></p></div>";
+    let tree = EbookDomTree::parse(html);
+    println!("Tree nodes: {:#?}", tree);
+
+    assert_eq!(tree.root_nodes.len(), 1, "Root nodes count should be 1 for top div");
+    if let ebook_rs::DomNode::Element { children, .. } = &tree.root_nodes[0] {
+        assert_eq!(children.len(), 2, "Children of div should be h1 and p");
+    } else {
+        panic!("Root node must be an element");
+    }
+}

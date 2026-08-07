@@ -23,9 +23,19 @@ pub struct EbookDomTree {
 impl EbookDomTree {
     /// Parse HTML string into lightweight DOM AST tree.
     pub fn parse(html: &str) -> Self {
-        let mut root_nodes = Vec::new();
+        let mut root_nodes: Vec<DomNode> = Vec::new();
+        let mut stack: Vec<(
+            CompactString,
+            AHashMap<CompactString, CompactString>,
+            Vec<DomNode>,
+        )> = Vec::new();
         let mut search_idx = 0;
         let bytes = html.as_bytes();
+
+        let void_tags = [
+            "img", "br", "hr", "meta", "link", "input", "area", "base", "col", "embed", "param",
+            "source", "track", "wbr",
+        ];
 
         while search_idx < bytes.len() {
             if let Some(tag_start) = html[search_idx..].find('<') {
@@ -33,34 +43,99 @@ impl EbookDomTree {
                 if abs_start > search_idx {
                     let text = &html[search_idx..abs_start];
                     if !text.is_empty() {
-                        root_nodes.push(DomNode::Text(text.to_string()));
+                        let node = DomNode::Text(text.to_string());
+                        if let Some((_, _, children)) = stack.last_mut() {
+                            children.push(node);
+                        } else {
+                            root_nodes.push(node);
+                        }
                     }
                 }
 
                 if let Some(tag_end) = crate::section::find_tag_end(html, abs_start) {
                     let tag_content = &html[abs_start + 1..tag_end];
                     if tag_content.starts_with("!--") {
-                        root_nodes.push(DomNode::Comment(tag_content.to_string()));
-                    } else if !tag_content.starts_with('/') {
+                        let node = DomNode::Comment(tag_content.to_string());
+                        if let Some((_, _, children)) = stack.last_mut() {
+                            children.push(node);
+                        } else {
+                            root_nodes.push(node);
+                        }
+                    } else if let Some(closing_tag) = tag_content.strip_prefix('/') {
+                        let tag_name = closing_tag.trim().to_lowercase();
+                        if let Some(pop_idx) = stack
+                            .iter()
+                            .rposition(|(name, _, _)| name.to_lowercase() == tag_name)
+                        {
+                            while stack.len() > pop_idx {
+                                let (name, attrs, children) = stack.pop().unwrap();
+                                let node = DomNode::Element {
+                                    tag_name: name,
+                                    attributes: attrs,
+                                    children,
+                                };
+                                if let Some((_, _, parent_children)) = stack.last_mut() {
+                                    parent_children.push(node);
+                                } else {
+                                    root_nodes.push(node);
+                                }
+                            }
+                        }
+                    } else {
+                        let is_self_closing = tag_content.trim_end().ends_with('/');
                         let (tag_name, attrs) = parse_tag_parts(tag_content);
-                        root_nodes.push(DomNode::Element {
-                            tag_name,
-                            attributes: attrs,
-                            children: Vec::new(),
-                        });
+                        let is_void = void_tags.contains(&tag_name.to_lowercase().as_str());
+
+                        if is_self_closing || is_void {
+                            let node = DomNode::Element {
+                                tag_name,
+                                attributes: attrs,
+                                children: Vec::new(),
+                            };
+                            if let Some((_, _, children)) = stack.last_mut() {
+                                children.push(node);
+                            } else {
+                                root_nodes.push(node);
+                            }
+                        } else {
+                            stack.push((tag_name, attrs, Vec::new()));
+                        }
                     }
                     search_idx = tag_end + 1;
                 } else {
                     let remainder = &html[abs_start..];
-                    root_nodes.push(DomNode::Text(remainder.to_string()));
+                    let node = DomNode::Text(remainder.to_string());
+                    if let Some((_, _, children)) = stack.last_mut() {
+                        children.push(node);
+                    } else {
+                        root_nodes.push(node);
+                    }
                     break;
                 }
             } else {
                 let remainder = &html[search_idx..];
                 if !remainder.is_empty() {
-                    root_nodes.push(DomNode::Text(remainder.to_string()));
+                    let node = DomNode::Text(remainder.to_string());
+                    if let Some((_, _, children)) = stack.last_mut() {
+                        children.push(node);
+                    } else {
+                        root_nodes.push(node);
+                    }
                 }
                 break;
+            }
+        }
+
+        while let Some((name, attrs, children)) = stack.pop() {
+            let node = DomNode::Element {
+                tag_name: name,
+                attributes: attrs,
+                children,
+            };
+            if let Some((_, _, parent_children)) = stack.last_mut() {
+                parent_children.push(node);
+            } else {
+                root_nodes.push(node);
             }
         }
 
@@ -89,13 +164,24 @@ impl EbookDomTree {
     /// Strip forbidden elements (e.g., `<script>`, `<style>`, `<iframe>`) from AST tree.
     pub fn strip_elements(&mut self, tags_to_strip: &[&str]) {
         let strip_set: Vec<String> = tags_to_strip.iter().map(|s| s.to_lowercase()).collect();
-        self.root_nodes.retain(|node| match node {
-            DomNode::Element { tag_name, .. } => {
-                !strip_set.contains(&tag_name.to_lowercase().to_string())
-            }
-            _ => true,
-        });
+        strip_nodes(&mut self.root_nodes, &strip_set);
     }
+}
+
+fn strip_nodes(nodes: &mut Vec<DomNode>, strip_set: &[String]) {
+    nodes.retain_mut(|node| match node {
+        DomNode::Element {
+            tag_name, children, ..
+        } => {
+            if strip_set.contains(&tag_name.to_lowercase().to_string()) {
+                false
+            } else {
+                strip_nodes(children, strip_set);
+                true
+            }
+        }
+        _ => true,
+    });
 }
 
 fn parse_tag_parts(content: &str) -> (CompactString, AHashMap<CompactString, CompactString>) {
@@ -202,27 +288,33 @@ fn render_node(node: &DomNode, out: &mut String) {
 /// Lenient XML / HTML recovery sanitizer that repairs unescaped ampersands (`&`), unclosed tags, and invalid entities.
 pub fn sanitize_and_repair_xml(xml: &str) -> String {
     let mut out = String::with_capacity(xml.len() + 32);
-    let bytes = xml.as_bytes();
     let mut i = 0;
 
-    while i < bytes.len() {
-        if bytes[i] == b'&' {
+    while i < xml.len() {
+        if xml.as_bytes()[i] == b'&' {
             let rest = &xml[i..];
-            if rest.starts_with("&amp;")
-                || rest.starts_with("&lt;")
-                || rest.starts_with("&gt;")
-                || rest.starts_with("&quot;")
-                || rest.starts_with("&apos;")
-                || (rest.starts_with("&#") && rest.find(';').map(|pos| pos < 12).unwrap_or(false))
+            if let Some(entity) = ["&amp;", "&lt;", "&gt;", "&quot;", "&apos;"]
+                .iter()
+                .find(|e| rest.starts_with(*e))
             {
-                out.push('&');
+                out.push_str(entity);
+                i += entity.len();
+            } else if rest.starts_with("&#")
+                && rest.find(';').map(|pos| pos < 12).unwrap_or(false)
+            {
+                let semi_pos = rest.find(';').unwrap();
+                out.push_str(&rest[..=semi_pos]);
+                i += semi_pos + 1;
             } else {
                 out.push_str("&amp;");
+                i += 1;
             }
+        } else if let Some(ch) = xml[i..].chars().next() {
+            out.push(ch);
+            i += ch.len_utf8();
         } else {
-            out.push(bytes[i] as char);
+            i += 1;
         }
-        i += 1;
     }
 
     out
