@@ -29,8 +29,44 @@ impl TxtBook {
             let mut section_index = 0;
             let mut plain_text_buf = String::new();
 
+            let mut in_code_block = false;
+            let mut code_lang = String::new();
+            let mut code_buf = String::new();
+
             for line in text.lines() {
                 let trimmed = line.trim();
+                if trimmed.starts_with("```") {
+                    if in_code_block {
+                        let pre_html = format!(
+                            "<pre><code class=\"language-{}\">\n{}</code></pre>",
+                            if code_lang.is_empty() {
+                                "text"
+                            } else {
+                                &code_lang
+                            },
+                            xml_escape(&code_buf)
+                        );
+                        current_section_html.push_str(&pre_html);
+                        current_section_html.push('\n');
+                        plain_text_buf.push_str(&code_buf);
+                        plain_text_buf.push('\n');
+
+                        in_code_block = false;
+                        code_lang.clear();
+                        code_buf.clear();
+                    } else {
+                        in_code_block = true;
+                        code_lang = trimmed.trim_start_matches('`').trim().to_string();
+                    }
+                    continue;
+                }
+
+                if in_code_block {
+                    code_buf.push_str(line);
+                    code_buf.push('\n');
+                    continue;
+                }
+
                 if trimmed.starts_with('#') {
                     let level = trimmed.chars().take_while(|c| *c == '#').count();
                     let heading_text = trimmed.trim_start_matches('#').trim();

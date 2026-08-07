@@ -6,6 +6,7 @@ use zip::ZipArchive;
 #[derive(Clone)]
 pub struct EpubArchive {
     files: HashMap<String, Vec<u8>>,
+    files_lower: HashMap<String, String>,
 }
 
 impl EpubArchive {
@@ -20,12 +21,15 @@ impl EpubArchive {
     pub fn empty() -> Self {
         Self {
             files: HashMap::new(),
+            files_lower: HashMap::new(),
         }
     }
 
     /// Insert or update a file entry in the archive.
     pub fn insert(&mut self, path: impl Into<String>, data: Vec<u8>) {
-        self.files.insert(path.into(), data);
+        let key = path.into();
+        self.files_lower.insert(key.to_lowercase(), key.clone());
+        self.files.insert(key, data);
     }
 
     /// Access reference to underlying files map in the archive.
@@ -75,6 +79,7 @@ impl EpubArchive {
         let mut zip =
             ZipArchive::new(cursor).map_err(|e| format!("Failed to parse ZIP archive: {}", e))?;
         let mut files = HashMap::new();
+        let mut files_lower = HashMap::new();
         let mut total_decompressed_bytes: u64 = 0;
         const MAX_TOTAL_SIZE: u64 = 500 * 1024 * 1024; // 500 MB max total size
         const MAX_ENTRY_SIZE: u64 = 200 * 1024 * 1024; // 200 MB max entry size
@@ -126,10 +131,11 @@ impl EpubArchive {
             }
 
             let normalized = normalize_path(&name);
+            files_lower.insert(normalized.to_lowercase(), normalized.clone());
             files.insert(normalized, content);
         }
 
-        Ok(Self { files })
+        Ok(Self { files, files_lower })
     }
 
     /// Read raw bytes of a file in the archive (cloning into a new Vec<u8>).
@@ -145,15 +151,10 @@ impl EpubArchive {
             return Ok(data.as_slice());
         }
         let lower = clean_no_frag.to_lowercase();
-        if let Some(data) = self.files.get(&lower) {
-            return Ok(data.as_slice());
-        }
-        if let Some((_, data)) = self
-            .files
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case(clean_no_frag))
-        {
-            return Ok(data.as_slice());
+        if let Some(orig_key) = self.files_lower.get(&lower) {
+            if let Some(data) = self.files.get(orig_key) {
+                return Ok(data.as_slice());
+            }
         }
         Err(format!("File not found in archive: {}", path))
     }
@@ -168,16 +169,12 @@ impl EpubArchive {
         }
     }
 
-    /// Check if a file exists in the archive (P5 Fix: O(1) lookup with ascii case fallback).
+    /// Check if a file exists in the archive (P5 Fix: O(1) lookup).
     pub fn contains(&self, path: &str) -> bool {
         let clean = normalize_path(path);
         let clean_no_frag = clean.split('#').next().unwrap_or(&clean);
         self.files.contains_key(clean_no_frag)
-            || self.files.contains_key(&clean_no_frag.to_lowercase())
-            || self
-                .files
-                .keys()
-                .any(|k| k.eq_ignore_ascii_case(clean_no_frag))
+            || self.files_lower.contains_key(&clean_no_frag.to_lowercase())
     }
 
     /// List all unique file entry paths inside the archive.

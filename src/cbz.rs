@@ -7,7 +7,6 @@ use crate::nav::NavPoint;
 use crate::opf::OpfPackage;
 use crate::section::Section;
 use std::collections::HashMap;
-use std::io::{Cursor, Read};
 
 /// Comic Book Archive (CBZ / CBR) Parser.
 pub struct CbzBook;
@@ -22,83 +21,54 @@ impl CbzBook {
             return Err("CBR (RAR format) is not supported in pure-Rust mode (RARv4/RARv5 detected). Please convert the file to CBZ (ZIP format).".to_string());
         }
 
-        let mut reader = Cursor::new(bytes);
-        let mut zip = zip::ZipArchive::new(&mut reader)
-            .map_err(|e| format!("Failed to open CBZ archive: {}", e))?;
+        let archive = EpubArchive::from_bytes(bytes)?;
+        Self::from_archive(archive, title_fallback)
+    }
 
-        let mut image_entries: Vec<(String, Vec<u8>)> = Vec::new();
+    /// Parse a CBZ comic book directly from an already-extracted in-memory archive container.
+    pub fn from_archive(archive: EpubArchive, title_fallback: &str) -> Result<Book, String> {
+        let mut image_names: Vec<String> = archive
+            .files()
+            .keys()
+            .filter(|name| {
+                let lower = name.to_lowercase();
+                !lower.contains("__macosx")
+                    && !lower.contains("/.")
+                    && !lower.starts_with('.')
+                    && (lower.ends_with(".jpg")
+                        || lower.ends_with(".jpeg")
+                        || lower.ends_with(".png")
+                        || lower.ends_with(".webp")
+                        || lower.ends_with(".gif")
+                        || lower.ends_with(".bmp")
+                        || lower.ends_with(".tif")
+                        || lower.ends_with(".tiff"))
+            })
+            .cloned()
+            .collect();
 
-        for i in 0..zip.len() {
-            let mut file = zip
-                .by_index(i)
-                .map_err(|e| format!("Failed to read ZIP entry #{}: {}", i, e))?;
-            let name = file.name().to_string();
-            let lower = name.to_lowercase();
-
-            if file.is_dir()
-                || lower.contains("__macosx")
-                || lower.contains("/.")
-                || lower.starts_with('.')
-            {
-                continue;
-            }
-
-            let is_image = lower.ends_with(".jpg")
-                || lower.ends_with(".jpeg")
-                || lower.ends_with(".png")
-                || lower.ends_with(".webp")
-                || lower.ends_with(".gif")
-                || lower.ends_with(".bmp")
-                || lower.ends_with(".tif")
-                || lower.ends_with(".tiff");
-
-            if is_image {
-                if file.size() > 100 * 1024 * 1024 {
-                    return Err("CBZ image entry exceeds 100MB limit".to_string());
-                }
-                let mut data = Vec::new();
-                if file.read_to_end(&mut data).is_ok() && !data.is_empty() {
-                    image_entries.push((name, data));
-                }
-            }
-        }
-
-        if image_entries.is_empty() {
+        if image_names.is_empty() {
             return Err("CBZ archive contains no valid image pages".to_string());
         }
 
         // Sort image pages naturally by filename (e.g. page2 before page10)
-        image_entries.sort_by(|a, b| natural_cmp(&a.0, &b.0));
+        image_names.sort_by(|a, b| natural_cmp(a, b));
 
-        let mut sections = Vec::with_capacity(image_entries.len());
-        let mut spine = Vec::with_capacity(image_entries.len());
-        let mut toc = Vec::with_capacity(image_entries.len());
+        let mut sections = Vec::with_capacity(image_names.len());
+        let mut spine = Vec::with_capacity(image_names.len());
+        let mut toc = Vec::with_capacity(image_names.len());
 
-        for (idx, (name, data)) in image_entries.into_iter().enumerate() {
-            let lower_name = name.to_lowercase();
-            let mime = if lower_name.ends_with(".png") {
-                "image/png"
-            } else if lower_name.ends_with(".webp") {
-                "image/webp"
-            } else if lower_name.ends_with(".gif") {
-                "image/gif"
-            } else if lower_name.ends_with(".bmp") {
-                "image/bmp"
-            } else if lower_name.ends_with(".tif") || lower_name.ends_with(".tiff") {
-                "image/tiff"
-            } else {
-                "image/jpeg"
-            };
-
-            let b64 = base64_encode(&data);
-            let raw_html = format!(
-                "<div style=\"text-align:center;\"><img src=\"data:{};base64,{}\" style=\"max-width:100%;height:auto;\"/></div>",
-                mime, b64
-            );
-
+        for (idx, img_path) in image_names.into_iter().enumerate() {
             let idref = format!("page_{}", idx);
             let href = format!("page_{}.html", idx);
-            let plain_text = format!("[Comic Page {} - {}]", idx + 1, name);
+
+            let raw_html = format!(
+                "<div style=\"text-align:center;\"><img src=\"{}\" style=\"max-width:100%;height:auto;\"/></div>",
+                img_path
+            );
+            let processed_html = raw_html.clone();
+
+            let plain_text = format!("[Comic Page {} - {}]", idx + 1, img_path);
             let plain_text_lower = plain_text.to_lowercase();
             let char_count = plain_text.chars().count();
 
@@ -107,8 +77,8 @@ impl CbzBook {
                 idref: idref.clone(),
                 href: href.clone(),
                 full_path: href.clone(),
-                raw_html: raw_html.clone(),
-                processed_html: raw_html,
+                raw_html,
+                processed_html,
                 plain_text,
                 plain_text_lower,
                 char_count,
@@ -165,7 +135,7 @@ impl CbzBook {
         };
 
         let mut book = Book {
-            archive: EpubArchive::empty(),
+            archive,
             opf,
             layout: RenditionLayout::default(),
             toc,
@@ -185,6 +155,7 @@ impl CbzBook {
     }
 }
 
+#[allow(dead_code)]
 fn base64_encode(data: &[u8]) -> String {
     const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);

@@ -6,9 +6,9 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EBook-RS Reader Engine</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300&family=Fira+Code&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Merriweather:ital,wght@0,400;1,400&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
     <style>
         :root {
             --bg-primary: #0f172a;
@@ -47,7 +47,7 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
-            font-family: 'Inter', sans-serif;
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Inter', sans-serif;
             background-color: var(--bg-primary);
             color: var(--text-primary);
             height: 100vh;
@@ -490,7 +490,7 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
                 <head>
                     <style>
                         body {
-                            font-family: 'Merriweather', serif;
+                            font-family: Georgia, 'Times New Roman', 'Merriweather', serif;
                             font-size: ${fontSize}px;
                             line-height: 1.7;
                             color: ${fgColor};

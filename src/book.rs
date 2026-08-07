@@ -62,7 +62,7 @@ impl Book {
         if bytes.starts_with(b"PK\x03\x04") {
             if let Ok(archive) = EpubArchive::from_bytes(bytes) {
                 if archive.contains("META-INF/container.xml") {
-                    if let Ok(book) = Self::from_archive(archive) {
+                    if let Ok(book) = Self::from_archive(archive.clone()) {
                         return Ok(book);
                     }
                 } else if archive.contains("content.xml") || archive.contains("meta.xml") {
@@ -70,25 +70,25 @@ impl Book {
                         return Ok(odt);
                     }
                 }
+                return crate::cbz::CbzBook::from_archive(archive, title_fallback);
             }
-            crate::cbz::CbzBook::parse(bytes, title_fallback)
-        } else if is_mobi_bytes(bytes) {
-            crate::mobi::MobiBook::parse(bytes)
-        } else if let Ok(fb2) = crate::fb2::Fb2Book::parse(bytes) {
-            Ok(fb2)
-        } else if let Ok(lit) = crate::lit::LitBook::parse(bytes) {
-            Ok(lit)
-        } else if let Ok(odt) = crate::odt::OdtBook::parse(bytes, title_fallback) {
-            Ok(odt)
-        } else if let Ok(cbz) = crate::cbz::CbzBook::parse(bytes, title_fallback) {
-            Ok(cbz)
-        } else if let Ok(text) = std::str::from_utf8(bytes) {
+        }
+        if is_mobi_bytes(bytes) {
+            return crate::mobi::MobiBook::parse(bytes);
+        }
+        if bytes.starts_with(b"ITOLITLS") {
+            return crate::lit::LitBook::parse(bytes);
+        }
+        if let Ok(fb2) = crate::fb2::Fb2Book::parse(bytes) {
+            return Ok(fb2);
+        }
+        if let Ok(text) = std::str::from_utf8(bytes) {
             let is_md =
                 text.contains("# ") || text.contains("## ") || title_fallback.ends_with(".md");
-            crate::txt::TxtBook::parse(bytes, title_fallback, is_md)
-        } else {
-            Err("Unsupported or corrupted eBook format".to_string())
+            return crate::txt::TxtBook::parse(bytes, title_fallback, is_md);
         }
+
+        Err("Unsupported or corrupted eBook format".to_string())
     }
 
     /// Internal builder from an initialized archive.
@@ -305,12 +305,18 @@ impl Book {
     /// Compresses and serializes the parsed `Book` state into a `zstd`-compressed byte buffer (`Vec<u8>`).
     /// This enables sub-millisecond instant caching and restoration of parsed books.
     pub fn export_zstd_cache(&self) -> Result<Vec<u8>, String> {
+        let mut sections = self.sections.clone();
+        for sec in &mut sections {
+            if sec.processed_html == sec.raw_html {
+                sec.processed_html.clear();
+            }
+        }
         let cache = BookCacheState {
             opf: self.opf.clone(),
             toc: self.toc.clone(),
             landmarks: self.landmarks.clone(),
             page_list: self.page_list.clone(),
-            sections: self.sections.clone(),
+            sections,
             locations: self.locations.clone(),
             layout: self.layout.clone(),
             archive_files: self.archive.files().clone(),
@@ -326,8 +332,14 @@ impl Book {
     pub fn from_zstd_cache(zstd_bytes: &[u8]) -> Result<Self, String> {
         let json_bytes = zstd::decode_all(zstd_bytes)
             .map_err(|e| format!("Zstd decompression failed: {}", e))?;
-        let cache: BookCacheState = serde_json::from_slice(&json_bytes)
+        let mut cache: BookCacheState = serde_json::from_slice(&json_bytes)
             .map_err(|e| format!("Failed to deserialize Book state from JSON: {}", e))?;
+
+        for sec in &mut cache.sections {
+            if sec.processed_html.is_empty() {
+                sec.processed_html = sec.raw_html.clone();
+            }
+        }
 
         let mut archive = EpubArchive::empty();
         for (path, bytes) in &cache.archive_files {
@@ -391,6 +403,19 @@ impl Book {
             .cloned()
             .ok_or_else(|| format!("Section index out of bounds: {}", index))?;
 
+        if let Some(cached) = self.render_cache.lock().get(&index) {
+            section.processed_html = cached.clone();
+            return Ok(section);
+        }
+
+        if section.processed_html == section.raw_html && !section.raw_html.is_empty() {
+            section.processed_html = crate::section::process_section_resources(
+                &section.raw_html,
+                &section.full_path,
+                &self.archive,
+            );
+        }
+
         // F6 Fix: Automatic RTL dir="rtl" injection at render time
         if self.opf.metadata.direction == crate::metadata::PageProgressionDirection::Rtl {
             if !section.processed_html.contains("dir=\"rtl\"")
@@ -414,6 +439,10 @@ impl Book {
         for hook in &self.before_display_hooks {
             hook(&mut section.processed_html, &section.full_path);
         }
+
+        self.render_cache
+            .lock()
+            .insert(index, section.processed_html.clone());
 
         Ok(section)
     }
@@ -730,7 +759,10 @@ fn is_mobi_bytes(bytes: &[u8]) -> bool {
         return false;
     }
     let type_creator = &bytes[60..68];
-    type_creator == b"BOOKMOBI" || type_creator == b"TEXtRECD" || &bytes[60..64] == b"BOOK"
+    type_creator == b"BOOKMOBI"
+        || type_creator == b"TEXtRECD"
+        || &bytes[60..64] == b"BOOK"
+        || &bytes[64..68] == b"MOBI"
 }
 
 fn starts_with_ignore_case(s: &str, prefix: &str) -> bool {

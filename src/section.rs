@@ -441,8 +441,8 @@ fn regex_find_link_css(html: &str) -> Vec<(String, String)> {
             if let Some(abs_close) = find_tag_end(html, abs_link) {
                 let tag_str = &html[abs_link..=abs_close];
                 if let Some((orig_href, val)) = extract_attr(tag_str, "href") {
-                    if val.to_lowercase().contains(".css")
-                        || tag_str.to_lowercase().contains("rel=\"stylesheet\"")
+                    if find_ignore_case(&val, ".css").is_some()
+                        || find_ignore_case(tag_str, "rel=\"stylesheet\"").is_some()
                     {
                         list.push((orig_href, val));
                     }
@@ -596,18 +596,19 @@ pub fn parse_viewport_meta(html: &str) -> (Option<f64>, Option<f64>) {
             let abs_idx = search_idx + idx;
             if let Some(abs_close) = find_tag_end(html, abs_idx) {
                 let tag = &html[abs_idx..=abs_close];
-                if tag.to_lowercase().contains("viewport") {
+                if find_ignore_case(tag, "viewport").is_some() {
                     if let Some((_, content)) = extract_attr(tag, "content") {
                         let mut width = None;
                         let mut height = None;
 
                         for pair in content.split(',') {
-                            let parts: Vec<&str> = pair.split('=').map(|s| s.trim()).collect();
-                            if parts.len() == 2 {
-                                if parts[0].eq_ignore_ascii_case("width") {
-                                    width = parts[1].parse::<f64>().ok();
-                                } else if parts[0].eq_ignore_ascii_case("height") {
-                                    height = parts[1].parse::<f64>().ok();
+                            if let Some((k, v)) = pair.split_once('=') {
+                                let k = k.trim();
+                                let v = v.trim();
+                                if k.eq_ignore_ascii_case("width") {
+                                    width = v.parse::<f64>().ok();
+                                } else if k.eq_ignore_ascii_case("height") {
+                                    height = v.parse::<f64>().ok();
                                 }
                             }
                         }
