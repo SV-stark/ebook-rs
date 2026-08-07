@@ -60,7 +60,11 @@ impl FontDeobfuscator {
 
 /// IDPF Font De-obfuscation: XOR first 1040 bytes with SHA-1 of EPUB identifier.
 pub fn deobfuscate_idpf(font_bytes: &mut [u8], identifier: &str) {
-    let key = sha1(identifier.trim().as_bytes());
+    let clean_id: String = identifier
+        .chars()
+        .filter(|c| !c.is_ascii_whitespace())
+        .collect();
+    let key = sha1(clean_id.as_bytes());
     let len = font_bytes.len().min(1040);
     for i in 0..len {
         font_bytes[i] ^= key[i % 20];

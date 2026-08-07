@@ -68,8 +68,8 @@ impl LitBook {
         });
 
         let metadata = Metadata {
-            title: "Alice in Wonderland (LIT)".to_string(),
-            creators: vec!["Lewis Carroll".to_string()],
+            title: "LIT Document".to_string(),
+            creators: Vec::new(),
             publishers: Vec::new(),
             languages: vec!["en".to_string()],
             rights: None,
@@ -130,7 +130,17 @@ impl ContainsStr for [u8] {
 
 fn extract_html_from_lit_bytes(bytes: &[u8]) -> String {
     let mut out = String::new();
-    let text = String::from_utf8_lossy(bytes);
+
+    // Check if container bytes are UTF-16LE encoded
+    let text = if bytes.windows(2).any(|w| w == b"<\0") {
+        let u16_data: Vec<u16> = bytes
+            .chunks_exact(2)
+            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .collect();
+        String::from_utf16_lossy(&u16_data)
+    } else {
+        String::from_utf8_lossy(bytes).to_string()
+    };
 
     for line in text.lines() {
         if line.contains('<') && line.contains('>') {

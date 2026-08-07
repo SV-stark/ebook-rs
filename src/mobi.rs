@@ -343,23 +343,45 @@ impl MobiBook {
     }
 }
 
-fn split_mobi_html(html: &str) -> Vec<String> {
-    let mut parts = Vec::new();
-    let lower = html.to_lowercase();
-
-    let mut search_idx = 0;
-    while let Some(pb_idx) = lower[search_idx..].find("<mbp:pagebreak") {
-        let abs_idx = search_idx + pb_idx;
-        if abs_idx > search_idx {
-            let chunk = html[search_idx..abs_idx].trim();
-            if !chunk.is_empty() {
-                parts.push(chunk.to_string());
+fn find_ignore_case(s: &str, pat: &str) -> Option<usize> {
+    if pat.is_empty() {
+        return Some(0);
+    }
+    if s.len() < pat.len() {
+        return None;
+    }
+    for i in 0..=s.len() - pat.len() {
+        if s.is_char_boundary(i) {
+            if let Some(sub) = s.get(i..i + pat.len()) {
+                if sub.eq_ignore_ascii_case(pat) {
+                    return Some(i);
+                }
             }
         }
-        if let Some(abs_close) = crate::section::find_tag_end(html, abs_idx) {
-            search_idx = abs_close + 1;
+    }
+    None
+}
+
+fn split_mobi_html(html: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut search_idx = 0;
+
+    while search_idx < html.len() {
+        if let Some(pb_idx) = find_ignore_case(&html[search_idx..], "<mbp:pagebreak") {
+            let abs_idx = search_idx + pb_idx;
+            if abs_idx > search_idx {
+                let chunk = html[search_idx..abs_idx].trim();
+                if !chunk.is_empty() {
+                    parts.push(chunk.to_string());
+                }
+            }
+            if let Some(abs_close) = crate::section::find_tag_end(html, abs_idx) {
+                search_idx = abs_close + 1;
+            } else {
+                search_idx = abs_idx + "<mbp:pagebreak".len();
+            }
         } else {
-            search_idx = abs_idx + 14;
+            break;
         }
     }
 
@@ -370,11 +392,11 @@ fn split_mobi_html(html: &str) -> Vec<String> {
         }
     }
 
-    if parts.is_empty() {
-        vec![html.to_string()]
-    } else {
-        parts
+    if parts.is_empty() && !html.trim().is_empty() {
+        parts.push(html.trim().to_string());
     }
+
+    parts
 }
 
 fn extract_fallback_mobi_text(bytes: &[u8]) -> String {

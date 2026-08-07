@@ -1,6 +1,6 @@
 [package]
 name = "ebook-rs"
-version = "0.10.5"
+version = "0.10.7"
 edition = "2024"
 authors = ["SV-Stark"]
 description = "Pure Rust multi-format eBook engine (EPUB2/3, MOBI, AZW3, FB2, LIT, CBZ, PDF, ODT, TXT, MD) with Universal EPUB3 Exporter, Zero-Copy mmap, Lightweight DOM AST, Fuzzy XML Recovery, CFI, Tree-sitter Code Parser, Readium LCP/Locator, and Citation Export APIs."
@@ -32,10 +32,10 @@ mmap = ["dep:memmap2"]
 
 [dependencies]
 zip = "8.6"
-roxmltree = "0.20"
+roxmltree = "0.21"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-base64 = "0.22"
+base64 = "0.23"
 percent-encoding = "2.3"
 tiny_http = { version = "0.12", optional = true }
 url = { version = "2.5", optional = true }
@@ -44,10 +44,10 @@ rayon = { version = "1.10", optional = true }
 pdf_oxide = { version = "0.3", optional = true }
 memmap2 = { version = "0.9", optional = true }
 regex = "1.10"
-compact_str = { version = "0.8", features = ["serde"] }
+compact_str = { version = "0.10", features = ["serde"] }
 ahash = { version = "0.8", features = ["serde"] }
 simdutf8 = "0.1"
-zlib-rs = "0.4"
+zlib-rs = "0.6"
 flate2 = { version = "1.0", features = ["zlib-rs"] }
 memchr = "2.7"
 parking_lot = "0.12"

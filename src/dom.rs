@@ -299,8 +299,7 @@ pub fn sanitize_and_repair_xml(xml: &str) -> String {
             {
                 out.push_str(entity);
                 i += entity.len();
-            } else if rest.starts_with("&#")
-                && rest.find(';').map(|pos| pos < 12).unwrap_or(false)
+            } else if rest.starts_with("&#") && rest.find(';').map(|pos| pos < 12).unwrap_or(false)
             {
                 let semi_pos = rest.find(';').unwrap();
                 out.push_str(&rest[..=semi_pos]);

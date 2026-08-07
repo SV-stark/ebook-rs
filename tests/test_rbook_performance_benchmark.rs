@@ -65,8 +65,14 @@ fn test_all_sample_formats_benchmark() {
     println!("========================================================\n");
 
     let sample_files = [
-        ("EPUB 3", "samples/Alice in Wonderland - Lewis Carroll EPUB3.epub"),
-        ("EPUB 2", "samples/Alice in Wonderland - Lewis Carroll EPUB2.epub"),
+        (
+            "EPUB 3",
+            "samples/Alice in Wonderland - Lewis Carroll EPUB3.epub",
+        ),
+        (
+            "EPUB 2",
+            "samples/Alice in Wonderland - Lewis Carroll EPUB2.epub",
+        ),
         ("MOBI", "samples/Alice in Wonderland - Lewis Carroll.mobi"),
         ("AZW3", "samples/Alice in Wonderland - Lewis Carroll.azw3"),
         ("FB2", "samples/Alice in Wonderland - Lewis Carroll.fb2"),
@@ -114,16 +120,33 @@ fn test_all_sample_formats_benchmark() {
 
         println!(
             "📖 {:<12} | Parse: {:6.2} ms | Search ('Alice' -> {:3} matches): {:5.2} ms | DOM AST: {:4.2} ms | EPUB3 Export: {:6.2} ms",
-            fmt, parse_ms, matches.len(), search_ms, dom_ms, export_ms
+            fmt,
+            parse_ms,
+            matches.len(),
+            search_ms,
+            dom_ms,
+            export_ms
         );
     }
 
     println!("\n--------------------------------------------------------");
     println!("📊 SUMMARY RESULTS (v0.10.5 vs v0.9.0 Baseline)");
     println!("--------------------------------------------------------");
-    println!("   Total Real-Life Sample Parse Time:  {:.2} ms", total_parse_time_ms);
-    println!("   Total Full-Text Search Time:        {:.2} ms", total_search_time_ms);
-    println!("   Total DOM AST Parsing Time:         {:.2} ms", total_dom_ast_time_ms);
-    println!("   Total EPUB3 Conversion Time:        {:.2} ms", total_export_time_ms);
+    println!(
+        "   Total Real-Life Sample Parse Time:  {:.2} ms",
+        total_parse_time_ms
+    );
+    println!(
+        "   Total Full-Text Search Time:        {:.2} ms",
+        total_search_time_ms
+    );
+    println!(
+        "   Total DOM AST Parsing Time:         {:.2} ms",
+        total_dom_ast_time_ms
+    );
+    println!(
+        "   Total EPUB3 Conversion Time:        {:.2} ms",
+        total_export_time_ms
+    );
     println!("========================================================\n");
 }

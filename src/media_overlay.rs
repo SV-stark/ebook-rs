@@ -7,7 +7,11 @@ pub struct SmilClock;
 impl SmilClock {
     /// Parse SMIL NPT time string into seconds as f64.
     pub fn parse_npt_seconds(npt_str: &str) -> f64 {
-        let clean = npt_str.trim().trim_end_matches('s').trim_end_matches('h');
+        let clean = npt_str
+            .trim()
+            .trim_start_matches("npt=")
+            .trim_end_matches('s')
+            .trim_end_matches('h');
         if clean.contains(':') {
             let parts: Vec<&str> = clean.split(':').collect();
             match parts.len() {

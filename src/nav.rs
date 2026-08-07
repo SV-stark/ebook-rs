@@ -236,7 +236,7 @@ pub fn parse_nav_xhtml(html_content: &str, nav_path: &str) -> Result<Vec<NavPoin
             if is_toc {
                 for child in node.children() {
                     if child.has_tag_name("ol") || child.has_tag_name("ul") {
-                        points = parse_nav_list(&child, nav_dir);
+                        points = parse_nav_list(&child, nav_dir, 0);
                         if !points.is_empty() {
                             break;
                         }
@@ -321,7 +321,10 @@ fn get_attr_val(node: &roxmltree::Node, name: &str) -> Option<String> {
     None
 }
 
-fn parse_nav_list(ol_node: &roxmltree::Node, base_dir: &str) -> Vec<NavPoint> {
+fn parse_nav_list(ol_node: &roxmltree::Node, base_dir: &str, depth: usize) -> Vec<NavPoint> {
+    if depth > 32 {
+        return Vec::new();
+    }
     let mut points = Vec::new();
 
     for li in ol_node.children() {
@@ -362,7 +365,7 @@ fn parse_nav_list(ol_node: &roxmltree::Node, base_dir: &str) -> Vec<NavPoint> {
                         }
                     }
                     "ol" | "ul" => {
-                        subitems = parse_nav_list(&child, base_dir);
+                        subitems = parse_nav_list(&child, base_dir, depth + 1);
                     }
                     _ => {}
                 }

@@ -70,8 +70,8 @@ impl CbzBook {
             return Err("CBZ archive contains no valid image pages".to_string());
         }
 
-        // Sort image pages naturally by filename
-        image_entries.sort_by(|a, b| a.0.cmp(&b.0));
+        // Sort image pages naturally by filename (e.g. page2 before page10)
+        image_entries.sort_by(|a, b| natural_cmp(&a.0, &b.0));
 
         let mut sections = Vec::with_capacity(image_entries.len());
         let mut spine = Vec::with_capacity(image_entries.len());
@@ -222,4 +222,42 @@ fn base64_encode(data: &[u8]) -> String {
     }
 
     out
+}
+
+fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    let mut a_chars = a.chars().peekable();
+    let mut b_chars = b.chars().peekable();
+
+    loop {
+        match (a_chars.peek(), b_chars.peek()) {
+            (None, None) => return std::cmp::Ordering::Equal,
+            (None, Some(_)) => return std::cmp::Ordering::Less,
+            (Some(_), None) => return std::cmp::Ordering::Greater,
+            (Some(ca), Some(cb)) => {
+                if ca.is_ascii_digit() && cb.is_ascii_digit() {
+                    let mut a_num: u64 = 0;
+                    while let Some(d) = a_chars.peek().and_then(|c| c.to_digit(10)) {
+                        a_num = a_num.saturating_mul(10).saturating_add(d as u64);
+                        a_chars.next();
+                    }
+                    let mut b_num: u64 = 0;
+                    while let Some(d) = b_chars.peek().and_then(|c| c.to_digit(10)) {
+                        b_num = b_num.saturating_mul(10).saturating_add(d as u64);
+                        b_chars.next();
+                    }
+                    if a_num != b_num {
+                        return a_num.cmp(&b_num);
+                    }
+                } else {
+                    let ca_lower = ca.to_ascii_lowercase();
+                    let cb_lower = cb.to_ascii_lowercase();
+                    if ca_lower != cb_lower {
+                        return ca_lower.cmp(&cb_lower);
+                    }
+                    a_chars.next();
+                    b_chars.next();
+                }
+            }
+        }
+    }
 }

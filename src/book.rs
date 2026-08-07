@@ -625,16 +625,61 @@ impl Book {
     }
 }
 
-fn extract_first_img_src(html: &str) -> Option<String> {
-    let lower = html.to_lowercase();
-    if let Some(img_idx) = lower.find("<img") {
-        let rem = &html[img_idx..];
-        let lower_rem = &lower[img_idx..];
-        if let Some(src_idx) = lower_rem.find("src=\"") {
-            let val_start = src_idx + 5;
-            if let Some(end_idx) = rem[val_start..].find('"') {
-                return Some(rem[val_start..val_start + end_idx].to_string());
+fn starts_with_ignore_case(s: &str, prefix: &str) -> bool {
+    if s.len() < prefix.len() {
+        return false;
+    }
+    s[..prefix.len()].eq_ignore_ascii_case(prefix)
+}
+
+fn find_ignore_case(s: &str, pat: &str) -> Option<usize> {
+    if pat.is_empty() {
+        return Some(0);
+    }
+    if s.len() < pat.len() {
+        return None;
+    }
+    for i in 0..=s.len() - pat.len() {
+        if s.is_char_boundary(i) {
+            if let Some(sub) = s.get(i..i + pat.len()) {
+                if sub.eq_ignore_ascii_case(pat) {
+                    return Some(i);
+                }
             }
+        }
+    }
+    None
+}
+
+fn extract_first_img_src(html: &str) -> Option<String> {
+    let mut i = 0;
+    while i < html.len() {
+        if starts_with_ignore_case(&html[i..], "<img") {
+            let rem = &html[i..];
+            let mut j = 0;
+            while j < rem.len() {
+                if starts_with_ignore_case(&rem[j..], "src=\"") {
+                    let val_start = j + 5;
+                    if let Some(end_idx) = rem[val_start..].find('"') {
+                        return Some(rem[val_start..val_start + end_idx].to_string());
+                    }
+                } else if starts_with_ignore_case(&rem[j..], "src='") {
+                    let val_start = j + 5;
+                    if let Some(end_idx) = rem[val_start..].find('\'') {
+                        return Some(rem[val_start..val_start + end_idx].to_string());
+                    }
+                }
+                if let Some(ch) = rem[j..].chars().next() {
+                    j += ch.len_utf8();
+                } else {
+                    break;
+                }
+            }
+        }
+        if let Some(ch) = html[i..].chars().next() {
+            i += ch.len_utf8();
+        } else {
+            break;
         }
     }
     None
@@ -649,6 +694,13 @@ fn xml_escape(s: &str) -> String {
 }
 
 fn render_nav_points_xml(pts: &[NavPoint], out: &mut String) {
+    render_nav_points_xml_depth(pts, out, 0);
+}
+
+fn render_nav_points_xml_depth(pts: &[NavPoint], out: &mut String, depth: usize) {
+    if depth > 32 || pts.is_empty() {
+        return;
+    }
     out.push_str("<ol>\n");
     for pt in pts {
         out.push_str(&format!(
@@ -658,7 +710,7 @@ fn render_nav_points_xml(pts: &[NavPoint], out: &mut String) {
         ));
         if !pt.subitems.is_empty() {
             out.push('\n');
-            render_nav_points_xml(&pt.subitems, out);
+            render_nav_points_xml_depth(&pt.subitems, out, depth + 1);
         }
         out.push_str("</li>\n");
     }
@@ -666,34 +718,37 @@ fn render_nav_points_xml(pts: &[NavPoint], out: &mut String) {
 }
 
 fn find_nearest_element_id_anchor(html: &str, char_offset: usize) -> Option<String> {
-    let lower = html.to_lowercase();
-    let mut search_idx = 0;
-    let mut last_id: Option<String> = None;
-
     let max_byte_offset = html
         .char_indices()
         .nth(char_offset)
         .map(|(i, _)| i)
         .unwrap_or_else(|| html.len());
 
-    while let Some(idx) = lower[search_idx..].find(" id=\"") {
-        let abs_idx = search_idx + idx + 5;
-        if abs_idx > max_byte_offset {
-            break;
-        }
-        if let Some(end_quote) = html[abs_idx..].find('"') {
-            let id_val = &html[abs_idx..abs_idx + end_quote];
-            if !id_val.trim().is_empty() {
-                last_id = Some(id_val.to_string());
+    let mut search_idx = 0;
+    let mut last_id: Option<String> = None;
+
+    while search_idx < html.len() {
+        if let Some(idx) = find_ignore_case(&html[search_idx..], " id=\"") {
+            let abs_idx = search_idx + idx + 5;
+            if abs_idx > max_byte_offset {
+                break;
             }
-            search_idx = abs_idx + end_quote + 1;
+            if let Some(end_quote) = html[abs_idx..].find('"') {
+                let id_val = &html[abs_idx..abs_idx + end_quote];
+                if !id_val.trim().is_empty() {
+                    last_id = Some(id_val.to_string());
+                }
+                search_idx = abs_idx + end_quote + 1;
+            } else {
+                break;
+            }
         } else {
             break;
         }
     }
 
     if last_id.is_none() {
-        if let Some(idx) = lower.find(" id=\"") {
+        if let Some(idx) = find_ignore_case(html, " id=\"") {
             let abs_idx = idx + 5;
             if let Some(end_quote) = html[abs_idx..].find('"') {
                 let id_val = &html[abs_idx..abs_idx + end_quote];

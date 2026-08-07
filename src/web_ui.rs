@@ -573,6 +573,16 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
             refreshAnnotations();
         }
 
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
         async function refreshAnnotations() {
             const res = await fetch('/api/annotations');
             const list = await res.json();
@@ -585,7 +595,10 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
             list.forEach(a => {
                 const div = document.createElement('div');
                 div.className = 'ann-item';
-                div.innerHTML = `<strong>${a.type_.toUpperCase()}</strong>: ${a.selected_text || a.note || ''}<div class="cfi-tag">${a.cfi_range}</div>`;
+                const typeEsc = escapeHtml(a.type_ ? a.type_.toUpperCase() : '');
+                const textEsc = escapeHtml(a.selected_text || a.note || '');
+                const cfiEsc = escapeHtml(a.cfi_range || '');
+                div.innerHTML = `<strong>${typeEsc}</strong>: ${textEsc}<div class="cfi-tag">${cfiEsc}</div>`;
                 container.appendChild(div);
             });
         }

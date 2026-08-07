@@ -93,7 +93,11 @@ fn test_nested_dom_ast_tree_hierarchy() {
     let tree = EbookDomTree::parse(html);
     println!("Tree nodes: {:#?}", tree);
 
-    assert_eq!(tree.root_nodes.len(), 1, "Root nodes count should be 1 for top div");
+    assert_eq!(
+        tree.root_nodes.len(),
+        1,
+        "Root nodes count should be 1 for top div"
+    );
     if let ebook_rs::DomNode::Element { children, .. } = &tree.root_nodes[0] {
         assert_eq!(children.len(), 2, "Children of div should be h1 and p");
     } else {

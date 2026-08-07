@@ -59,12 +59,15 @@ impl EpubArchive {
         }
     }
 
-    /// Create an `EpubArchive` from raw ZIP byte data.
+    /// Create an `EpubArchive` from raw ZIP byte data with Zip Bomb protection.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
         let cursor = Cursor::new(bytes);
         let mut zip =
             ZipArchive::new(cursor).map_err(|e| format!("Failed to parse ZIP archive: {}", e))?;
         let mut files = HashMap::new();
+        let mut total_decompressed_bytes: u64 = 0;
+        const MAX_TOTAL_SIZE: u64 = 500 * 1024 * 1024; // 500 MB max total size
+        const MAX_ENTRY_SIZE: u64 = 200 * 1024 * 1024; // 200 MB max entry size
 
         for i in 0..zip.len() {
             let mut file = zip
@@ -75,17 +78,44 @@ impl EpubArchive {
             if name.ends_with('/') {
                 continue;
             }
+
+            if file.size() > MAX_ENTRY_SIZE {
+                return Err(format!(
+                    "ZIP entry '{}' exceeds maximum allowed uncompressed size of 200MB",
+                    name
+                ));
+            }
+
             let mut content = Vec::new();
-            file.read_to_end(&mut content)
-                .map_err(|e| format!("Failed to read entry content {}: {}", name, e))?;
+            let mut chunk = [0u8; 8192];
+            let mut entry_bytes_read: u64 = 0;
+
+            loop {
+                let n = file
+                    .read(&mut chunk)
+                    .map_err(|e| format!("Failed to read entry content {}: {}", name, e))?;
+                if n == 0 {
+                    break;
+                }
+                entry_bytes_read += n as u64;
+                total_decompressed_bytes += n as u64;
+
+                if entry_bytes_read > MAX_ENTRY_SIZE {
+                    return Err(format!(
+                        "ZIP entry '{}' decompressed size exceeded 200MB limit",
+                        name
+                    ));
+                }
+                if total_decompressed_bytes > MAX_TOTAL_SIZE {
+                    return Err(
+                        "ZIP archive total decompressed size exceeded 500MB safety limit"
+                            .to_string(),
+                    );
+                }
+                content.extend_from_slice(&chunk[..n]);
+            }
 
             let normalized = normalize_path(&name);
-            let lower = normalized.to_lowercase();
-
-            // B1 Fix: Only clone if keys differ to prevent double memory allocation
-            if normalized != lower {
-                files.insert(lower, content.clone());
-            }
             files.insert(normalized, content);
         }
 
@@ -95,12 +125,17 @@ impl EpubArchive {
     /// Read raw bytes of a file in the archive.
     pub fn read_bytes(&self, path: &str) -> Result<Vec<u8>, String> {
         let clean = normalize_path(path);
-        if let Some(data) = self.files.get(&clean) {
+        // Strip anchor fragment if passed
+        let clean_no_frag = clean.split('#').next().unwrap_or(&clean);
+        if let Some(data) = self.files.get(clean_no_frag) {
             return Ok(data.clone());
         }
-        // Fallback: try lowercased
-        let lower = clean.to_lowercase();
+        let lower = clean_no_frag.to_lowercase();
         if let Some(data) = self.files.get(&lower) {
+            return Ok(data.clone());
+        }
+        // Fallback case-insensitive search
+        if let Some((_, data)) = self.files.iter().find(|(k, _)| k.to_lowercase() == lower) {
             return Ok(data.clone());
         }
         Err(format!("File not found in archive: {}", path))
@@ -119,7 +154,13 @@ impl EpubArchive {
     /// Check if a file exists in the archive.
     pub fn contains(&self, path: &str) -> bool {
         let clean = normalize_path(path);
-        self.files.contains_key(&clean) || self.files.contains_key(&clean.to_lowercase())
+        let clean_no_frag = clean.split('#').next().unwrap_or(&clean);
+        self.files.contains_key(clean_no_frag)
+            || self.files.contains_key(&clean_no_frag.to_lowercase())
+            || self
+                .files
+                .keys()
+                .any(|k| k.to_lowercase() == clean_no_frag.to_lowercase())
     }
 
     /// List all unique file entry paths inside the archive.
@@ -150,7 +191,14 @@ pub fn normalize_path(path: &str) -> String {
 
 /// Helper function to resolve relative paths against a base directory.
 pub fn resolve_relative_path(base_dir: &str, relative: &str) -> String {
-    let rel_clean = relative.replace('\\', "/");
+    // 1. Strip URL fragment identifier (#fragment)
+    let rel_no_frag = relative.split('#').next().unwrap_or(relative);
+    // 2. Percent-decode URI path (%20, non-ASCII)
+    let decoded = percent_encoding::percent_decode_str(rel_no_frag)
+        .decode_utf8_lossy()
+        .to_string();
+
+    let rel_clean = decoded.replace('\\', "/");
     if rel_clean.starts_with('/') {
         return normalize_path(&rel_clean);
     }

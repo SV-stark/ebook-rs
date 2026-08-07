@@ -69,11 +69,24 @@ impl OdtBook {
         let mut section_index = 0;
         let mut current_heading = String::new();
 
+        fn collect_descendant_text(node: &roxmltree::Node) -> String {
+            let mut buf = String::new();
+            for descendant in node.descendants() {
+                if descendant.is_text() {
+                    if let Some(t) = descendant.text() {
+                        buf.push_str(t);
+                    }
+                }
+            }
+            buf
+        }
+
         for node in doc.descendants() {
             if node.is_element() {
                 let tag_name = node.tag_name().name();
                 if tag_name == "h" {
-                    let h_text = node.text().unwrap_or("").trim();
+                    let text_raw = collect_descendant_text(&node);
+                    let h_text = text_raw.trim();
                     if !h_text.is_empty() {
                         if title == title_fallback && current_heading.is_empty() {
                             title = h_text.to_string();
@@ -130,7 +143,8 @@ impl OdtBook {
                         });
                     }
                 } else if tag_name == "p" {
-                    let p_text = node.text().unwrap_or("").trim();
+                    let text_raw = collect_descendant_text(&node);
+                    let p_text = text_raw.trim();
                     if !p_text.is_empty() {
                         current_html.push_str(&format!("<p>{}</p>\n", p_text));
                         current_text.push_str(p_text);

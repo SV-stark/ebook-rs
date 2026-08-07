@@ -48,6 +48,10 @@ impl SearchEngine {
         case_sensitive: bool,
     ) -> Vec<SearchResult> {
         let mut results = Vec::new();
+        if query.is_empty() {
+            return results;
+        }
+
         let query_cmp = if case_sensitive {
             query.to_string()
         } else {
@@ -60,44 +64,50 @@ impl SearchEngine {
             &section.plain_text_lower
         };
 
+        let text_chars: Vec<char> = section.plain_text.chars().collect();
+        let q_char_len = query.chars().count();
         let mut search_idx = 0;
-        while let Some(match_idx) = text_ref[search_idx..].find(&query_cmp) {
-            let abs_idx = search_idx + match_idx;
 
-            // Extract context snippet with 100% UTF-8 char boundary safety
-            let text_chars: Vec<char> = section.plain_text.chars().collect();
-            let char_idx = section.plain_text[..abs_idx.min(section.plain_text.len())]
-                .chars()
-                .count();
-            let q_char_len = query.chars().count();
+        while search_idx < text_ref.len() {
+            if let Some(match_idx) = text_ref[search_idx..].find(&query_cmp) {
+                let abs_idx = search_idx + match_idx;
 
-            let start_c = char_idx.saturating_sub(40);
-            let end_c = (char_idx + q_char_len + 40).min(text_chars.len());
+                // Safely count character index from text_ref (text_ref[..abs_idx] is guaranteed char boundary safe in text_ref)
+                let char_idx = text_ref[..abs_idx].chars().count();
 
-            let raw_snippet: String = text_chars[start_c..end_c].iter().collect();
-            let query_str: String = text_chars
-                [char_idx..(char_idx + q_char_len).min(text_chars.len())]
-                .iter()
-                .collect();
-            let highlighted =
-                raw_snippet.replace(&query_str, &format!("<mark>{}</mark>", query_str));
+                let start_c = char_idx.saturating_sub(40);
+                let end_c = (char_idx + q_char_len + 40).min(text_chars.len());
 
-            let prefix = if start_c > 0 { "..." } else { "" };
-            let suffix = if end_c < text_chars.len() { "..." } else { "" };
+                let raw_snippet: String = text_chars[start_c..end_c].iter().collect();
+                let query_str: String = text_chars
+                    [char_idx..(char_idx + q_char_len).min(text_chars.len())]
+                    .iter()
+                    .collect();
+                let highlighted = if query_str.is_empty() {
+                    raw_snippet.clone()
+                } else {
+                    raw_snippet.replace(&query_str, &format!("<mark>{}</mark>", query_str))
+                };
 
-            let snippet = format!("{}{}{}", prefix, highlighted, suffix);
+                let prefix = if start_c > 0 { "..." } else { "" };
+                let suffix = if end_c < text_chars.len() { "..." } else { "" };
 
-            // Generate target CFI with true character index char_idx
-            let cfi = Cfi::from_spine_index(section.index, None, char_idx).to_string();
+                let snippet = format!("{}{}{}", prefix, highlighted, suffix);
 
-            results.push(SearchResult {
-                spine_index: section.index,
-                snippet,
-                cfi,
-                char_offset: char_idx,
-            });
+                // Generate target CFI with true character index char_idx
+                let cfi = Cfi::from_spine_index(section.index, None, char_idx).to_string();
 
-            search_idx = abs_idx + query.len().max(1);
+                results.push(SearchResult {
+                    spine_index: section.index,
+                    snippet,
+                    cfi,
+                    char_offset: char_idx,
+                });
+
+                search_idx = abs_idx + query_cmp.len().max(1);
+            } else {
+                break;
+            }
         }
 
         results

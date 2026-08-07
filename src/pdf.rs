@@ -31,9 +31,10 @@ impl PdfBook {
             return Err("PDF document contains 0 pages".to_string());
         }
 
-        let mut sections = Vec::with_capacity(page_count);
-        let mut spine = Vec::with_capacity(page_count);
-        let mut toc = Vec::with_capacity(page_count);
+        let capacity = page_count.min(1024);
+        let mut sections = Vec::with_capacity(capacity);
+        let mut spine = Vec::with_capacity(capacity);
+        let mut toc = Vec::with_capacity(capacity);
 
         for page_idx in 0..page_count {
             let markdown_content = doc

@@ -118,44 +118,68 @@ pub fn find_tag_end(html: &str, start_idx: usize) -> Option<usize> {
     None
 }
 
+fn starts_with_ignore_case(s: &str, prefix: &str) -> bool {
+    if let Some(sub) = s.get(..prefix.len()) {
+        sub.eq_ignore_ascii_case(prefix)
+    } else {
+        false
+    }
+}
+
+fn contains_ignore_case(s: &str, pat: &str) -> bool {
+    if pat.is_empty() {
+        return true;
+    }
+    if s.len() < pat.len() {
+        return false;
+    }
+    for i in 0..=s.len() - pat.len() {
+        if s.is_char_boundary(i) {
+            if let Some(sub) = s.get(i..i + pat.len()) {
+                if sub.eq_ignore_ascii_case(pat) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Extract clean plain text from HTML content by stripping tags, styles, and scripts.
-/// B2 Fix: Multibyte UTF-8 and quote-aware extraction.
+/// UTF-8 char boundary safe and quote-aware extraction.
 pub fn extract_plain_text(html: &str) -> String {
     let mut in_tag = false;
     let mut in_quote: Option<u8> = None;
     let mut text = String::with_capacity(html.len());
     let mut skipping_tag: Option<&'static str> = None;
 
-    let lower = html.to_lowercase();
-    let lower_bytes = lower.as_bytes();
-    let html_bytes = html.as_bytes();
-    let len = html_bytes.len();
-
+    let len = html.len();
     let mut i = 0;
+
     while i < len {
-        if !in_tag && html_bytes[i] == b'<' {
+        if !in_tag && html.as_bytes()[i] == b'<' {
             in_tag = true;
             in_quote = None;
-            let slice = &lower_bytes[i..];
+            let slice = &html[i..];
             if skipping_tag.is_none() {
-                if slice.starts_with(b"<style") {
+                if starts_with_ignore_case(slice, "<style") {
                     skipping_tag = Some("style");
-                } else if slice.starts_with(b"<script") {
+                } else if starts_with_ignore_case(slice, "<script") {
                     skipping_tag = Some("script");
                 }
             } else if let Some(tag) = skipping_tag {
-                if (tag == "style" && slice.starts_with(b"</style"))
-                    || (tag == "script" && slice.starts_with(b"</script"))
+                if (tag == "style" && starts_with_ignore_case(slice, "</style"))
+                    || (tag == "script" && starts_with_ignore_case(slice, "</script"))
                 {
                     skipping_tag = None;
-                } else if (tag == "style" && !lower[i..].contains("</style"))
-                    || (tag == "script" && !lower[i..].contains("</script"))
+                } else if (tag == "style" && !contains_ignore_case(slice, "</style"))
+                    || (tag == "script" && !contains_ignore_case(slice, "</script"))
                 {
-                    if slice.starts_with(b"<p")
-                        || slice.starts_with(b"<div")
-                        || slice.starts_with(b"<body")
-                        || slice.starts_with(b"<h")
-                        || slice.starts_with(b"<section")
+                    if starts_with_ignore_case(slice, "<p")
+                        || starts_with_ignore_case(slice, "<div")
+                        || starts_with_ignore_case(slice, "<body")
+                        || starts_with_ignore_case(slice, "<h")
+                        || starts_with_ignore_case(slice, "<section")
                     {
                         skipping_tag = None;
                     }
@@ -167,7 +191,7 @@ pub fn extract_plain_text(html: &str) -> String {
         }
 
         if in_tag {
-            let b = html_bytes[i];
+            let b = html.as_bytes()[i];
             if let Some(q) = in_quote {
                 if b == q {
                     in_quote = None;
@@ -208,7 +232,6 @@ pub fn extract_plain_text(html: &str) -> String {
             prev_space = false;
         }
     }
-
     result.trim().to_string()
 }
 
@@ -470,35 +493,53 @@ pub fn parse_viewport_meta(html: &str) -> (Option<f64>, Option<f64>) {
     (None, None)
 }
 
-/// Sanitize HTML content by stripping <script> blocks, inline event handlers, and javascript: links (B1 & B2 Fix).
+/// Sanitize HTML content by stripping <script> blocks, inline event handlers, and javascript: links.
 pub fn sanitize_html_scripts(html: &str) -> String {
     let mut output = String::with_capacity(html.len());
-    let lower = html.to_lowercase();
-    let lower_bytes = lower.as_bytes();
     let len = html.len();
-
     let mut i = 0;
     let mut in_script = false;
 
+    // Phase 1: Strip <script>...</script>, <iframe>, <object>, <embed>
     while i < len {
-        if !in_script && lower_bytes[i..].starts_with(b"<script") {
+        let slice = &html[i..];
+        if !in_script
+            && (starts_with_ignore_case(slice, "<script")
+                || starts_with_ignore_case(slice, "<iframe")
+                || starts_with_ignore_case(slice, "<object")
+                || starts_with_ignore_case(slice, "<embed"))
+        {
             in_script = true;
-            i += 7;
-            continue;
-        }
-
-        if in_script {
-            if lower_bytes[i..].starts_with(b"</script>") {
-                in_script = false;
-                i += 9;
+            if let Some(ch) = slice.chars().next() {
+                i += ch.len_utf8();
             } else {
                 i += 1;
             }
             continue;
         }
 
-        // B1 Fix: Safely push UTF-8 character instead of casting u8 as char
-        if let Some(ch) = html[i..].chars().next() {
+        if in_script {
+            if starts_with_ignore_case(slice, "</script>")
+                || starts_with_ignore_case(slice, "</iframe>")
+                || starts_with_ignore_case(slice, "</object>")
+                || starts_with_ignore_case(slice, "</embed>")
+            {
+                if let Some(tag_close) = find_tag_end(html, i) {
+                    i = tag_close + 1;
+                } else {
+                    i += "</script>".len();
+                }
+                in_script = false;
+                continue;
+            } else if let Some(ch) = slice.chars().next() {
+                i += ch.len_utf8();
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+
+        if let Some(ch) = slice.chars().next() {
             output.push(ch);
             i += ch.len_utf8();
         } else {
@@ -506,36 +547,87 @@ pub fn sanitize_html_scripts(html: &str) -> String {
         }
     }
 
-    // B2 Fix: Strip inline event attributes like onload=, onclick= with char-boundary safety
+    // Phase 2: Strip inline event attributes like onload=, onclick= (quoted or unquoted, whitespace tolerant)
     let mut sanitized = String::with_capacity(output.len());
-    let mut search_idx = 0;
-    let out_lower = output.to_lowercase();
+    let mut idx = 0;
 
-    while search_idx < output.len() {
-        if let Some(on_idx) = out_lower[search_idx..].find(" on") {
-            let abs_on = search_idx + on_idx;
-            sanitized.push_str(&output[search_idx..abs_on]);
+    while idx < output.len() {
+        let slice = &output[idx..];
+        if let Some(ch) = slice.chars().next() {
+            // Check if current slice starts an inline event attribute inside a tag context
+            if ch.is_whitespace() || ch == '<' {
+                let rest = &slice[ch.len_utf8()..];
+                let trimmed_rest = rest.trim_start();
+                let ws_len = rest.len() - trimmed_rest.len();
 
-            if let Some(eq_idx) = out_lower[abs_on..].find('=') {
-                let attr_name = out_lower[abs_on + 1..abs_on + eq_idx].trim();
-                if attr_name.starts_with("on") {
-                    let val_start = abs_on + eq_idx + 1;
-                    if val_start < output.len() && output.as_bytes()[val_start] == b'"' {
-                        if let Some(end_quote) = output[val_start + 1..].find('"') {
-                            search_idx = val_start + 1 + end_quote + 1;
-                            continue;
+                if starts_with_ignore_case(trimmed_rest, "on") {
+                    // Check if followed by letters then '='
+                    let mut attr_len = 2;
+                    while attr_len < trimmed_rest.len()
+                        && trimmed_rest.as_bytes()[attr_len].is_ascii_alphanumeric()
+                    {
+                        attr_len += 1;
+                    }
+                    let after_attr = trimmed_rest[attr_len..].trim_start();
+                    if let Some(stripped) = after_attr.strip_prefix('=') {
+                        // Event handler detected! Skip attribute name and value
+                        let _val_after_eq = stripped.trim_start();
+                        let skip_bytes = (idx + ch.len_utf8() + ws_len + attr_len) - idx;
+                        sanitized.push(ch);
+                        idx += skip_bytes;
+
+                        // Skip attribute value (quoted or unquoted)
+                        let val_slice = &output[idx..];
+                        let after_eq_val = val_slice.trim_start();
+                        let eq_ws = val_slice.len() - after_eq_val.len();
+                        idx += eq_ws;
+
+                        if let Some(quote_ch) = after_eq_val.chars().next() {
+                            if quote_ch == '"' || quote_ch == '\'' {
+                                idx += quote_ch.len_utf8();
+                                if let Some(end_q) = output[idx..].find(quote_ch) {
+                                    idx += end_q + quote_ch.len_utf8();
+                                } else {
+                                    idx = output.len();
+                                }
+                            } else {
+                                // Unquoted attribute value
+                                while idx < output.len() {
+                                    let c = output[idx..].chars().next().unwrap_or(' ');
+                                    if c.is_whitespace() || c == '>' {
+                                        break;
+                                    }
+                                    idx += c.len_utf8();
+                                }
+                            }
                         }
+                        continue;
                     }
                 }
             }
-            sanitized.push_str(" on");
-            search_idx = abs_on + 3;
+
+            sanitized.push(ch);
+            idx += ch.len_utf8();
         } else {
-            sanitized.push_str(&output[search_idx..]);
             break;
         }
     }
 
-    // Strip href="javascript:..."
-    sanitized.replace("href=\"javascript:", "href=\"#disabled_js:")
+    // Phase 3: Neutralize javascript: URIs case-insensitively
+    let mut final_sanitized = String::with_capacity(sanitized.len());
+    let mut cur_idx = 0;
+    while cur_idx < sanitized.len() {
+        let slice = &sanitized[cur_idx..];
+        if starts_with_ignore_case(slice, "javascript:") {
+            final_sanitized.push_str("#disabled_js:");
+            cur_idx += "javascript:".len();
+        } else if let Some(ch) = slice.chars().next() {
+            final_sanitized.push(ch);
+            cur_idx += ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+
+    final_sanitized
 }

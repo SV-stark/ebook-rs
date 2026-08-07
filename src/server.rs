@@ -108,8 +108,10 @@ impl ReaderServer {
                             .map(|(_, v)| v.to_string())
                             .unwrap_or_default();
 
-                        let book = book_arc.lock().unwrap_or_else(|e| e.into_inner());
-                        let results = book.search(&query);
+                        let results = {
+                            let book = book_arc.lock().unwrap_or_else(|e| e.into_inner());
+                            book.search(&query)
+                        };
                         let json = serde_json::to_string(&results).unwrap_or_default();
                         let header =
                             Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
@@ -140,7 +142,11 @@ impl ReaderServer {
                     "/api/annotations" => {
                         if request.method() == &tiny_http::Method::Post {
                             let mut body_str = String::new();
-                            let _ = request.as_reader().read_to_string(&mut body_str);
+                            use std::io::Read;
+                            let _ = request
+                                .as_reader()
+                                .take(2 * 1024 * 1024)
+                                .read_to_string(&mut body_str);
                             if let Ok(ann) = serde_json::from_str::<Annotation>(&body_str) {
                                 let mut book = book_arc.lock().unwrap_or_else(|e| e.into_inner());
                                 book.annotations.add(ann);
@@ -155,7 +161,7 @@ impl ReaderServer {
                                 );
                             } else {
                                 let _ = request.respond(
-                                    Response::from_string("Invalid JSON")
+                                    Response::from_string("Invalid JSON or payload too large")
                                         .with_status_code(StatusCode(400)),
                                 );
                             }

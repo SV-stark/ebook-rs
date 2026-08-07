@@ -73,7 +73,8 @@ impl Fb2Book {
         for node in root.descendants() {
             if node.has_tag_name("binary") {
                 if let Some(id) = node.attribute("id") {
-                    let b64_clean = node.text().unwrap_or("").replace(['\r', '\n', ' '], "");
+                    let text_raw = collect_descendant_text(&node);
+                    let b64_clean = text_raw.replace(['\r', '\n', ' ', '\t'], "");
                     let mime = node.attribute("content-type").unwrap_or("image/jpeg");
                     let data_uri = format!("data:{};base64,{}", mime, b64_clean);
                     binary_map.insert(id.trim_start_matches('#').to_string(), data_uri);
@@ -225,27 +226,41 @@ impl Fb2Book {
     }
 }
 
+fn collect_descendant_text(node: &roxmltree::Node) -> String {
+    let mut buf = String::new();
+    for descendant in node.descendants() {
+        if descendant.is_text() {
+            if let Some(t) = descendant.text() {
+                buf.push_str(t);
+            }
+        }
+    }
+    buf
+}
+
 fn convert_fb2_section_to_html(
     sec: &roxmltree::Node,
     binary_map: &HashMap<String, String>,
 ) -> String {
     let mut html = String::from("<div>");
 
-    for node in sec.descendants() {
+    for node in sec.children() {
         if !node.is_element() {
             continue;
         }
         match node.tag_name().name() {
             "title" => {
-                let text = node.text().unwrap_or("").trim();
-                if !text.is_empty() {
-                    html.push_str(&format!("<h2>{}</h2>", text));
+                let text = collect_descendant_text(&node);
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    html.push_str(&format!("<h2>{}</h2>", trimmed));
                 }
             }
             "p" => {
-                let text = node.text().unwrap_or("").trim();
-                if !text.is_empty() {
-                    html.push_str(&format!("<p>{}</p>", text));
+                let text = collect_descendant_text(&node);
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    html.push_str(&format!("<p>{}</p>", trimmed));
                 }
             }
             "image" => {

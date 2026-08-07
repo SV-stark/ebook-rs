@@ -144,19 +144,26 @@ impl TreeSitterEngine {
 }
 
 fn extract_class_lang(html: &str) -> Option<String> {
-    let lower = html.to_lowercase();
-    if let Some(idx) = lower.find("class=\"") {
-        let rem = &html[idx + 7..];
-        if let Some(end) = rem.find('"') {
-            let class_name = &rem[..end];
-            for part in class_name.split_whitespace() {
-                if let Some(lang) = part.strip_prefix("language-") {
-                    return Some(lang.to_string());
-                } else if let Some(lang) = part.strip_prefix("lang-") {
-                    return Some(lang.to_string());
+    let mut i = 0;
+    while i < html.len() {
+        if html[i..].to_ascii_lowercase().starts_with("class=\"") {
+            let rem = &html[i + 7..];
+            if let Some(end) = rem.find('"') {
+                let class_name = &rem[..end];
+                for part in class_name.split_whitespace() {
+                    if let Some(lang) = part.strip_prefix("language-") {
+                        return Some(lang.to_string());
+                    } else if let Some(lang) = part.strip_prefix("lang-") {
+                        return Some(lang.to_string());
+                    }
                 }
+                return Some(class_name.to_string());
             }
-            return Some(class_name.to_string());
+        }
+        if let Some(ch) = html[i..].chars().next() {
+            i += ch.len_utf8();
+        } else {
+            break;
         }
     }
     None
