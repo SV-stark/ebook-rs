@@ -5,7 +5,16 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.2] - 2026-08-08
+
+### Fixed
+
+- **MOBI/AZW3 → EPUB convert hang**: `process_mobi_images()` was eagerly Base64-encoding all embedded image records into the HTML blob at parse time. For large MOBI files (4.5 MB+) with hundreds of images this caused the `convert` command to hang indefinitely. Image inlining is now **lazy** — deferred to a `before_display_hook` that only fires when `get_section()` is called by a reader. The `convert` path uses `get_section_raw()` and skips image processing entirely. MOBI→EPUB conversion now completes in ~0.8s.
+
+---
+
 ## [0.13.1] - 2026-08-08
+
 
 ### Added
 

@@ -234,8 +234,10 @@ impl MobiBook {
         // Clean MOBI control characters & junk bytes
         full_html = sanitize_mobi_control_chars(&full_html);
 
-        // Process and inline MOBI images into Base64 Data URIs
-        full_html = process_mobi_images(&full_html, bytes, &record_offsets, first_image_index);
+        // NOTE: MOBI image inlining is intentionally deferred to render time.
+        // process_mobi_images() is expensive for large files (hundreds of Base64 images).
+        // Images are resolved lazily via get_section() → before_display_hooks only when needed.
+        // For convert / export operations using get_section_raw(), this path is skipped entirely.
 
         let raw_sections = split_mobi_html(&full_html);
         let mut sections = Vec::with_capacity(raw_sections.len());
@@ -337,6 +339,19 @@ impl MobiBook {
             media_overlays: HashMap::new(),
             render_cache: parking_lot::Mutex::new(HashMap::new()),
         };
+
+        // Register lazy image inlining hook — only runs when get_section() is called for rendering,
+        // not during convert/export which uses get_section_raw().
+        let bytes_arc = std::sync::Arc::new(bytes.to_vec());
+        let record_offsets_arc = std::sync::Arc::new(record_offsets);
+        let first_img = first_image_index;
+        book.before_display_hooks
+            .push(std::sync::Arc::new(move |html: &mut String, _path: &str| {
+                if html.contains("recindex=") || html.contains("kindle:embed:") {
+                    *html =
+                        process_mobi_images(html, &bytes_arc, &record_offsets_arc, first_img);
+                }
+            }));
 
         book.generate_locations(1000);
         Ok(book)
