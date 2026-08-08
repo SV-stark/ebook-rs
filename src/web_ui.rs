@@ -5,10 +5,6 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EBook-RS Reader Engine</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Merriweather:ital,wght@0,400;1,400&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
     <style>
         :root {
             --bg-primary: #0f172a;
@@ -471,11 +467,38 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
             });
         }
 
-        async function loadSection(index) {
+        const sectionCache = new Map();
+
+        async function getSectionHtml(index) {
+            if (sectionCache.has(index)) {
+                return sectionCache.get(index);
+            }
+            try {
+                const res = await fetch(`/api/book/section/${index}`);
+                if (!res.ok) return '';
+                const html = await res.text();
+                sectionCache.set(index, html);
+                return html;
+            } catch (err) {
+                console.error("Fetch section error:", err);
+                return '';
+            }
+        }
+
+        function prefetchAdjacent(index) {
+            if (index + 1 < totalSpineSections && !sectionCache.has(index + 1)) {
+                getSectionHtml(index + 1);
+            }
+            if (index - 1 >= 0 && !sectionCache.has(index - 1)) {
+                getSectionHtml(index - 1);
+            }
+        }
+
+        async function loadSection(index, scrollToBottom = false) {
             if (index < 0 || index >= totalSpineSections) return;
             currentSpineIndex = index;
-            const res = await fetch(`/api/book/section/${index}`);
-            const html = await res.text();
+            const html = await getSectionHtml(index);
+            prefetchAdjacent(index);
             
             const isLight = document.body.classList.contains('theme-light');
             const isSepia = document.body.classList.contains('theme-sepia');
@@ -486,11 +509,18 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
                 : '';
 
             sectionFrame.srcdoc = `
+                <!DOCTYPE html>
                 <html>
                 <head>
+                    <meta charset="utf-8">
                     <style>
+                        html, body {
+                            margin: 0;
+                            padding: 0;
+                            background: transparent;
+                        }
                         body {
-                            font-family: Georgia, 'Times New Roman', 'Merriweather', serif;
+                            font-family: Georgia, 'Times New Roman', serif;
                             font-size: ${fontSize}px;
                             line-height: 1.7;
                             color: ${fgColor};
@@ -509,8 +539,73 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
                 </html>
             `;
 
-            sectionFrame.onload = setupIframeListeners;
+            sectionFrame.onload = () => {
+                setupIframeListeners();
+                if (scrollToBottom) {
+                    try {
+                        const win = sectionFrame.contentWindow;
+                        const doc = sectionFrame.contentDocument || win.document;
+                        if (isDoubleSpread) {
+                            win.scrollTo(doc.documentElement.scrollWidth, 0);
+                        } else {
+                            win.scrollTo(0, doc.documentElement.scrollHeight);
+                        }
+                    } catch (e) {}
+                }
+            };
             updateFooter();
+        }
+
+        function goNext() {
+            try {
+                const win = sectionFrame.contentWindow;
+                const doc = sectionFrame.contentDocument || win.document;
+                if (win && doc && doc.documentElement) {
+                    if (isDoubleSpread) {
+                        const maxScroll = doc.documentElement.scrollWidth - win.innerWidth;
+                        if (win.scrollX < maxScroll - 15) {
+                            win.scrollBy({ left: win.innerWidth * 0.9, behavior: 'instant' });
+                            return;
+                        }
+                    } else {
+                        const maxScroll = doc.documentElement.scrollHeight - win.innerHeight;
+                        if (win.scrollY < maxScroll - 15) {
+                            win.scrollBy({ top: win.innerHeight * 0.85, behavior: 'instant' });
+                            return;
+                        }
+                    }
+                }
+            } catch (e) {}
+
+            // End of current section -> load next section
+            if (currentSpineIndex + 1 < totalSpineSections) {
+                loadSection(currentSpineIndex + 1);
+            }
+        }
+
+        function goPrev() {
+            try {
+                const win = sectionFrame.contentWindow;
+                const doc = sectionFrame.contentDocument || win.document;
+                if (win && doc && doc.documentElement) {
+                    if (isDoubleSpread) {
+                        if (win.scrollX > 15) {
+                            win.scrollBy({ left: -win.innerWidth * 0.9, behavior: 'instant' });
+                            return;
+                        }
+                    } else {
+                        if (win.scrollY > 15) {
+                            win.scrollBy({ top: -win.innerHeight * 0.85, behavior: 'instant' });
+                            return;
+                        }
+                    }
+                }
+            } catch (e) {}
+
+            // Top of current section -> load previous section at bottom
+            if (currentSpineIndex - 1 >= 0) {
+                loadSection(currentSpineIndex - 1, true);
+            }
         }
 
         // Feature 2: Live DOM Selection to CFI Bridge
@@ -651,8 +746,8 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
             loadSection(currentSpineIndex);
         });
 
-        document.getElementById('btn-prev').addEventListener('click', () => loadSection(currentSpineIndex - 1));
-        document.getElementById('btn-next').addEventListener('click', () => loadSection(currentSpineIndex + 1));
+        document.getElementById('btn-prev').addEventListener('click', goPrev);
+        document.getElementById('btn-next').addEventListener('click', goNext);
 
         document.getElementById('btn-theme-dark').addEventListener('click', () => {
             document.body.className = 'theme-dark';
@@ -693,8 +788,14 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
         });
 
         window.addEventListener('keydown', (e) => {
-            if (e.key === 'ArrowRight' || e.key === ' ') loadSection(currentSpineIndex + 1);
-            if (e.key === 'ArrowLeft') loadSection(currentSpineIndex - 1);
+            if (e.key === 'ArrowRight' || e.key === ' ') {
+                e.preventDefault();
+                goNext();
+            }
+            if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                goPrev();
+            }
         });
 
         initReader();
