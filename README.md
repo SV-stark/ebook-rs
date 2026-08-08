@@ -1,4 +1,4 @@
-# 📖 EBook-RS: Multi-Format Rust EBook Parser and Reader Engine (v0.13.6)
+# 📖 EBook-RS: Multi-Format Rust EBook Parser and Reader Engine (v0.13.9)
 
 `ebook-rs` is a high-performance, 100% pure Rust parser and reader engine for **EPUB 2**, **EPUB 3**, **Amazon KFX (Kindle Format 10)**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT**, **TXT**, and **MD** formats, designed for full feature parity with **epub.js** and **foliate-js**, equipped with native AI/RAG document chunking, C FFI multi-language bindings, and Web Component support.
 
@@ -8,7 +8,7 @@
 
 ### 📂 Format Support
 
-| Feature | 🚀 `ebook-rs` (v0.13.6) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.13.9) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **EPUB 2 & 3 Support** | ✅ Full OPF + NCX/NAV | ✅ Yes | ✅ Yes | ✅ Yes |
 | **EPUB 3 Fixed-Layout (FXL)** | ✅ 2-page spread renderer | ✅ Yes | ✅ Yes | ❌ No |
@@ -75,18 +75,18 @@ Empirically measured conversion benchmark converting eBook formats to **EPUB 3**
 
 ---
 
-## 🆕 What's New in v0.13.6
+## 🆕 What's New in v0.13.9
 
+- **Mobipocket DRM Encryption Guard (`src/mobi.rs`)**:
+  - Direct inspection of Mobipocket header DRM encryption flags (`rec0[12..14]`). Safely intercepts DRM-protected MOBI/AZW eBooks and returns a clean, friendly error message.
+- **TXT & Markdown Header Metadata Extraction (`src/txt.rs`)**:
+  - Automatic metadata tag extraction (`Title:`, `Author:`/`Creator:`, `Language:`/`Lang:`) from the top 15 header lines of `.txt` and `.md` files.
+- **Amazon KFX Chapter Sectioning & Heading Extraction (`src/kfx/reader.rs`)**:
+  - Dynamic chapter section heading fallback (`extract_first_heading`), enhanced key-value tag parsing, embedded image tags in HTML section chunks, and refined TOC labeling.
+- **Realistic 2-Page Book Spread View (`src/web_ui.rs`)**:
+  - Realistic 2-page open book spread layout (Left Page = Section $N$, Right Page = Section $N+1$) with page drop-shadows, page footers, and smooth page turning.
 - **Ultra-Fast Multi-Format Conversion Engine (`ebook-rs convert`)**:
   - Convert any supported eBook format (**MOBI**, **AZW3**, **FB2**, **LIT**, **KFX**, **PDF**, **CBZ**, **ODT**, **TXT**, **MD**) directly into W3C-valid **EPUB 3** archives or **KFX** outputs in **< 1.1s** (up to **9.7× faster** than Calibre).
-- **100% Embedded Image Asset Extraction**:
-  - Decodes and extracts all embedded JPEG, PNG, GIF, and WebP images from MOBI/AZW3 PalmDOC records, FB2 Base64 `<binary>` tags, Microsoft Reader LIT container streams, and Amazon KFX payload streams into `OEBPS/images/`.
-- **Amazon KFX (Kindle Format 10) & LIT Chapter Sectioning**:
-  - Intelligent paragraph and heading chunking for KFX and LIT formats, generating proper chapter sections (`sec_0.xhtml` .. `sec_N.xhtml`) instead of single-line micro-files or monolith documents.
-- **Lazy MOBI Image Base64 Inlining**:
-  - Deferred heavy Base64 image inlining to render-time (`before_display_hooks`), eliminating conversion hangs on large image-heavy MOBI/AZW3 books.
-- **Complete Metadata Parity**:
-  - Extracts and populates OPF `<dc:creator>`, `<dc:title>`, `<dc:language>`, `<dc:publisher>`, and `<dc:identifier>` tags across all formats.
 
 ---
 

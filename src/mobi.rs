@@ -111,6 +111,15 @@ impl MobiBook {
 
         let rec0 = &bytes[rec0_offset..rec0_end];
         let compression = u16::from_be_bytes([rec0[0], rec0[1]]);
+
+        // Check Mobipocket DRM encryption field at rec0[12..14]
+        if rec0.len() >= 14 {
+            let encryption_type = u16::from_be_bytes([rec0[12], rec0[13]]);
+            if encryption_type != 0 {
+                return Err("Book is protected by Mobipocket DRM encryption. Please remove DRM to read or convert this book.".to_string());
+            }
+        }
+
         let mut text_record_count = u16::from_be_bytes([rec0[8], rec0[9]]) as usize;
         let max_text_recs = if num_records > 1 { num_records - 1 } else { 1 };
         if text_record_count == 0 || text_record_count >= num_records {

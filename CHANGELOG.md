@@ -5,6 +5,19 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.9] - 2026-08-08
+
+### Added
+
+- **Mobipocket DRM Encryption Guard (`src/mobi.rs`)**: Inspected Mobipocket header DRM encryption flag (`rec0[12..14]`). Returns explicit, user-friendly error message when attempting to open DRM-encrypted MOBI/AZW eBooks.
+- **TXT & Markdown Header Metadata Extraction (`src/txt.rs`)**: Added automatic title, author/creator, and language tag parsing from the first 15 header lines of `.txt` and `.md` files.
+
+### Fixed
+
+- **Amazon KFX Chapter Sectioning & Heading Extraction (`src/kfx/reader.rs`)**: Improved KFX Table of Contents labeling with dynamic chapter title fallback (`extract_first_heading`), enhanced key-value metadata tag parsing (`extract_tag_or_kv`), embedded image tags directly in chapter sections, and added dedicated unit tests (`test_kfx_title_extraction`).
+
+---
+
 ## [0.13.8] - 2026-08-08
 
 ### Fixed

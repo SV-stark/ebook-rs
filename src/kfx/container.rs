@@ -35,6 +35,15 @@ impl KfxContainer {
             return Err("Truncated KFX container header".to_string());
         }
 
+        let lossy = String::from_utf8_lossy(bytes);
+        if lossy.contains("$DRM")
+            || lossy.contains("DRM_V1")
+            || lossy.contains("DRM_V2")
+            || lossy.contains("kfx_drm")
+        {
+            return Err("Book is protected by Amazon KFX DRM encryption. Please remove DRM to read or convert this book.".to_string());
+        }
+
         let version = u16::from_le_bytes([bytes[4], bytes[5]]);
         let header_len = u32::from_le_bytes([bytes[6], bytes[7], bytes[8], bytes[9]]) as usize;
         let index_offset =

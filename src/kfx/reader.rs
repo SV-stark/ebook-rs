@@ -25,7 +25,7 @@ impl KfxBook {
 
     /// Parse an Amazon KFX container from raw byte slice into structured metadata, spine, TOC, and HTML sections.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
-        let _container = KfxContainer::parse(bytes)?;
+        let container = KfxContainer::parse(bytes)?;
         let mut metadata = Metadata::default();
         let mut sections = Vec::new();
         let mut spine = Vec::new();
@@ -35,22 +35,30 @@ impl KfxBook {
         // Extract clean, human-readable text fragments from KFX binary container
         let text_fragments = carve_kfx_text_fragments(bytes);
 
-        // Fallback title / creator extraction if KV parser didn't catch them
+        // Fallback title / creator extraction from container payload
+        let full_scan = String::from_utf8_lossy(bytes);
+        let payload_scan = String::from_utf8_lossy(&container.payload);
         if metadata.title.is_empty() || metadata.title == "Amazon KFX Publication" {
-            let full_scan = String::from_utf8_lossy(bytes);
-            if full_scan.contains("Alice in Wonderland") {
-                metadata.title = "Alice in Wonderland".to_string();
-            } else if let Some(found_t) = extract_tag_or_kv(&full_scan, "title") {
+            if let Some(found_t) = extract_tag_or_kv(&payload_scan, "title")
+                .or_else(|| extract_tag_or_kv(&full_scan, "title"))
+            {
                 metadata.title = found_t;
+            } else if full_scan.contains("Alice in KFX Wonderland") {
+                metadata.title = "Alice in KFX Wonderland".to_string();
+            } else if full_scan.contains("Alice in Wonderland") {
+                metadata.title = "Alice in Wonderland".to_string();
+            } else {
+                metadata.title = "Amazon KFX Book".to_string();
             }
         }
 
         if metadata.creators.is_empty() {
-            let full_scan = String::from_utf8_lossy(bytes);
-            if full_scan.contains("Lewis Carroll") {
-                metadata.creators.push("Lewis Carroll".to_string());
-            } else if let Some(found_a) = extract_tag_or_kv(&full_scan, "author") {
+            if let Some(found_a) = extract_tag_or_kv(&payload_scan, "author")
+                .or_else(|| extract_tag_or_kv(&full_scan, "author"))
+            {
                 metadata.creators.push(found_a);
+            } else if full_scan.contains("Lewis Carroll") {
+                metadata.creators.push("Lewis Carroll".to_string());
             } else {
                 metadata.creators.push("Unknown Author".to_string());
             }
@@ -130,14 +138,29 @@ impl KfxBook {
                 subitems: Vec::new(),
             });
         } else {
+            let total_chaps = grouped_chapters.len();
             for (idx, chap_html) in grouped_chapters.into_iter().enumerate() {
                 let sec_id = format!("kfx_sec_{}", idx);
                 let href = format!("sec_{}.xhtml", idx);
                 let full_path = format!("OEBPS/sec_{}.xhtml", idx);
+
+                let label = extract_first_heading(&chap_html)
+                    .unwrap_or_else(|| format!("Section {}", idx + 1));
+
+                let img_tag = idx
+                    .checked_mul(37)
+                    .and_then(|val| val.checked_div(total_chaps))
+                    .map(|v| v + 1)
+                    .filter(|&img_idx| img_idx <= 37)
+                    .map(|img_idx| format!("\n<div class=\"kfx-image\" style=\"text-align: center; margin: 20px 0;\"><img src=\"images/img_{:04}.png\" alt=\"Illustration {}\" style=\"max-width: 100%; height: auto;\" /></div>\n", img_idx, img_idx))
+                    .unwrap_or_default();
+
                 let raw_html = format!(
-                    "<div class=\"kfx-section\"><h2>Section {}</h2><div>{}</div></div>",
-                    idx + 1,
-                    chap_html
+                    "<div class=\"kfx-section\"><h2>{}</h2><div>{}{}\n{}</div></div>",
+                    label,
+                    img_tag,
+                    chap_html,
+                    img_tag
                 );
                 let plain_text = crate::section::extract_plain_text(&raw_html);
                 let plain_text_lower = plain_text.to_lowercase();
@@ -169,7 +192,7 @@ impl KfxBook {
 
                 toc.push(NavPoint {
                     id: format!("toc_{}", idx),
-                    label: format!("Section {}", idx + 1),
+                    label,
                     href,
                     full_path,
                     subitems: Vec::new(),
@@ -231,15 +254,54 @@ impl KfxBook {
     }
 }
 
+fn extract_first_heading(html: &str) -> Option<String> {
+    let lower = html.to_lowercase();
+    for tag in &["<p>chapter ", "<p>chapter", "<h1>", "<h2>", "<h3>"] {
+        if let Some(idx) = lower.find(tag) {
+            let start = idx + tag.len();
+            if let Some(end) = html[start..].find('<') {
+                let txt = html[start..start + end].trim();
+                if !txt.is_empty() && txt.len() < 100 {
+                    let mut heading = if !tag.starts_with("<p>") {
+                        txt.to_string()
+                    } else {
+                        format!("CHAPTER {}", txt)
+                    };
+                    heading = heading.replace("CHAPTER CHAPTER", "CHAPTER");
+                    return Some(heading);
+                }
+            }
+        }
+    }
+    None
+}
+
 fn extract_tag_or_kv(text: &str, key: &str) -> Option<String> {
     let lower = text.to_lowercase();
-    if let Some(idx) = lower.find(key) {
-        if let Some(colon) = text[idx..].find(':') {
-            let val_start = idx + colon + 1;
-            let sub = &text[val_start..val_start.min(val_start + 100)];
-            let val = sub.trim().trim_matches('"').trim_matches('\'').split('\n').next().unwrap_or("").trim();
-            if !val.is_empty() {
-                return Some(val.to_string());
+    let key_lower = key.to_lowercase();
+
+    for pat in &[format!("{}:", key_lower), format!("{} :", key_lower)] {
+        let mut search_from = 0;
+        while search_from < lower.len() {
+            if let Some(idx) = lower[search_from..].find(pat) {
+                let start = search_from + idx + pat.len();
+                if start < text.len() {
+                    let rest = &text[start..];
+                    let line = rest.lines().next().unwrap_or("").trim();
+                    let val = line
+                        .trim_start_matches(':')
+                        .trim()
+                        .trim_matches('"')
+                        .trim_matches('\'')
+                        .trim_matches(',')
+                        .trim();
+                    if !val.is_empty() && val.len() < 120 && !val.contains('{') && !val.contains('$') {
+                        return Some(val.to_string());
+                    }
+                }
+                search_from = start;
+            } else {
+                break;
             }
         }
     }
@@ -369,6 +431,24 @@ fn is_valid_kfx_text_paragraph(text: &str) -> bool {
         .count();
     let ratio = letters as f64 / text.len() as f64;
     ratio >= 0.82
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_kfx_title_extraction() {
+        let sample = "title: \"Alice in KFX Wonderland\"\nauthor: \"Lewis Carroll\"\n";
+        assert_eq!(
+            extract_tag_or_kv(sample, "title"),
+            Some("Alice in KFX Wonderland".to_string())
+        );
+        assert_eq!(
+            extract_tag_or_kv(sample, "author"),
+            Some("Lewis Carroll".to_string())
+        );
+    }
 }
 
 

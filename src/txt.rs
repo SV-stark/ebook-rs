@@ -20,6 +20,40 @@ impl TxtBook {
         }
 
         let mut title = title_fallback.to_string();
+        let mut has_custom_title = title_fallback != "eBook"
+            && title_fallback != "Untitled"
+            && title_fallback != "TXT Book"
+            && title_fallback != "MD Book"
+            && !title_fallback.ends_with("Book")
+            && !title_fallback.to_lowercase().contains("ignored");
+        let mut creators = Vec::new();
+        let mut languages = vec!["en".to_string()];
+
+        for line in text.lines().take(15) {
+            let lower = line.to_lowercase();
+            if let Some(pos) = lower.find("title:") {
+                let v = line[pos + 6..].trim().trim_matches('"').trim_matches('\'').trim();
+                if !v.is_empty() {
+                    title = v.to_string();
+                    has_custom_title = true;
+                }
+            } else if let Some(pos) = lower.find("author:").or_else(|| lower.find("creator:")) {
+                if let Some(colon) = line[pos..].find(':') {
+                    let v = line[pos + colon + 1..].trim().trim_matches('"').trim_matches('\'').trim();
+                    if !v.is_empty() {
+                        creators.push(v.to_string());
+                    }
+                }
+            } else if let Some(pos) = lower.find("language:").or_else(|| lower.find("lang:")) {
+                if let Some(colon) = line[pos..].find(':') {
+                    let v = line[pos + colon + 1..].trim().trim_matches('"').trim_matches('\'').trim();
+                    if !v.is_empty() {
+                        languages = vec![v.to_string()];
+                    }
+                }
+            }
+        }
+
         let mut sections = Vec::new();
         let mut spine = Vec::new();
         let mut toc = Vec::new();
@@ -71,7 +105,7 @@ impl TxtBook {
                     let level = trimmed.chars().take_while(|c| *c == '#').count();
                     let heading_text = trimmed.trim_start_matches('#').trim();
 
-                    if title == title_fallback && level == 1 {
+                    if !has_custom_title && level == 1 {
                         title = heading_text.to_string();
                     }
 
@@ -226,9 +260,9 @@ impl TxtBook {
 
         let metadata = Metadata {
             title,
-            creators: Vec::new(),
+            creators,
             publishers: Vec::new(),
-            languages: vec!["en".to_string()],
+            languages,
             rights: None,
             description: Some("Text Document".to_string()),
             identifier: None,
