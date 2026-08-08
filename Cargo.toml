@@ -30,9 +30,11 @@ parallel = ["dep:rayon"]
 pdf = ["dep:pdf_oxide"]
 mmap = ["dep:memmap2"]
 async = ["dep:tokio"]
+mimalloc = ["dep:mimalloc"]
 serde = ["dep:serde", "dep:serde_json"]
 
 [dependencies]
+mimalloc = { version = "0.1", optional = true, default-features = false }
 zip = "8.6"
 roxmltree = "0.21"
 serde = { version = "1.0", features = ["derive"], optional = true }
