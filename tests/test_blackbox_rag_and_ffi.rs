@@ -1,6 +1,4 @@
-use ebook_rs::{
-    Book, RagChunkConfig, RenditionLayout, WritingMode, generate_sample_epub,
-};
+use ebook_rs::{Book, RagChunkConfig, RenditionLayout, WritingMode, generate_sample_epub};
 use std::ffi::CStr;
 
 #[test]

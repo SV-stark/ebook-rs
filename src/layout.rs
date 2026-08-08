@@ -154,8 +154,12 @@ impl RenditionLayout {
         let mode_css = match self.writing_mode {
             WritingMode::HorizontalLtr => "direction: ltr;",
             WritingMode::HorizontalRtl => "direction: rtl;",
-            WritingMode::VerticalRl => "writing-mode: vertical-rl; -webkit-writing-mode: vertical-rl;",
-            WritingMode::VerticalLr => "writing-mode: vertical-lr; -webkit-writing-mode: vertical-lr;",
+            WritingMode::VerticalRl => {
+                "writing-mode: vertical-rl; -webkit-writing-mode: vertical-rl;"
+            }
+            WritingMode::VerticalLr => {
+                "writing-mode: vertical-lr; -webkit-writing-mode: vertical-lr;"
+            }
         };
 
         format!(

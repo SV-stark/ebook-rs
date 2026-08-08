@@ -91,11 +91,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         "rag" => {
-            let path = args.get(2).ok_or("Usage: ebook-rs rag <path.epub> [max_tokens]")?;
-            let max_tokens: usize = args
-                .get(3)
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(512);
+            let path = args
+                .get(2)
+                .ok_or("Usage: ebook-rs rag <path.epub> [max_tokens]")?;
+            let max_tokens: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(512);
 
             let book = Book::from_file(path)?;
             let config = ebook_rs::RagChunkConfig {

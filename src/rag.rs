@@ -168,9 +168,7 @@ impl RagChunker {
                 });
 
                 // Apply overlap
-                let keep_start = current_chunk_text
-                    .len()
-                    .saturating_sub(overlap_chars);
+                let keep_start = current_chunk_text.len().saturating_sub(overlap_chars);
                 current_chunk_text = current_chunk_text[keep_start..].to_string();
             }
 
@@ -273,7 +271,8 @@ mod tests {
             min_chunk_size: 10,
         };
 
-        let chunks = RagChunker::chunk_section(&sec, 0, "Chapter 1", "Test Book", "Author", &config);
+        let chunks =
+            RagChunker::chunk_section(&sec, 0, "Chapter 1", "Test Book", "Author", &config);
         assert!(!chunks.is_empty());
         assert!(chunks[0].markdown.contains("# Chapter 1"));
         assert!(chunks[0].text.contains("First paragraph"));

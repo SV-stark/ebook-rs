@@ -5,6 +5,19 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-08-08
+
+### Added & Performance
+
+- **SIMD Substring Searching (`src/search.rs`)**:
+  - Upgraded `SearchEngine::search_section` to use hardware vector scanning (`memchr::memmem::Finder`) across AVX2, SSE2, and ARM Neon CPU SIMD registers.
+  - Completely eliminated intermediate `Vec<char>` heap allocations during full-text section searching.
+- **Optional `mimalloc` Feature Flag (`Cargo.toml`, `src/main.rs`)**:
+  - Added optional `mimalloc` feature flag bringing Microsoft's high-performance, low-fragmentation allocator for zero lock contention during concurrent multi-threaded book parsing.
+- **Formatting**: Applied `cargo fmt` formatting across the entire codebase.
+
+---
+
 ## [0.12.0] - 2026-08-08
 
 ### Added

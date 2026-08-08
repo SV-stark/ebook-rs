@@ -191,12 +191,19 @@ impl UniversalEpub3Exporter {
             // 3. OEBPS/nav.xhtml
             zip.start_file("OEBPS/nav.xhtml", options_deflate)
                 .map_err(|e| e.to_string())?;
-            let mut nav_html = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html>\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\">\n<head><title>TOC</title></head>\n<body>\n<nav epub:type=\"toc\" id=\"toc\"><h1>Table of Contents</h1><ol>");
+            let mut nav_html = String::from(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html>\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\">\n<head><title>TOC</title></head>\n<body>\n<nav epub:type=\"toc\" id=\"toc\"><h1>Table of Contents</h1><ol>",
+            );
             for (idx, _) in book.spine().iter().enumerate() {
-                nav_html.push_str(&format!("<li><a href=\"sec_{}.xhtml\">Section {}</a></li>", idx, idx + 1));
+                nav_html.push_str(&format!(
+                    "<li><a href=\"sec_{}.xhtml\">Section {}</a></li>",
+                    idx,
+                    idx + 1
+                ));
             }
             nav_html.push_str("</ol></nav>\n</body>\n</html>");
-            zip.write_all(nav_html.as_bytes()).map_err(|e| e.to_string())?;
+            zip.write_all(nav_html.as_bytes())
+                .map_err(|e| e.to_string())?;
 
             // 4. OEBPS/content.opf
             zip.start_file("OEBPS/content.opf", options_deflate)
@@ -205,8 +212,14 @@ impl UniversalEpub3Exporter {
             let mut opf_xml = format!(
                 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<package xmlns=\"http://www.idpf.org/2007/opf\" version=\"3.0\" unique-identifier=\"uid\">\n  <metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\n    <dc:title>{}</dc:title>\n    <dc:identifier id=\"uid\">{}</dc:identifier>\n    <dc:language>{}</dc:language>\n  </metadata>\n  <manifest>\n    <item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>\n",
                 crate::dom::sanitize_and_repair_xml(&meta.title),
-                meta.identifier.as_deref().unwrap_or("urn:uuid:ebook-rs-export"),
-                if meta.language().is_empty() { "en" } else { meta.language() }
+                meta.identifier
+                    .as_deref()
+                    .unwrap_or("urn:uuid:ebook-rs-export"),
+                if meta.language().is_empty() {
+                    "en"
+                } else {
+                    meta.language()
+                }
             );
 
             for (idx, _) in book.spine().iter().enumerate() {
@@ -217,7 +230,8 @@ impl UniversalEpub3Exporter {
                 opf_xml.push_str(&format!("    <itemref idref=\"sec_{}\"/>\n", idx));
             }
             opf_xml.push_str("  </spine>\n</package>");
-            zip.write_all(opf_xml.as_bytes()).map_err(|e| e.to_string())?;
+            zip.write_all(opf_xml.as_bytes())
+                .map_err(|e| e.to_string())?;
 
             // 5. OEBPS/sec_{idx}.xhtml
             for (idx, _) in book.spine().iter().enumerate() {
@@ -229,7 +243,8 @@ impl UniversalEpub3Exporter {
                         idx + 1,
                         sec.processed_html
                     );
-                    zip.write_all(doc_xhtml.as_bytes()).map_err(|e| e.to_string())?;
+                    zip.write_all(doc_xhtml.as_bytes())
+                        .map_err(|e| e.to_string())?;
                 }
             }
 
