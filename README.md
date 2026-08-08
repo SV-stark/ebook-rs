@@ -1,4 +1,4 @@
-# 📖 EBook-RS: Multi-Format Rust EBook Parser and Reader Engine (v0.14.0)
+# 📖 EBook-RS: Multi-Format Rust EBook Parser and Reader Engine (v0.14.1)
 
 `ebook-rs` is a high-performance, 100% pure Rust parser and reader engine for **EPUB 2**, **EPUB 3**, **Amazon KFX (Kindle Format 10)**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT**, **TXT**, and **MD** formats, designed for full feature parity with **epub.js** and **foliate-js**, equipped with native AI/RAG document chunking, C FFI multi-language bindings, and Web Component support.
 
@@ -8,7 +8,7 @@
 
 ### 📂 Format Support
 
-| Feature | 🚀 `ebook-rs` (v0.14.0) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.14.1) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **EPUB 2 & 3 Support** | ✅ Full OPF + NCX/NAV | ✅ Yes | ✅ Yes | ✅ Yes |
 | **EPUB 3 Fixed-Layout (FXL)** | ✅ 2-page spread renderer | ✅ Yes | ✅ Yes | ❌ No |
@@ -75,8 +75,11 @@ Empirically measured conversion benchmark converting eBook formats to **EPUB 3**
 
 ---
 
-## 🆕 What's New in v0.14.0
+## 🆕 What's New in v0.14.1
 
+- **Academic PDF Two-Column Spatial Reflowing Engine (`src/pdf.rs`)**:
+  - Automatically detects multi-column line patterns and spatial column dividers in IEEE, ArXiv, and ACM academic paper PDFs.
+  - Separates full-width paper headers/titles from column blocks, sorting Left-Column paragraphs top-to-bottom followed by Right-Column paragraphs top-to-bottom into continuous single-column EPUB sections & AI RAG Markdown chunks.
 - **Multi-Threaded Parallel ZIP Exporter (`src/validator.rs`)**:
   - Parallelizes HTML section document and image asset compression across Rayon worker threads (`entries.par_iter()`), significantly accelerating EPUB 3 export speeds for 100MB+ image-heavy books.
 - **CBZ Comic Reader Optimizations (`src/cbz.rs`)**:
@@ -84,8 +87,6 @@ Empirically measured conversion benchmark converting eBook formats to **EPUB 3**
   - **2-Page Manga Spread View Mode**: Added `CbzBook::parse_manga()` and `CbzBook::enable_manga_mode()` with Right-to-Left (`direction: rtl`) reading progression.
 - **Native Python / PyO3 Wheel Bindings (`pip install ebook-rs`)**:
   - Native Python extension bindings (`PyBook`, `PySection`) with automated PyPI publishing workflow (`.github/workflows/pypi.yml`).
-- **Mobipocket & ADEPT DRM Encryption Guard (`src/mobi.rs`)**:
-  - Direct inspection of Mobipocket and Readium LCP DRM envelope headers (`rec0[12..14]`) returning explicit, actionable error messages.
 
 ---
 

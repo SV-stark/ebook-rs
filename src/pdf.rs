@@ -37,13 +37,14 @@ impl PdfBook {
         let mut toc = Vec::with_capacity(capacity);
 
         for page_idx in 0..page_count {
-            let markdown_content = doc
+            let raw_md = doc
                 .to_markdown(page_idx, &Default::default())
                 .unwrap_or_else(|_| match doc.extract_text(page_idx) {
                     Ok(txt) => txt,
                     Err(_) => format!("<p>Page {}</p>", page_idx + 1),
                 });
 
+            let markdown_content = reflow_two_column_markdown(&raw_md);
             let raw_html = markdown_to_html(&markdown_content, page_idx + 1);
             let idref = format!("page_{}", page_idx + 1);
             let href = format!("page_{}.html", page_idx + 1);
@@ -165,4 +166,79 @@ fn markdown_to_html(md: &str, page_num: usize) -> String {
     }
     html.push_str("</div>");
     html
+}
+
+/// Reflow two-column academic paper Markdown text into clean single-column reading order.
+#[cfg(feature = "pdf")]
+pub fn reflow_two_column_markdown(md: &str) -> String {
+    let lines: Vec<&str> = md.lines().collect();
+    if lines.len() < 2 {
+        return md.to_string();
+    }
+
+    let mut result_lines = Vec::new();
+    let mut left_column = Vec::new();
+    let mut right_column = Vec::new();
+    let mut in_two_column_zone = false;
+
+    for line in lines {
+        let trimmed = line.trim();
+        let is_column_line = (trimmed.contains("   |   ") || trimmed.contains("   "))
+            && !trimmed.starts_with('#')
+            && !trimmed.is_empty();
+
+        if is_column_line {
+            in_two_column_zone = true;
+            let parts: Vec<&str> = if trimmed.contains("   |   ") {
+                trimmed.split("   |   ").collect()
+            } else {
+                trimmed.splitn(2, "   ").collect()
+            };
+            if parts.len() == 2 {
+                let left = parts[0].trim();
+                let right = parts[1].trim();
+                if !left.is_empty() {
+                    left_column.push(left.to_string());
+                }
+                if !right.is_empty() {
+                    right_column.push(right.to_string());
+                }
+                continue;
+            }
+        }
+
+        if in_two_column_zone && (trimmed.starts_with('#') || trimmed.is_empty()) {
+            if !left_column.is_empty() {
+                result_lines.extend(left_column.drain(..));
+            }
+            if !right_column.is_empty() {
+                result_lines.extend(right_column.drain(..));
+            }
+            in_two_column_zone = false;
+        }
+
+        result_lines.push(line.to_string());
+    }
+
+    if !left_column.is_empty() {
+        result_lines.extend(left_column);
+    }
+    if !right_column.is_empty() {
+        result_lines.extend(right_column);
+    }
+
+    result_lines.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_two_column_pdf_reflow() {
+        let raw_two_column = "# Academic Paper Title\n\nAbstract of the research paper.\n\nLeft Column Line 1   |   Right Column Line 1\nLeft Column Line 2   |   Right Column Line 2\n\n## Section 2";
+        let reflowed = reflow_two_column_markdown(raw_two_column);
+        assert!(reflowed.contains("Left Column Line 1\nLeft Column Line 2"));
+        assert!(reflowed.contains("Right Column Line 1\nRight Column Line 2"));
+    }
 }

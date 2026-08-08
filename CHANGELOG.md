@@ -5,6 +5,17 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.1] - 2026-08-09
+
+### Added
+
+- **Academic PDF Two-Column Spatial Reflowing Engine (`src/pdf.rs`)**:
+  - Implemented `reflow_two_column_markdown()` to detect multi-column line patterns and spatial column dividers in IEEE, ArXiv, and ACM academic paper PDFs.
+  - Automatically separates full-width paper headers/titles from column blocks, sorting Left-Column paragraphs top-to-bottom followed by Right-Column paragraphs top-to-bottom into continuous, single-column EPUB sections & AI RAG Markdown chunks.
+  - Added unit test `test_two_column_pdf_reflow` verifying 2-column paragraph de-interleaving.
+
+---
+
 ## [0.14.0] - 2026-08-08
 
 ### Added
