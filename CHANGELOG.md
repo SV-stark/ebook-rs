@@ -5,6 +5,14 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.1] - 2026-08-08
+
+### Added
+
+- **CLI `.kfx` Convert Output**: Wired `UniversalKfxExporter` into the `ebook-rs convert` CLI command — any format (EPUB, MOBI, AZW3, FB2, TXT, MD) can now be exported to Amazon KFX binary container via `ebook-rs convert input.epub output.kfx`.
+
+---
+
 ## [0.13.0] - 2026-08-08
 
 ### Added
