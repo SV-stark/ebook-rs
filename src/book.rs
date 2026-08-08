@@ -230,6 +230,11 @@ impl Book {
         &self.toc
     }
 
+    /// Generate AI / RAG document chunks with EPUB CFI citations and heading hierarchy.
+    pub fn to_rag_chunks(&self, config: &crate::rag::RagChunkConfig) -> Vec<crate::rag::RagChunk> {
+        crate::rag::RagChunker::chunk_book(self, config)
+    }
+
     /// EPUB 3 Landmarks navigation.
     pub fn landmarks(&self) -> &[Landmark] {
         &self.landmarks

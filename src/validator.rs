@@ -160,3 +160,81 @@ impl EpubValidator {
         }
     }
 }
+
+/// Universal EPUB 3 Exporter capable of serializing any `Book` (EPUB, MOBI, PDF, FB2, CBZ, TXT, ODT) to a valid EPUB 3 zip buffer.
+pub struct UniversalEpub3Exporter;
+
+impl UniversalEpub3Exporter {
+    pub fn export(book: &Book) -> Result<Vec<u8>, String> {
+        use std::io::Write;
+        let mut zip_buf = Vec::new();
+        {
+            let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut zip_buf));
+
+            // 1. mimetype (uncompressed, first file in ZIP per EPUB spec)
+            let options_stored = zip::write::FileOptions::<()>::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            zip.start_file("mimetype", options_stored)
+                .map_err(|e| e.to_string())?;
+            zip.write_all(b"application/epub+zip")
+                .map_err(|e| e.to_string())?;
+
+            let options_deflate = zip::write::FileOptions::<()>::default()
+                .compression_method(zip::CompressionMethod::Deflated);
+
+            // 2. META-INF/container.xml
+            zip.start_file("META-INF/container.xml", options_deflate)
+                .map_err(|e| e.to_string())?;
+            zip.write_all(b"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<container version=\"1.0\" xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\">\n  <rootfiles>\n    <rootfile full-path=\"OEBPS/content.opf\" media-type=\"application/oebps-package+xml\"/>\n  </rootfiles>\n</container>")
+                .map_err(|e| e.to_string())?;
+
+            // 3. OEBPS/nav.xhtml
+            zip.start_file("OEBPS/nav.xhtml", options_deflate)
+                .map_err(|e| e.to_string())?;
+            let mut nav_html = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html>\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\">\n<head><title>TOC</title></head>\n<body>\n<nav epub:type=\"toc\" id=\"toc\"><h1>Table of Contents</h1><ol>");
+            for (idx, _) in book.spine().iter().enumerate() {
+                nav_html.push_str(&format!("<li><a href=\"sec_{}.xhtml\">Section {}</a></li>", idx, idx + 1));
+            }
+            nav_html.push_str("</ol></nav>\n</body>\n</html>");
+            zip.write_all(nav_html.as_bytes()).map_err(|e| e.to_string())?;
+
+            // 4. OEBPS/content.opf
+            zip.start_file("OEBPS/content.opf", options_deflate)
+                .map_err(|e| e.to_string())?;
+            let meta = book.metadata();
+            let mut opf_xml = format!(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<package xmlns=\"http://www.idpf.org/2007/opf\" version=\"3.0\" unique-identifier=\"uid\">\n  <metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\n    <dc:title>{}</dc:title>\n    <dc:identifier id=\"uid\">{}</dc:identifier>\n    <dc:language>{}</dc:language>\n  </metadata>\n  <manifest>\n    <item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>\n",
+                crate::dom::sanitize_and_repair_xml(&meta.title),
+                meta.identifier.as_deref().unwrap_or("urn:uuid:ebook-rs-export"),
+                if meta.language().is_empty() { "en" } else { meta.language() }
+            );
+
+            for (idx, _) in book.spine().iter().enumerate() {
+                opf_xml.push_str(&format!("    <item id=\"sec_{}\" href=\"sec_{}.xhtml\" media-type=\"application/xhtml+xml\"/>\n", idx, idx));
+            }
+            opf_xml.push_str("  </manifest>\n  <spine>\n");
+            for (idx, _) in book.spine().iter().enumerate() {
+                opf_xml.push_str(&format!("    <itemref idref=\"sec_{}\"/>\n", idx));
+            }
+            opf_xml.push_str("  </spine>\n</package>");
+            zip.write_all(opf_xml.as_bytes()).map_err(|e| e.to_string())?;
+
+            // 5. OEBPS/sec_{idx}.xhtml
+            for (idx, _) in book.spine().iter().enumerate() {
+                if let Ok(sec) = book.get_section(idx) {
+                    zip.start_file(format!("OEBPS/sec_{}.xhtml", idx), options_deflate)
+                        .map_err(|e| e.to_string())?;
+                    let doc_xhtml = format!(
+                        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html>\n<html xmlns=\"http://www.w3.org/1999/xhtml\">\n<head><title>Section {}</title></head>\n<body>{}</body>\n</html>",
+                        idx + 1,
+                        sec.processed_html
+                    );
+                    zip.write_all(doc_xhtml.as_bytes()).map_err(|e| e.to_string())?;
+                }
+            }
+
+            zip.finish().map_err(|e| e.to_string())?;
+        }
+        Ok(zip_buf)
+    }
+}

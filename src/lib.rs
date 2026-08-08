@@ -32,6 +32,8 @@ pub mod section;
 pub mod stream_zip;
 pub mod treesitter;
 pub mod txt;
+pub mod ffi;
+pub mod rag;
 pub mod validator;
 pub mod wasm;
 pub mod webpub;
@@ -55,7 +57,7 @@ pub use fingerprint::{BookFingerprint, FingerprintGenerator};
 pub use footnote::Footnote;
 pub use layout::{
     AssetDeliveryStrategy, FlowMode, LayoutMode, RenditionLayout, SpreadMode, SyntheticSpread,
-    Theme, ViewportManagerConfig,
+    Theme, ViewportManagerConfig, WritingMode,
 };
 pub use lcp::{LcpDecryptor, LcpLicense, LcpRights, LcpUser};
 pub use lit::LitBook;
@@ -74,13 +76,16 @@ pub use odt::OdtBook;
 pub use opds::{OpdsEntry, OpdsFeed, OpdsLink};
 pub use paginator::{PageRange, ReflowPaginator, SectionPageMap};
 pub use pdf::PdfBook;
+pub use rag::{RagChunk, RagChunkConfig, RagChunker};
 pub use sample_builder::generate_sample_epub;
 pub use search::{SearchEngine, SearchResult};
 pub use section::{Section, TtsWordToken};
 pub use stream_zip::{ZipEntryLocation, ZipHeaderReader};
 pub use treesitter::{ExtractedCodeBlock, SyntaxNodeInfo, TreeSitterEngine};
 pub use txt::TxtBook;
-pub use validator::{EpubValidator, ValidationError, ValidationReport, ValidationSeverity};
+pub use validator::{
+    EpubValidator, UniversalEpub3Exporter, ValidationError, ValidationReport, ValidationSeverity,
+};
 pub use webpub::{WebpubLink, WebpubManifest, WebpubMetadata};
 
 #[cfg(feature = "server")]

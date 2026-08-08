@@ -10,7 +10,7 @@ Add `ebook-rs` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ebook-rs = "0.2.0"
+ebook-rs = "0.12.0"
 ```
 
 ---

@@ -122,4 +122,40 @@ impl WasmBook {
             .layout
             .set_custom_font(font_family, font_url_or_b64);
     }
+
+    /// Generate AI / RAG document chunks formatted as JSON string.
+    pub fn to_rag_chunks_json(&self, max_tokens: usize) -> Result<String, JsValue> {
+        let config = crate::rag::RagChunkConfig {
+            max_tokens: if max_tokens == 0 { 512 } else { max_tokens },
+            ..Default::default()
+        };
+        let chunks = self.inner.to_rag_chunks(&config);
+        serde_json::to_string(&chunks).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Export publication as Readium WebPub Manifest JSON string.
+    pub fn get_webpub_manifest_json(&self) -> Result<String, JsValue> {
+        let manifest = crate::webpub::WebPubManifest::from_book(&self.inner);
+        serde_json::to_string(&manifest).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Re-export publication as Universal EPUB3 raw Uint8Array byte vector.
+    pub fn export_epub_bytes(&self) -> Result<Vec<u8>, JsValue> {
+        crate::validator::UniversalEpub3Exporter::export(&self.inner)
+            .map_err(|e| JsValue::from_str(&e))
+    }
+
+    /// Get standalone zero-dependency `<ebook-reader>` HTMLElement Web Component JS definition string.
+    pub fn get_custom_element_js() -> String {
+        r#"
+class EbookReaderElement extends HTMLElement {
+    connectedCallback() {
+        this.innerHTML = `<iframe style="width:100%;height:100%;border:none;" src="${this.getAttribute('src')}"></iframe>`;
+    }
+}
+if (!customElements.get('ebook-reader')) {
+    customElements.define('ebook-reader', EbookReaderElement);
+}
+"#.to_string()
+    }
 }

@@ -66,11 +66,21 @@ pub enum AssetDeliveryStrategy {
     ResourceStream,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WritingMode {
+    HorizontalLtr,
+    HorizontalRtl,
+    VerticalRl,
+    VerticalLr,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RenditionLayout {
     pub layout_mode: LayoutMode,
     pub flow_mode: FlowMode,
     pub spread_mode: SpreadMode,
+    pub writing_mode: WritingMode,
     pub theme: Theme,
     pub font_family: String,
     pub font_size_px: u32,
@@ -89,6 +99,7 @@ impl Default for RenditionLayout {
             layout_mode: LayoutMode::Reflowable,
             flow_mode: FlowMode::Paginated,
             spread_mode: SpreadMode::Auto,
+            writing_mode: WritingMode::HorizontalLtr,
             theme: Theme::Light,
             font_family: "Inter, system-ui, -apple-system, sans-serif".to_string(),
             font_size_px: 16,
@@ -140,6 +151,13 @@ impl RenditionLayout {
             .as_deref()
             .unwrap_or(&self.font_family);
 
+        let mode_css = match self.writing_mode {
+            WritingMode::HorizontalLtr => "direction: ltr;",
+            WritingMode::HorizontalRtl => "direction: rtl;",
+            WritingMode::VerticalRl => "writing-mode: vertical-rl; -webkit-writing-mode: vertical-rl;",
+            WritingMode::VerticalLr => "writing-mode: vertical-lr; -webkit-writing-mode: vertical-lr;",
+        };
+
         format!(
             r#"
             {}
@@ -159,6 +177,7 @@ impl RenditionLayout {
                 max-width: 850px !important;
                 box-sizing: border-box !important;
                 word-wrap: break-word !important;
+                {}
             }}
             a {{
                 color: var(--reader-link) !important;
@@ -175,7 +194,8 @@ impl RenditionLayout {
             active_font,
             self.font_size_px,
             self.line_height,
-            self.margin_px
+            self.margin_px,
+            mode_css
         )
     }
 

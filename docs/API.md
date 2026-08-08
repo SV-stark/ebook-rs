@@ -1,51 +1,94 @@
-# 📚 EBook-RS API Reference & Complete Documentation (v0.11.1)
+# 📚 EBook-RS API Reference & Complete Documentation (v0.12.0)
 
-`ebook-rs` (v0.11.1) is a multi-format pure Rust eBook engine supporting **EPUB 2**, **EPUB 3**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT (OpenDocument Text)**, **Plain Text (.txt)**, and **Markdown (.md)** formats with **SpeechSynthesis TTS Word Synchronizer**, **Legacy Non-UTF-8 Charset Decoding**, **Automatic Language Detection**, **Zstd Compressed State Caching**, **Universal EPUB 3 Exporter**, **Zero-Copy mmap**, **Lightweight DOM AST Tree**, **Fuzzy XML Recovery**, **CFI**, and **Readium LCP/Locator** support.
+`ebook-rs` (v0.12.0) is a multi-format pure Rust eBook engine supporting **EPUB 2**, **EPUB 3**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT (OpenDocument Text)**, **Plain Text (.txt)**, and **Markdown (.md)** formats with **Native AI/RAG Document Chunking**, **C / Multi-Language FFI Bindings**, **Zero-Dependency Web Component Generator**, **CJK Vertical & RTL Layout Engine**, **SpeechSynthesis TTS Word Synchronizer**, **Legacy Non-UTF-8 Charset Decoding**, **Automatic Language Detection**, **Zstd Compressed State Caching**, **Universal EPUB 3 Exporter**, **Zero-Copy mmap**, **Lightweight DOM AST Tree**, **Fuzzy XML Recovery**, **CFI**, and **Readium LCP/Locator** support.
 
 ---
 
 ## 📋 Table of Contents
 1. [Multi-Format Book Core API (`ebook_rs::Book`)](#1-multi-format-book-core-api-ebook_rsbook)
-2. [Supported Formats Matrix](#2-supported-formats-matrix)
-3. [Format-Specific Parsers (`MobiBook`, `Fb2Book`, `LitBook`, `CbzBook`, `OdtBook`, `TxtBook`, `PdfBook`)](#3-format-specific-parsers)
-4. [EPUB 3 Accessibility Metadata (`AccessibilityMetadata`)](#4-epub-3-accessibility-metadata-accessibilitymetadata)
-5. [EPUB 3 Media Overlays (SMIL Audio Sync) (`MediaOverlayPackage`)](#5-epub-3-media-overlays-smil-audio-sync-mediaoverlaypackage)
-6. [Section Module (`ebook_rs::Section`)](#6-section-module-ebook_rssection)
-7. [EPUB CFI Engine (`ebook_rs::Cfi`)](#7-epub-cfi-engine-ebook_rscfi)
-8. [Locations Progress Engine (`ebook_rs::Locations`)](#8-locations-progress-engine-ebook_rslocations)
-9. [Annotations Manager (`ebook_rs::AnnotationManager`)](#9-annotations-manager-ebook_rsannotationmanager)
-10. [Full-Text & Regex Search Engine (`ebook_rs::SearchEngine`)](#10-full-text--regex-search-engine-ebook_rssearchengine)
-11. [Structural EPUB Validator (`ebook_rs::EpubValidator`)](#11-structural-epub-validator-ebook_rsepubvalidator)
-12. [Book Fingerprinting & Deduplication (`ebook_rs::BookFingerprint`)](#12-book-fingerprinting--deduplication-ebook_rsbookfingerprint)
-13. [Academic Citation Exporter (`ebook_rs::CitationExporter`)](#13-academic-citation-exporter-ebook_rscitationexporter)
-14. [Tree-sitter Concrete Syntax Tree Engine (`ebook_rs::TreeSitterEngine`)](#14-tree-sitter-concrete-syntax-tree-engine-ebook_rstreesitterengine)
-15. [Synthetic FXL 2-Page Spreads (`SyntheticSpread`)](#15-synthetic-fxl-2-page-spreads-syntheticspread)
-16. [Table of Contents Deep Search & Flattening (`NavPoint::search`, `NavPoint::flatten`)](#16-table-of-contents-deep-search--flattening-navpointsearch-navpointflatten)
-17. [SpeechSynthesis TTS Word Synchronizer (`TtsWordToken`, `get_tts_tokens`)](#17-speechsynthesis-tts-word-synchronizer-ttswordtoken-get_tts_tokens)
-18. [Universal EPUB 3 Exporter (`book.export_epub3_bytes()`)](#18-universal-epub-3-exporter-bookexport_epub3_bytes)
-19. [Zero-Copy Memory-Mapped I/O (`Book::from_mmap`)](#19-zero-copy-memory-mapped-io-bookfrom_mmap)
-20. [Lightweight DOM AST Tree (`EbookDomTree`, `DomNode`)](#20-lightweight-dom-ast-tree-ebookdomtree-domnode)
-21. [Legacy Non-UTF-8 Charset Decoding (`decode_bytes_with_encoding`)](#21-legacy-non-utf-8-charset-decoding-decode_bytes_with_encoding)
-22. [Automatic Language Detection (`book.detect_language()`)](#22-automatic-language-detection-bookdetect_language)
-23. [Zstd Compressed State Caching (`export_zstd_cache`, `from_zstd_cache`)](#23-zstd-compressed-state-caching-export_zstd_cache-from_zstd_cache)
+2. [Native AI & RAG Document Chunking Engine (`RagChunk`, `RagChunkConfig`)](#2-native-ai--rag-document-chunking-engine)
+3. [C / Multi-Language FFI API (`ebook_rs::ffi`)](#3-c--multi-language-ffi-api)
+4. [Zero-Dependency Web Component (`<ebook-reader>`)](#4-zero-dependency-web-component)
+5. [CJK Vertical Text & RTL Reading Modes (`WritingMode`)](#5-cjk-vertical-text--rtl-reading-modes)
+6. [SpeechSynthesis TTS Word Synchronizer (`TtsWordToken`, `get_tts_tokens`)](#6-speechsynthesis-tts-word-synchronizer)
 
 ---
 
-## 17. SpeechSynthesis TTS Word Synchronizer (`TtsWordToken`, `get_tts_tokens`)
+## 2. Native AI & RAG Document Chunking Engine
 
-Tokenize text into word tokens with character offsets and generate HTML annotated with `<span id="tts-w-{index}">` for live Web Speech API SpeechSynthesis word-by-word visual highlighting:
+Split eBooks into AI-ready semantic chunks with Markdown heading hierarchy, token estimations, and exact `epubcfi` citation anchors for Vector DBs and LLM prompt ingestion:
 
 ```rust
-use ebook_rs::Book;
+use ebook_rs::{Book, RagChunkConfig};
 
-let book = Book::from_file("sample.epub")?;
+let book = Book::from_file("book.epub")?;
+let config = RagChunkConfig {
+    max_tokens: 512,
+    overlap_tokens: 64,
+    preserve_headings: true,
+    include_cfi: true,
+    min_chunk_size: 50,
+};
 
-// 1. Get tokenized word tokens with exact character range offsets
-let tokens = book.get_tts_tokens(0)?;
-for t in tokens {
-    println!("Word #{}: '{}' (range {}-{})", t.index, t.word, t.char_start, t.char_end);
+let chunks = book.to_rag_chunks(&config);
+for chunk in chunks {
+    println!("Chunk ID: {}", chunk.id);
+    println!("CFI Anchor: {}", chunk.cfi);
+    println!("Text: {}", chunk.text);
+    println!("Markdown Context: \n{}", chunk.markdown);
 }
+```
 
-// 2. Get section HTML with <span id="tts-w-{index}"> annotations
-let tts_html = book.get_tts_section_html(0)?;
+---
+
+## 3. C / Multi-Language FFI API (`ebook_rs::ffi`)
+
+C-compatible ABI (`#[unsafe(no_mangle)] extern "C"`) functions for zero-copy integration across Python (`ctypes`/`pyo3`), Node.js (`ffi-napi`), C/C++, Swift (iOS), Kotlin (Android), and Go:
+
+```c
+#include "ebook_rs.h"
+
+int main() {
+    uint8_t* buffer = load_file("book.epub", &len);
+    CBookHandle book = ebook_rs_book_from_bytes(buffer, len);
+
+    char* json_meta = ebook_rs_get_metadata_json(book);
+    printf("Metadata: %s\n", json_meta);
+    ebook_rs_string_free(json_meta);
+
+    char* json_rag = ebook_rs_to_rag_chunks_json(book, 512);
+    printf("RAG Chunks: %s\n", json_rag);
+    ebook_rs_string_free(json_rag);
+
+    ebook_rs_book_free(book);
+    return 0;
+}
+```
+
+---
+
+## 4. Zero-Dependency Web Component
+
+Generate a standalone `<ebook-reader>` custom HTML element JS definition string for WebAssembly applications:
+
+```javascript
+import init, { WasmBook } from './pkg/ebook_rs.js';
+
+await init();
+const customElementJs = WasmBook.get_custom_element_js();
+eval(customElementJs); // Defines <ebook-reader> custom element
+```
+
+---
+
+## 5. CJK Vertical Text & RTL Reading Modes (`WritingMode`)
+
+Configure reading direction (`HorizontalLtr`, `HorizontalRtl`, `VerticalRl`, `VerticalLr`):
+
+```rust
+use ebook_rs::{RenditionLayout, WritingMode};
+
+let mut layout = RenditionLayout::default();
+layout.writing_mode = WritingMode::VerticalRl; // CJK Vertical Writing
+let css = layout.to_css_override(); // Injects writing-mode: vertical-rl;
 ```

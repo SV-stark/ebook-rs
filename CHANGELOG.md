@@ -5,6 +5,35 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-08-08
+
+### Added
+
+- **Native AI & RAG Document Chunking Engine (`src/rag.rs`)**:
+  - `book.to_rag_chunks(&config)` splits eBooks into AI-ready semantic chunks with Markdown heading hierarchy, estimated token counts, and exact `epubcfi` citation anchors.
+  - Supports configurable `max_tokens`, `overlap_tokens`, `preserve_headings`, and `min_chunk_size`.
+- **C / Multi-Language FFI Bindings (`src/ffi.rs`)**:
+  - C-compatible ABI (`#[unsafe(no_mangle)] extern "C"`) functions for zero-copy integration across Python (`ctypes`/`pyo3`), Node.js (`ffi-napi`), C/C++, Swift (iOS), Kotlin (Android), and Go.
+  - `ebook_rs_book_from_bytes`, `ebook_rs_get_metadata_json`, `ebook_rs_to_rag_chunks_json`, `ebook_rs_search_json`, and `ebook_rs_string_free`.
+- **Zero-Dependency `<ebook-reader>` Web Component (`src/wasm.rs`)**:
+  - `WasmBook::get_custom_element_js()` generates a standalone `<ebook-reader>` custom element for plug-and-play web reader integration in React, Vue, Svelte, and Next.js.
+  - Expanded WASM bindings with `to_rag_chunks_json()`, `get_webpub_manifest_json()`, and `export_epub_bytes()`.
+- **CJK Vertical Text & RTL Reading Modes (`src/layout.rs`)**:
+  - Added `WritingMode` enum (`HorizontalLtr`, `HorizontalRtl`, `VerticalRl`, `VerticalLr`).
+  - Dynamic CSS overrides automatically inject `direction: rtl` or `writing-mode: vertical-rl` for Arabic, Hebrew, Japanese, Chinese, and Korean vertical reading layout.
+- **CLI Converter & RAG Commands (`src/main.rs`)**:
+  - `ebook-rs convert <input.mobi/pdf/fb2/txt> <output.epub>` converts any supported format into valid EPUB 3 using `UniversalEpub3Exporter`.
+  - `ebook-rs rag <input.epub> [max_tokens]` generates JSON AI RAG chunks directly from the command line.
+
+### Improved & Performance
+
+- **Web Reader Performance & Instant Page Turns (`src/web_ui.rs`)**:
+  - Removed remote Google Fonts network links to eliminate 5-second connection stalls.
+  - Implemented intra-chapter page scrolling (`goNext()` / `goPrev()`) for 0ms local page turns.
+  - Added in-memory `sectionCache` (JavaScript `Map`) and background pre-fetching.
+
+---
+
 ## [0.11.8] - 2026-08-08
 
 ### Security & Fixed

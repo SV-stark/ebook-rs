@@ -62,6 +62,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             fs::write(out_path, bytes)?;
             println!("✅ Generated sample EPUB file at: {}", out_path);
         }
+        "convert" => {
+            let in_path = args
+                .get(2)
+                .ok_or("Usage: ebook-rs convert <input.epub/mobi/pdf/fb2/txt> <output.epub>")?;
+            let out_path = args
+                .get(3)
+                .ok_or("Usage: ebook-rs convert <input.epub/mobi/pdf/fb2/txt> <output.epub>")?;
+
+            println!("🔄 Loading eBook from: {}", in_path);
+            let book = Book::from_file(in_path)?;
+
+            if out_path.ends_with(".epub") {
+                let epub_bytes = ebook_rs::UniversalEpub3Exporter::export(&book)?;
+                fs::write(out_path, epub_bytes)?;
+                println!("✅ Converted and exported EPUB 3 file to: {}", out_path);
+            } else if out_path.ends_with(".json") {
+                let chunks = book.to_rag_chunks(&ebook_rs::RagChunkConfig::default());
+                let json = serde_json::to_string_pretty(&chunks)?;
+                fs::write(out_path, json)?;
+                println!("✅ Exported RAG chunks JSON file to: {}", out_path);
+            } else {
+                return Err("Unsupported output extension. Supported: .epub, .json".into());
+            }
+        }
+        "rag" => {
+            let path = args.get(2).ok_or("Usage: ebook-rs rag <path.epub> [max_tokens]")?;
+            let max_tokens: usize = args
+                .get(3)
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(512);
+
+            let book = Book::from_file(path)?;
+            let config = ebook_rs::RagChunkConfig {
+                max_tokens,
+                ..Default::default()
+            };
+            let chunks = book.to_rag_chunks(&config);
+            println!("{}", serde_json::to_string_pretty(&chunks)?);
+        }
         _ => {
             let file_arg = if args.len() > 1 && !args[1].starts_with('-') && mode != "serve" {
                 Some(&args[1])

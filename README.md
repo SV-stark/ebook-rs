@@ -1,6 +1,6 @@
-# 📖 EBook-RS: Multi-Format Rust EBook Parser and Reader Engine (v0.11.6)
+# 📖 EBook-RS: Multi-Format Rust EBook Parser and Reader Engine (v0.12.0)
 
-`ebook-rs` is a high-performance, 100% pure Rust parser and reader engine for **EPUB 2**, **EPUB 3**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT**, **TXT**, and **MD** formats, designed for full feature parity with **epub.js** and **foliate-js**.
+`ebook-rs` is a high-performance, 100% pure Rust parser and reader engine for **EPUB 2**, **EPUB 3**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT**, **TXT**, and **MD** formats, designed for full feature parity with **epub.js** and **foliate-js**, equipped with native AI/RAG document chunking, C FFI multi-language bindings, and Web Component support.
 
 ---
 
@@ -8,7 +8,7 @@
 
 ### 📂 Format Support
 
-| Feature | 🚀 `ebook-rs` (v0.11.5) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.12.0) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **EPUB 2 & 3 Support** | ✅ Full OPF + NCX/NAV | ✅ Yes | ✅ Yes | ✅ Yes |
 | **EPUB 3 Fixed-Layout (FXL)** | ✅ 2-page spread renderer | ✅ Yes | ✅ Yes | ❌ No |
@@ -24,7 +24,7 @@
 
 ### 🧭 Navigation & Rendering
 
-| Feature | 🚀 `ebook-rs` (v0.11.5) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.12.0) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **IDPF CFI Engine** | ✅ Parse / format / compare / range | ✅ Yes | ✅ Yes | ✅ Yes |
 | **CFI DOM Resolver** | ✅ `cfi.resolve_dom_path(html)` | ✅ Yes | ✅ Yes | ❌ No |
@@ -32,133 +32,116 @@
 | **Location / Reading Progress** | ✅ `locations_from_sections()` | ✅ Yes | ✅ Yes | ✅ Yes |
 | **SMIL Media Overlays (Sync)** | ✅ NPT clock parser | ✅ Yes | ✅ Yes | ❌ No |
 | **EPUB NCX / NAV TOC Parsing** | ✅ Deep recursive nav tree | ✅ Yes | ✅ Yes | ✅ Yes |
-| **RTL Text Auto-Injection** | ✅ `dir="rtl"` + `text-align:right` | ✅ Yes | ✅ Yes | ❌ No |
+| **RTL & CJK Vertical Writing** | ✅ `direction: rtl` + `vertical-rl` | ✅ Yes | ✅ Yes | ❌ No |
 | **Viewport Meta Parsing** | ✅ Zero-alloc slice parse | ✅ Yes | ✅ Yes | ❌ No |
 | **Reflow Paginator** | ✅ `ReflowPaginator::paginate_section` | ✅ Yes | ✅ Yes | ❌ No |
 | **Custom Font Injection** | ✅ `@font-face` CSS injection | ✅ Yes | ✅ Yes | ❌ No |
 
-### 🔍 Search & Analytics
+### 🔍 Search, Analytics & AI RAG
 
-| Feature | 🚀 `ebook-rs` (v0.11.5) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.12.0) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
+| **AI & RAG Chunking Engine** | ✅ `to_rag_chunks()` + CFI citations | ❌ No | ❌ No | ❌ No |
 | **Full-Text Search** | ✅ SIMD-accelerated | ❌ No | ✅ Basic | ❌ No |
 | **Regex Search** | ✅ `regex_search` | ❌ No | ❌ No | ❌ No |
-| **Search Context Snippets** | ✅ `<mark>` highlights + offsets | ❌ No | ✅ Yes | ❌ No |
+| **Search Context Snippets** | ✅ `<mark>` highlights + XSS guard | ❌ No | ✅ Yes | ❌ No |
 | **Readium Search JSON Export** | ✅ Readium-compliant JSON | ❌ No | ✅ Yes | ❌ No |
 | **NLP Reading Analytics** | ✅ Word count / reading time / complexity | ❌ No | ❌ No | ❌ No |
 | **Auto Language Detection** | ✅ `detect_language` (`whatlang`) | ❌ No | ❌ No | ❌ No |
 
-### 📝 Annotations & Standards
+### 🌐 Interoperability & Web Component
 
-| Feature | 🚀 `ebook-rs` (v0.11.5) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.12.0) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
+| **C / Python / Node FFI Bindings** | ✅ `ebook_rs::ffi` C ABI | ❌ No | ❌ No | ❌ No |
+| **Web Component Generator** | ✅ `<ebook-reader>` HTMLElement | ❌ No | ❌ No | ❌ No |
+| **WASM Client SDK** | ✅ `WasmBook` WASM bindings | ✅ Yes | ✅ Yes | ❌ No |
 | **W3C Web Annotation (JSON-LD)** | ✅ Full CRUD + `to_w3c_json` | ❌ No | ✅ Yes | ❌ No |
 | **Readium WebPub Manifest Export** | ✅ `book.to_webpub_manifest()` | ❌ No | ✅ Yes | ❌ No |
-| **OPDS 1.2 Atom XML Catalog** | ✅ `OpdsFeed::parse_atom_xml` | ❌ No | ❌ No | ❌ No |
-| **OPDS 2.0 JSON Catalog** | ✅ `OpdsFeed::parse_json` | ❌ No | ❌ No | ❌ No |
-| **Readium LCP DRM Detection** | ✅ License parse + expiry | ❌ No | ✅ Yes | ❌ No |
-| **MLA / Chicago Citations** | ✅ `book.to_mla_citation()` | ❌ No | ❌ No | ❌ No |
-
-### ⚙️ Performance & Architecture
-
-| Feature | 🚀 `ebook-rs` (v0.11.6) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
-|---|:---:|:---:|:---:|:---:|
-| **Zero-Copy Memory-Mapped I/O** | ✅ `Book::from_mmap` | ❌ No | ❌ No | ❌ No |
-| **Lazy On-Demand Section Loading** | ✅ `load_section_lazy(i)` | ❌ No | ✅ Yes | ❌ No |
-| **Async tokio API** | ✅ `book::async_api` feature | ❌ No | ❌ No | ❌ No |
-| **Zstd Compressed State Cache** | ✅ `export_zstd_cache` | ❌ No | ❌ No | ❌ No |
-| **O(1) Archive Asset Lookup** | ✅ Dual-HashMap ZIP index | ❌ No | ❌ No | ❌ No |
-| **SIMD UTF-8 Validation** | ✅ `simdutf8` (AVX2/NEON) | ❌ No | ❌ No | ❌ No |
-| **SIMD Substring Search** | ✅ `memchr` SIMD scanning | ❌ No | ❌ No | ❌ No |
-| **AHash Fast Hash Maps** | ✅ 3–5× faster lookups | ❌ No | ❌ No | ❌ No |
-| **Single-Pass CSS Inliner** | ✅ O(N) streaming builder | ❌ No | ❌ No | ❌ No |
-| **CSS Versioned Href Fix** | ✅ `style.css?v=2` inlined | ❌ No | ❌ No | ❌ No |
-| **Async Non-Blocking Web Font** | ✅ `media="print" onload` | ✅ Yes | ✅ Yes | ❌ No |
-| **Built-in Localhost Reader** | ✅ `tiny_http` web server | ✅ Yes | ✅ Yes | ❌ No |
-
-### 🛡️ Security & Robustness
-
-| Feature | 🚀 `ebook-rs` (v0.11.6) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
-|---|:---:|:---:|:---:|:---:|
-| **Script Sanitizer (XSS Guard)** | ✅ 3-phase + entity decode | ✅ Partial | ✅ Partial | ❌ No |
-| **Fuzzy Malformed XML Recovery** | ✅ Entity repair + tag heal | ❌ No | ❌ No | ❌ No |
-| **Legacy Charset Decoding** | ✅ `decode_bytes_with_encoding` (encoding_rs) | ❌ No | ❌ No | ❌ No |
-| **LCP AES-256-CBC Decryption** | ✅ Real crypto via `aes`+`cbc` | ❌ No | ✅ Partial | ❌ No |
-| **DRM-Protected Book Detection** | ✅ ADEPT + LCP detection | ❌ No | ✅ Yes | ❌ No |
-| **HTTP Security Headers** | ✅ CSP / nosniff / SAMEORIGIN | ❌ No | ❌ No | ❌ No |
-| **CBR RAR Format Error Guard** | ✅ RAR v4 + v5 magic detection | ❌ No | ❌ No | ❌ No |
-| **libFuzzer Fuzz Harnesses** | ✅ `fuzz_from_bytes` + `fuzz_cfi_parse` | ❌ No | ❌ No | ❌ No |
-
-### 🧩 Advanced & Developer Features
-
-| Feature | 🚀 `ebook-rs` (v0.11.6) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
-|---|:---:|:---:|:---:|:---:|
-| **Universal EPUB 3 Exporter** | ✅ Any format → EPUB3 bytes | ❌ No | ❌ No | ❌ No |
-| **Book Fingerprint / Identity** | ✅ SHA-based fingerprint | ❌ No | ❌ No | ❌ No |
-| **SpeechSynthesis TTS Tokens** | ✅ `get_tts_tokens` with char offsets | ❌ No | ✅ Yes | ❌ No |
-| **TTS Annotated HTML** | ✅ `<span class="tts-word">` injection | ❌ No | ✅ Yes | ❌ No |
-| **TreeSitter Code Highlighter** | ✅ AST extraction | ❌ No | ❌ No | ❌ No |
-| **Lightweight DOM AST Engine** | ✅ `EbookDomTree` / `DomNode` | ❌ No | ❌ No | ❌ No |
-| **EPUB Structural Validator** | ✅ OPF + Spine + Manifest checks | ❌ No | ❌ No | ❌ No |
-| **Optional `serde` Feature** | ✅ Compile without serde overhead | ❌ N/A | ❌ N/A | ❌ No |
-| **WASM-Ready (no_std compat)** | ✅ WASM build support | ✅ Yes | ✅ Yes | ❌ No |
+| **OPDS 1.2 / 2.0 Catalog** | ✅ Atom XML + JSON parser | ❌ No | ❌ No | ❌ No |
 
 ---
 
-## 🆕 What's New in v0.11.6
+## 🆕 What's New in v0.12.0
 
-- **Lazy On-Demand Section Loading** — `book.load_section_lazy(i)` parses one section directly from the archive without caching all sections in RAM — essential for large books.
-- **Real AES-256-CBC LCP Decryption** — `LcpDecryptor` now uses proper `aes` + `cbc` + `cipher` crates (key = `SHA-256(passphrase)`, IV = first 16 bytes of ciphertext) per the Readium LCP spec.
-- **Async API** — New `book::async_api` module with `from_file_async`, `from_bytes_async`, and `load_section_lazy_async` via tokio (enable with `features = ["async"]`).
-- **`serde` Feature Flag** — `serde` / `serde_json` are now optional (default on). Opt out with `default-features = false` to slash compile time for pure parsing use-cases.
-- **CSS Versioned Href Fix** — `style.css?v=2`, `style.css?cache=abc` now correctly resolve and inline in the archive.
-- **cargo-fuzz Harnesses** — `fuzz_from_bytes` and `fuzz_cfi_parse` libFuzzer harnesses in `fuzz/`. Run with `cargo +nightly fuzz run fuzz_from_bytes`.
-- **Dynamic LCP Expiry** — `LcpDecryptor` now evaluates license expiration against the real system clock instead of a hardcoded date.
-
-## 🆕 What's New in v0.11.5
-
-- **Full Blackbox Test Suite (38 tests, 4.4 s)** — Complete coverage across all features: OPDS, charset decoding, EPUB3 exporter roundtrip, reflow paginator, mmap, fuzzy XML, and TTS word synchronization.
-- **O(1) Archive Lookups** — `Archive::contains` now uses dual-HashMap constant-time lookups instead of O(N) linear scan.
-- **Zero-Alloc Viewport Parsing** — `parse_viewport_meta` rewritten with zero-copy byte slices.
-- **Single-Pass CSS Inliner** — O(N²) `.replace()` loops replaced with streaming O(N) builder.
-- **Zstd Cache Deduplication** — `export_zstd_cache` deduplicates identical `processed_html` / `raw_html` entries, reducing cache size by up to 50%.
-- **Non-Blocking Font Loading** — Localhost reader now uses async `media="print" onload` font loading with instant system font fallbacks, eliminating render-blocking delays.
+- **Native AI & RAG Document Chunking Engine (`src/rag.rs`)**:
+  - `book.to_rag_chunks(&config)` splits eBooks into AI-ready semantic chunks with Markdown heading hierarchy, token estimations, and exact `epubcfi` citation anchors for Vector DBs and LLM prompt ingestion.
+- **C / Multi-Language FFI Bindings (`src/ffi.rs`)**:
+  - C-compatible ABI (`#[unsafe(no_mangle)] extern "C"`) functions for zero-copy integration across Python (`ctypes`/`pyo3`), Node.js (`ffi-napi`), C/C++, Swift (iOS), Kotlin (Android), and Go.
+- **Zero-Dependency `<ebook-reader>` Web Component (`src/wasm.rs`)**:
+  - `WasmBook::get_custom_element_js()` generates a standalone `<ebook-reader>` custom element for plug-and-play web reader integration in React, Vue, Svelte, and Next.js.
+- **CJK Vertical Text & RTL Reading Modes (`src/layout.rs`)**:
+  - Added `WritingMode` enum (`HorizontalLtr`, `HorizontalRtl`, `VerticalRl`, `VerticalLr`) with dynamic CSS overrides for Arabic, Hebrew, Japanese, Chinese, and Korean vertical reading layout.
+- **CLI Converter & RAG Commands (`src/main.rs`)**:
+  - `ebook-rs convert <input> <output.epub>` converts any supported format into valid EPUB 3 using `UniversalEpub3Exporter`.
+  - `ebook-rs rag <input.epub> [max_tokens]` generates JSON AI RAG chunks directly from the terminal.
 
 ---
 
-## 🚀 Quick Start Example
+## 🚀 Quick Start Examples
+
+### 1. Basic Parsing & RAG Chunking (Rust)
 
 ```rust
-use ebook_rs::{Book, ReflowPaginator, Cfi};
+use ebook_rs::{Book, RagChunkConfig};
 
 fn main() -> Result<(), String> {
-    // Auto-detects and opens EPUB, MOBI, AZW3, FB2, KEPUB, LIT, CBZ, PDF, ODT, TXT, MD
-    let mut book = Book::from_file("book.epub")?;
+    let book = Book::from_file("book.epub")?;
 
     println!("Title: {}", book.metadata().title);
     println!("Language: {:?}", book.detect_language());
-    println!("Sections: {}", book.spine().len());
 
-    // Export any format to standard binary EPUB3 ZIP bytes
-    let epub3_bytes = book.export_epub3_bytes()?;
+    // Generate AI / RAG document chunks with CFI citation anchors
+    let config = RagChunkConfig {
+        max_tokens: 512,
+        overlap_tokens: 64,
+        preserve_headings: true,
+        ..Default::default()
+    };
+    let chunks = book.to_rag_chunks(&config);
 
-    // Zstd-compress parsed state for instant restoration
-    let cache = book.export_zstd_cache()?;
-    let restored = Book::from_zstd_cache(&cache)?;
-
-    // Search with surrounding context snippets and <mark> highlights
-    let search_results = book.search("quantum");
-    for res in search_results {
-        println!("Snippet: {}", res.snippet);
-    }
-
-    // TTS word-by-word synchronization tokens
-    let tts_tokens = book.get_tts_tokens(0);
-    for token in tts_tokens {
-        println!("[{}..{}] {}", token.char_start, token.char_end, token.word);
+    for chunk in chunks {
+        println!("ID: {}", chunk.id);
+        println!("CFI Anchor: {}", chunk.cfi);
+        println!("Markdown: \n{}", chunk.markdown);
     }
 
     Ok(())
+}
+```
+
+### 2. Multi-Format CLI Conversion & RAG Export
+
+```bash
+# Convert MOBI, PDF, FB2, or TXT into a valid EPUB 3 file
+ebook-rs convert sample.mobi output.epub
+
+# Export AI RAG chunks directly to JSON
+ebook-rs convert book.epub chunks.json
+
+# Stream JSON RAG chunks to stdout
+ebook-rs rag book.epub 512
+```
+
+### 3. C / Python FFI API Integration
+
+```c
+#include "ebook_rs.h"
+
+int main() {
+    uint8_t* buffer = load_file("book.epub", &len);
+    CBookHandle book = ebook_rs_book_from_bytes(buffer, len);
+
+    char* json_meta = ebook_rs_get_metadata_json(book);
+    printf("Metadata: %s\n", json_meta);
+    ebook_rs_string_free(json_meta);
+
+    char* json_rag = ebook_rs_to_rag_chunks_json(book, 512);
+    printf("RAG Chunks: %s\n", json_rag);
+    ebook_rs_string_free(json_rag);
+
+    ebook_rs_book_free(book);
+    return 0;
 }
 ```
 
@@ -166,7 +149,7 @@ fn main() -> Result<(), String> {
 
 ## 📖 Documentation & Wiki
 
-Detailed API documentation and integration guides are available in [docs/API.md](docs/API.md) and [WIKI.md](WIKI.md).
+Detailed API documentation and integration guides are available in [docs/API.md](docs/API.md), [API.md](API.md), and [WIKI.md](WIKI.md).
 
 ---
 
