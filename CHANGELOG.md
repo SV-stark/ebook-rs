@@ -5,6 +5,15 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.4] - 2026-08-08
+
+### Added
+
+- **LIT Image Carving**: Added pure-Rust binary image stream carving (`PNG` magic `\x89PNG\r\n\x1a\n` ... `IEND` and `JPEG` magic `\xFF\xD8\xFF` ... `\xFF\xD9`) for Microsoft Reader LIT files, extracting all embedded images into `OEBPS/images/` with 100% Calibre parity (37/37 images extracted, 956.7 KB output).
+- **FB2 Image Extraction**: Decoded `<binary>` Base64 elements into `OEBPS/images/` and updated image tags to relative `src="images/..."` paths for FB2 → EPUB conversion.
+
+---
+
 ## [0.13.3] - 2026-08-08
 
 ### Added

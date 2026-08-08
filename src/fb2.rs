@@ -6,6 +6,7 @@ use crate::metadata::{Metadata, PageProgressionDirection, SpineItem};
 use crate::nav::NavPoint;
 use crate::opf::OpfPackage;
 use crate::section::{Section, extract_plain_text};
+use base64::Engine;
 use roxmltree::Document;
 use std::collections::HashMap;
 
@@ -68,16 +69,39 @@ impl Fb2Book {
             creators.push("Unknown Author".to_string());
         }
 
-        // Extract <binary> Base64 images
+        // Extract <binary> Base64 images into archive and binary_map
         let mut binary_map = HashMap::new();
+        let mut archive = EpubArchive::empty();
+
         for node in root.descendants() {
             if node.has_tag_name("binary") {
                 if let Some(id) = node.attribute("id") {
                     let text_raw = collect_descendant_text(&node);
                     let b64_clean = text_raw.replace(['\r', '\n', ' ', '\t'], "");
                     let mime = node.attribute("content-type").unwrap_or("image/jpeg");
-                    let data_uri = format!("data:{};base64,{}", mime, b64_clean);
-                    binary_map.insert(id.trim_start_matches('#').to_string(), data_uri);
+                    let ext = match mime {
+                        "image/jpeg" => "jpg",
+                        "image/png" => "png",
+                        "image/gif" => "gif",
+                        "image/webp" => "webp",
+                        "image/svg+xml" => "svg",
+                        _ => "jpg",
+                    };
+
+                    let clean_id = id.trim_start_matches('#').to_string();
+                    let filename = if clean_id.contains('.') {
+                        clean_id.clone()
+                    } else {
+                        format!("{}.{}", clean_id, ext)
+                    };
+
+                    let rel_path = format!("images/{}", filename);
+                    let full_archive_path = format!("OEBPS/{}", rel_path);
+
+                    if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(&b64_clean) {
+                        archive.insert(full_archive_path, bytes);
+                        binary_map.insert(clean_id, rel_path);
+                    }
                 }
             }
         }
@@ -206,7 +230,7 @@ impl Fb2Book {
         };
 
         let mut book = Book {
-            archive: EpubArchive::empty(),
+            archive,
             opf,
             layout: RenditionLayout::default(),
             toc,
