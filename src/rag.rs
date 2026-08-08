@@ -124,7 +124,7 @@ impl RagChunker {
                     cfi,
                     text: text.to_string(),
                     markdown,
-                    token_count_estimate: (text.len() + 3) / 4,
+                    token_count_estimate: text.len().div_ceil(4),
                     book_title: book_title.to_string(),
                     book_author: book_author.to_string(),
                 });
@@ -162,7 +162,7 @@ impl RagChunker {
                     cfi,
                     text: current_chunk_text.trim().to_string(),
                     markdown,
-                    token_count_estimate: (current_chunk_text.len() + 3) / 4,
+                    token_count_estimate: current_chunk_text.len().div_ceil(4),
                     book_title: book_title.to_string(),
                     book_author: book_author.to_string(),
                 });
@@ -193,7 +193,7 @@ impl RagChunker {
                 cfi,
                 text: final_text.to_string(),
                 markdown,
-                token_count_estimate: (final_text.len() + 3) / 4,
+                token_count_estimate: final_text.len().div_ceil(4),
                 book_title: book_title.to_string(),
                 book_author: book_author.to_string(),
             });

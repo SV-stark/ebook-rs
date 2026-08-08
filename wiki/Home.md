@@ -1,6 +1,6 @@
 # 📖 Welcome to the `ebook-rs` Wiki
 
-`ebook-rs` (v0.12.0) is a high-performance, 100% pure Rust eBook parser, renderer, and indexer supporting **EPUB 2**, **EPUB 3**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT**, **TXT**, and **MD** formats with native AI RAG chunking, C/Python FFI bindings, and Web Component support.
+`ebook-rs` (v0.13.0) is a high-performance, 100% pure Rust eBook parser, renderer, and indexer supporting **EPUB 2**, **EPUB 3**, **Amazon KFX (KF10)**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT**, **TXT**, and **MD** formats with native AI RAG chunking, C/Python FFI bindings, and Web Component support.
 
 ---
 

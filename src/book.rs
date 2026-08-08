@@ -73,6 +73,9 @@ impl Book {
                 return crate::cbz::CbzBook::from_archive(archive, title_fallback);
             }
         }
+        if crate::kfx::KfxBook::is_kfx(bytes) {
+            return crate::kfx::KfxBook::parse(bytes);
+        }
         if is_mobi_bytes(bytes) {
             return crate::mobi::MobiBook::parse(bytes);
         }
@@ -448,6 +451,11 @@ impl Book {
             hook(&mut section.processed_html, &section.full_path);
         }
         Ok(section)
+    }
+
+    /// Retrieve a raw section reference without executing rendering resource inlining hooks.
+    pub fn get_section_raw(&self, index: usize) -> Option<&Section> {
+        self.sections.get(index)
     }
 
     /// Retrieve a section by spine index (applying pre-display hooks and automatic RTL dir="rtl" injection).

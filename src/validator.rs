@@ -235,13 +235,18 @@ impl UniversalEpub3Exporter {
 
             // 5. OEBPS/sec_{idx}.xhtml
             for (idx, _) in book.spine().iter().enumerate() {
-                if let Ok(sec) = book.get_section(idx) {
+                if let Some(sec) = book.get_section_raw(idx) {
                     zip.start_file(format!("OEBPS/sec_{}.xhtml", idx), options_deflate)
                         .map_err(|e| e.to_string())?;
+                    let html_body = if !sec.raw_html.is_empty() {
+                        &sec.raw_html
+                    } else {
+                        &sec.processed_html
+                    };
                     let doc_xhtml = format!(
                         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html>\n<html xmlns=\"http://www.w3.org/1999/xhtml\">\n<head><title>Section {}</title></head>\n<body>{}</body>\n</html>",
                         idx + 1,
-                        sec.processed_html
+                        html_body
                     );
                     zip.write_all(doc_xhtml.as_bytes())
                         .map_err(|e| e.to_string())?;

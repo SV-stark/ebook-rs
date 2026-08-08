@@ -1,6 +1,6 @@
 [package]
 name = "ebook-rs"
-version = "0.12.1"
+version = "0.13.0"
 edition = "2024"
 authors = ["SV-Stark"]
 description = "Pure Rust multi-format eBook engine (EPUB2/3, MOBI, AZW3, FB2, LIT, CBZ, PDF, ODT, TXT, MD) with SpeechSynthesis TTS Word Synchronizer, Legacy Charset Decoding, Auto Language Detection, Zstd State Caching, Universal EPUB3 Exporter, Zero-Copy mmap, and Readium LCP/Locator APIs."
@@ -62,6 +62,9 @@ zstd = "0.13"
 aes = "0.9"
 cbc = { version = "0.2", features = ["alloc"] }
 cipher = "0.5"
+ion-rs = "1.0.0-rc.11"
+sha1_smol = "1.0"
+
 
 [profile.release]
 opt-level = 3

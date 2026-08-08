@@ -5,6 +5,20 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-08-08
+
+### Added
+
+- **100% Clean-Room Amazon KFX (Kindle Format 10) Subsystem (`src/kfx/`)**:
+  - Implemented 100% clean-room pure-Rust Amazon KFX container parser and exporter under MIT license.
+  - **`KfxBook` Parser (`src/kfx/reader.rs`)**: Parses DRM-free KFX/AZW8 containers (`b"CONT"`, `\xEA\x05\x00\x0E`, `\xE0\x01\x00\xEA`), extracting metadata, table of contents, text chapters, styles, and image resources.
+  - **`UniversalKfxExporter` (`src/kfx/writer.rs`)**: 3-Pass architecture (Survey, Synthesis, Serialization) converting any `Book` (EPUB, MOBI, AZW3, PDF, FB2, TXT, MD) into a valid KFX binary container.
+  - **`KfxContainer` Header & Index Engine (`src/kfx/container.rs`)**: 18-byte `CONT` container header, 24-byte index table entries, and SHA-1 payload trailer (`sha1_smol`).
+  - **Symbol Table Registry (`src/kfx/symbols.rs`)**: Defined standard KFX symbol IDs (`$145` content, `$258` metadata, `$259` storyline, `$260` section, `$389` navigation, `$490` book metadata).
+- **Clippy Cleanliness**: Fixed all `manual_div_ceil` clippy lints across `src/rag.rs` and enforced 0 clippy warnings (`cargo clippy -- -D warnings`).
+
+---
+
 ## [0.12.1] - 2026-08-08
 
 ### Added & Performance

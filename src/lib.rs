@@ -13,7 +13,9 @@ pub mod fb2;
 pub mod ffi;
 pub mod fingerprint;
 pub mod footnote;
+pub mod kfx;
 pub mod layout;
+
 pub mod lcp;
 pub mod lit;
 pub mod locations;
@@ -55,6 +57,7 @@ pub use dom::{DomNode, EbookDomTree, decode_bytes_with_encoding, sanitize_and_re
 pub use fb2::Fb2Book;
 pub use fingerprint::{BookFingerprint, FingerprintGenerator};
 pub use footnote::Footnote;
+pub use kfx::{KFX_MAGIC_CONT, KfxBook, UniversalKfxExporter};
 pub use layout::{
     AssetDeliveryStrategy, FlowMode, LayoutMode, RenditionLayout, SpreadMode, SyntheticSpread,
     Theme, ViewportManagerConfig, WritingMode,
