@@ -8,8 +8,6 @@ use crate::opf::OpfPackage;
 use crate::section::{Section, extract_plain_text};
 use std::collections::HashMap;
 
-use base64::Engine;
-
 /// PalmDOC LZ77 Decompressor.
 pub fn decompress_palmdoc(data: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(data.len() * 2);
@@ -119,27 +117,25 @@ impl MobiBook {
             text_record_count = 1.min(max_text_recs);
         }
 
-        let mut title = if name.is_empty() {
+        let pdb_name = if name.is_empty() {
             "Untitled MOBI Book".to_string()
         } else {
-            name
+            // PDB names use underscores instead of spaces — normalize as a fallback
+            name.replace('_', " ")
         };
-        let mut author = "Unknown Author".to_string();
+        let mut title = pdb_name.clone();
+        let mut author = String::new();
         let mut publisher = None;
         let mut language = "en".to_string();
 
         if rec0.len() >= 40 && &rec0[16..20] == b"MOBI" {
             let header_len = u32::from_be_bytes([rec0[20], rec0[21], rec0[22], rec0[23]]) as usize;
-            let exth_flags = if rec0.len() >= 116 {
-                u32::from_be_bytes([rec0[112], rec0[113], rec0[114], rec0[115]])
-            } else {
-                0
-            };
 
-            if (exth_flags & 0x40) != 0 && rec0.len() >= 16 + header_len + 12 {
+            // Always probe for EXTH by magic bytes — some AZW3 files have flags=0 and version=0
+            // but still contain a valid EXTH block immediately after the MOBI header.
+            if header_len > 0 && rec0.len() >= 16 + header_len + 12 {
                 let exth_offset = 16 + header_len;
-                if exth_offset + 12 <= rec0.len() && &rec0[exth_offset..exth_offset + 4] == b"EXTH"
-                {
+                if exth_offset + 4 <= rec0.len() && &rec0[exth_offset..exth_offset + 4] == b"EXTH" {
                     let count = u32::from_be_bytes([
                         rec0[exth_offset + 8],
                         rec0[exth_offset + 9],
@@ -170,13 +166,30 @@ impl MobiBook {
                             let val_str = String::from_utf8_lossy(val_bytes).trim().to_string();
 
                             match tag {
-                                100 => author = val_str,
+                                100 => {
+                                    if !val_str.is_empty() {
+                                        author = val_str;
+                                    }
+                                }
                                 101 => publisher = Some(val_str),
-                                524 | 106 => {
+                                524 => {
+                                    // Tag 524 = locale/language (BCP-47), always preferred
                                     if !val_str.is_empty() {
                                         language = val_str;
                                     }
                                 }
+                                106 => {
+                                    // Tag 106 = publication date (often a datetime string)
+                                    // Only use as language if it looks like a BCP-47 code
+                                    let looks_like_lang = val_str.len() <= 8
+                                        && val_str
+                                            .chars()
+                                            .all(|c| c.is_ascii_alphabetic() || c == '-');
+                                    if looks_like_lang && language == "en" {
+                                        language = val_str;
+                                    }
+                                }
+                                // EXTH 503 = updated title (overrides PDB name)
                                 503 => {
                                     if !val_str.is_empty() {
                                         title = val_str;
@@ -189,6 +202,26 @@ impl MobiBook {
                     }
                 }
             }
+
+            // Also try reading full-title from MOBI header full_name_offset / full_name_length
+            // (bytes 84-87 = offset from record 0 start, bytes 88-91 = length)
+            if title == pdb_name && rec0.len() >= 92 {
+                let fn_offset = u32::from_be_bytes([rec0[84], rec0[85], rec0[86], rec0[87]]) as usize;
+                let fn_len = u32::from_be_bytes([rec0[88], rec0[89], rec0[90], rec0[91]]) as usize;
+                if fn_offset > 0 && fn_len > 0 && fn_offset + fn_len <= rec0.len() {
+                    let full_name = String::from_utf8_lossy(&rec0[fn_offset..fn_offset + fn_len])
+                        .trim()
+                        .to_string();
+                    if !full_name.is_empty() {
+                        title = full_name;
+                    }
+                }
+            }
+        }
+
+        // Fallback author if EXTH didn't provide one
+        if author.is_empty() {
+            author = "Unknown Author".to_string();
         }
 
         let first_image_index = if rec0.len() >= 112 && &rec0[16..20] == b"MOBI" {
@@ -230,14 +263,16 @@ impl MobiBook {
         if full_html.trim().is_empty() || extract_plain_text(&full_html).trim().is_empty() {
             full_html = extract_fallback_mobi_text(bytes);
         }
-
-        // Clean MOBI control characters & junk bytes
         full_html = sanitize_mobi_control_chars(&full_html);
 
-        // NOTE: MOBI image inlining is intentionally deferred to render time.
-        // process_mobi_images() is expensive for large files (hundreds of Base64 images).
-        // Images are resolved lazily via get_section() → before_display_hooks only when needed.
-        // For convert / export operations using get_section_raw(), this path is skipped entirely.
+        let mut archive = EpubArchive::empty();
+        let full_html = extract_mobi_images_and_populate_archive(
+            &full_html,
+            bytes,
+            &record_offsets,
+            first_image_index,
+            &mut archive,
+        );
 
         let raw_sections = split_mobi_html(&full_html);
         let mut sections = Vec::with_capacity(raw_sections.len());
@@ -325,7 +360,7 @@ impl MobiBook {
         };
 
         let mut book = Book {
-            archive: EpubArchive::empty(),
+            archive,
             opf,
             layout: RenditionLayout::default(),
             toc,
@@ -339,19 +374,6 @@ impl MobiBook {
             media_overlays: HashMap::new(),
             render_cache: parking_lot::Mutex::new(HashMap::new()),
         };
-
-        // Register lazy image inlining hook — only runs when get_section() is called for rendering,
-        // not during convert/export which uses get_section_raw().
-        let bytes_arc = std::sync::Arc::new(bytes.to_vec());
-        let record_offsets_arc = std::sync::Arc::new(record_offsets);
-        let first_img = first_image_index;
-        book.before_display_hooks
-            .push(std::sync::Arc::new(move |html: &mut String, _path: &str| {
-                if html.contains("recindex=") || html.contains("kindle:embed:") {
-                    *html =
-                        process_mobi_images(html, &bytes_arc, &record_offsets_arc, first_img);
-                }
-            }));
 
         book.generate_locations(1000);
         Ok(book)
@@ -381,6 +403,7 @@ fn split_mobi_html(html: &str) -> Vec<String> {
     let mut parts = Vec::new();
     let mut search_idx = 0;
 
+    // Primary split: <mbp:pagebreak> (MOBI)
     while search_idx < html.len() {
         if let Some(pb_idx) = find_ignore_case(&html[search_idx..], "<mbp:pagebreak") {
             let abs_idx = search_idx + pb_idx;
@@ -407,8 +430,43 @@ fn split_mobi_html(html: &str) -> Vec<String> {
         }
     }
 
-    if parts.is_empty() && !html.trim().is_empty() {
-        parts.push(html.trim().to_string());
+    // If no <mbp:pagebreak> splits were found (AZW3), fall back to splitting
+    // on heading-level anchors: <a id="..."> that precede <h1>/<h2>/<h3> tags.
+    // We collect boundary indices where a new chapter begins.
+    if parts.len() <= 1 && !html.trim().is_empty() {
+        parts.clear();
+        let lower = html.to_lowercase();
+        let mut boundaries: Vec<usize> = vec![0];
+
+        // Find all <h1>, <h2>, <h3> tag positions as chapter split points
+        for tag in &["<h1", "<h2", "<h3"] {
+            let mut pos = 0;
+            while let Some(idx) = lower[pos..].find(tag) {
+                let abs = pos + idx;
+                // Skip if it's very close to the start (< 200 chars — likely a book title header)
+                if abs > 200 {
+                    boundaries.push(abs);
+                }
+                pos = abs + tag.len();
+            }
+        }
+
+        boundaries.sort_unstable();
+        boundaries.dedup();
+
+        if boundaries.len() > 1 {
+            for i in 0..boundaries.len() {
+                let start = boundaries[i];
+                let end = if i + 1 < boundaries.len() { boundaries[i + 1] } else { html.len() };
+                let chunk = html[start..end].trim();
+                if !chunk.is_empty() {
+                    parts.push(chunk.to_string());
+                }
+            }
+        } else {
+            // Last resort: single section
+            parts.push(html.trim().to_string());
+        }
     }
 
     parts
@@ -438,11 +496,12 @@ fn sanitize_mobi_control_chars(input: &str) -> String {
         .collect()
 }
 
-fn process_mobi_images(
+fn extract_mobi_images_and_populate_archive(
     html: &str,
     bytes: &[u8],
     record_offsets: &[usize],
     first_image_index: usize,
+    archive: &mut EpubArchive,
 ) -> String {
     let mut image_map: HashMap<usize, String> = HashMap::new();
     let num_records = record_offsets.len();
@@ -459,10 +518,19 @@ fn process_mobi_images(
         if rec_start < bytes.len() && rec_end <= bytes.len() && rec_start < rec_end {
             let img_bytes = &bytes[rec_start..rec_end];
             if let Some(mime) = detect_image_mime(img_bytes) {
-                let b64 = base64::engine::general_purpose::STANDARD.encode(img_bytes);
-                let data_uri = format!("data:{};base64,{}", mime, b64);
+                let ext = match mime {
+                    "image/jpeg" => "jpg",
+                    "image/png" => "png",
+                    "image/gif" => "gif",
+                    "image/webp" => "webp",
+                    "image/bmp" => "bmp",
+                    _ => "jpg",
+                };
                 let img_num = (rec_idx - start_img_rec) + 1;
-                image_map.insert(img_num, data_uri);
+                let rel_path = format!("images/img_{:04}.{}", img_num, ext);
+                let full_archive_path = format!("OEBPS/{}", rel_path);
+                archive.insert(full_archive_path, img_bytes.to_vec());
+                image_map.insert(img_num, rel_path);
             }
         }
     }
@@ -473,33 +541,34 @@ fn process_mobi_images(
 
     let mut output = html.to_string();
 
-    // Sort image entries in DESCENDING numerical order so that multi-digit indices (e.g. 10, 100) are replaced before single-digit indices (e.g. 1)
+    // Sort image entries in DESCENDING numerical order so that multi-digit indices are replaced before single-digit indices
     let mut sorted_entries: Vec<(usize, String)> = image_map.into_iter().collect();
     sorted_entries.sort_by_key(|b| std::cmp::Reverse(b.0));
 
-    for (img_num, data_uri) in sorted_entries {
+    for (img_num, rel_path) in sorted_entries {
         let rec_str1 = format!("recindex=\"{}\"", img_num);
         let rec_str2 = format!("recindex=\"{:05}\"", img_num);
-        output = output.replace(&rec_str1, &format!("src=\"{}\"", data_uri));
-        output = output.replace(&rec_str2, &format!("src=\"{}\"", data_uri));
+        output = output.replace(&rec_str1, &format!("src=\"{}\"", rel_path));
+        output = output.replace(&rec_str2, &format!("src=\"{}\"", rel_path));
 
         let kindle_str1 = format!("kindle:embed:{:04}", img_num);
         let kindle_str2 = format!("kindle:embed:{:05}", img_num);
         let kindle_str3 = format!("kindle:embed:{}", img_num);
-        output = output.replace(&kindle_str1, &data_uri);
-        output = output.replace(&kindle_str2, &data_uri);
-        output = output.replace(&kindle_str3, &data_uri);
+        output = output.replace(&kindle_str1, &rel_path);
+        output = output.replace(&kindle_str2, &rel_path);
+        output = output.replace(&kindle_str3, &rel_path);
 
         let file_str1 = format!("src=\"{:05}.jpg\"", img_num);
         let file_str2 = format!("src=\"{:04}.jpg\"", img_num);
         let file_str3 = format!("src=\"{}.jpg\"", img_num);
-        output = output.replace(&file_str1, &format!("src=\"{}\"", data_uri));
-        output = output.replace(&file_str2, &format!("src=\"{}\"", data_uri));
-        output = output.replace(&file_str3, &format!("src=\"{}\"", data_uri));
+        output = output.replace(&file_str1, &format!("src=\"{}\"", rel_path));
+        output = output.replace(&file_str2, &format!("src=\"{}\"", rel_path));
+        output = output.replace(&file_str3, &format!("src=\"{}\"", rel_path));
     }
 
     output
 }
+
 
 fn detect_image_mime(bytes: &[u8]) -> Option<&'static str> {
     if bytes.len() < 4 {

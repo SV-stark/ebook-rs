@@ -770,6 +770,13 @@ impl Book {
                 .map_err(|e| format!("Failed to write content.opf: {}", e))?;
 
             let uuid_str = generate_rfc4122_uuid_v4(&self.opf.metadata.title);
+            let lang = self
+                .opf
+                .metadata
+                .languages
+                .first()
+                .map(|s| s.as_str())
+                .unwrap_or("en");
             let mut opf_xml = format!(
                 r#"<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id">
@@ -777,21 +784,20 @@ impl Book {
     <dc:identifier id="pub-id">urn:uuid:{}</dc:identifier>
     <dc:title>{}</dc:title>
     <dc:language>{}</dc:language>
-  </metadata>
-  <manifest>
-    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
 "#,
                 uuid_str,
                 xml_escape(&self.opf.metadata.title),
-                xml_escape(
-                    self.opf
-                        .metadata
-                        .languages
-                        .first()
-                        .map(|s| s.as_str())
-                        .unwrap_or("en")
-                )
+                xml_escape(lang)
             );
+            // Emit dc:creator for every author
+            for creator in &self.opf.metadata.creators {
+                opf_xml.push_str(&format!(
+                    "    <dc:creator>{}</dc:creator>\n",
+                    xml_escape(creator)
+                ));
+            }
+            opf_xml.push_str("  </metadata>\n  <manifest>\n    <item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>\n");
+
 
             for section in &self.sections {
                 opf_xml.push_str(&format!(

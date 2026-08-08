@@ -1,3 +1,4 @@
+use crate::archive::EpubArchive;
 use crate::book::Book;
 use serde::{Deserialize, Serialize};
 
@@ -209,22 +210,55 @@ impl UniversalEpub3Exporter {
             zip.start_file("OEBPS/content.opf", options_deflate)
                 .map_err(|e| e.to_string())?;
             let meta = book.metadata();
+            let lang = if meta.language().is_empty() { "en" } else { meta.language() };
             let mut opf_xml = format!(
-                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<package xmlns=\"http://www.idpf.org/2007/opf\" version=\"3.0\" unique-identifier=\"uid\">\n  <metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\n    <dc:title>{}</dc:title>\n    <dc:identifier id=\"uid\">{}</dc:identifier>\n    <dc:language>{}</dc:language>\n  </metadata>\n  <manifest>\n    <item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>\n",
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<package xmlns=\"http://www.idpf.org/2007/opf\" version=\"3.0\" unique-identifier=\"uid\">\n  <metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\n    <dc:title>{}</dc:title>\n    <dc:identifier id=\"uid\">{}</dc:identifier>\n    <dc:language>{}</dc:language>\n",
                 crate::dom::sanitize_and_repair_xml(&meta.title),
                 meta.identifier
                     .as_deref()
                     .unwrap_or("urn:uuid:ebook-rs-export"),
-                if meta.language().is_empty() {
-                    "en"
-                } else {
-                    meta.language()
-                }
+                lang
             );
+            for creator in &meta.creators {
+                opf_xml.push_str(&format!(
+                    "    <dc:creator>{}</dc:creator>\n",
+                    crate::dom::sanitize_and_repair_xml(creator)
+                ));
+            }
+            opf_xml.push_str("  </metadata>\n  <manifest>\n    <item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>\n");
+
 
             for (idx, _) in book.spine().iter().enumerate() {
                 opf_xml.push_str(&format!("    <item id=\"sec_{}\" href=\"sec_{}.xhtml\" media-type=\"application/xhtml+xml\"/>\n", idx, idx));
             }
+            // Add asset files (images, css, fonts) from book.archive to content.opf manifest
+            let mut asset_idx = 0;
+            for path in book.archive.files().keys() {
+                let path_low = path.to_lowercase();
+                if path_low.ends_with(".opf")
+                    || path_low.ends_with(".ncx")
+                    || path_low == "mimetype"
+                    || path_low == "meta-inf/container.xml"
+                    || path_low == "oebps/nav.xhtml"
+                    || (path_low.contains("sec_") && path_low.ends_with(".xhtml"))
+                {
+                    continue;
+                }
+                let rel_href = if path_low.starts_with("oebps/") {
+                    &path[6..]
+                } else {
+                    path.as_str()
+                };
+                let mime = EpubArchive::get_mime_type(path);
+                opf_xml.push_str(&format!(
+                    "    <item id=\"asset_{}\" href=\"{}\" media-type=\"{}\"/>\n",
+                    asset_idx,
+                    crate::dom::sanitize_and_repair_xml(rel_href),
+                    mime
+                ));
+                asset_idx += 1;
+            }
+
             opf_xml.push_str("  </manifest>\n  <spine>\n");
             for (idx, _) in book.spine().iter().enumerate() {
                 opf_xml.push_str(&format!("    <itemref idref=\"sec_{}\"/>\n", idx));
@@ -253,8 +287,32 @@ impl UniversalEpub3Exporter {
                 }
             }
 
+            // 6. Write asset files (images, css, fonts) from book.archive into ZIP
+            for (path, bytes) in book.archive.files() {
+                let path_low = path.to_lowercase();
+                if path_low.ends_with(".opf")
+                    || path_low.ends_with(".ncx")
+                    || path_low == "mimetype"
+                    || path_low == "meta-inf/container.xml"
+                    || path_low == "oebps/nav.xhtml"
+                    || (path_low.contains("sec_") && path_low.ends_with(".xhtml"))
+                {
+                    continue;
+                }
+                let zip_path = if path_low.starts_with("oebps/") {
+                    path.clone()
+                } else {
+                    format!("OEBPS/{}", path)
+                };
+                zip.start_file(&zip_path, options_deflate)
+                    .map_err(|e| e.to_string())?;
+                zip.write_all(bytes).map_err(|e| e.to_string())?;
+            }
+
+
             zip.finish().map_err(|e| e.to_string())?;
         }
+
         Ok(zip_buf)
     }
 }

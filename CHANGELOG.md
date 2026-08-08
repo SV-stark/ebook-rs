@@ -5,6 +5,21 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.3] - 2026-08-08
+
+### Added
+
+- **MOBI/AZW3 Image Extraction**: Extracted binary image records from MOBI/AZW3 PDB containers into `OEBPS/images/` inside the exported EPUB 3 ZIP, updating image tags to relative `src="images/img_XXXX.jpg"` paths.
+- **Enhanced OPF Metadata**: Added `dc:creator` element generation for all authors in `UniversalEpub3Exporter` and `export_epub3_bytes()`.
+
+### Fixed
+
+- **AZW3 EXTH Block Parsing**: Fixed EXTH block detection by magic byte probing (`EXTH`) instead of relying on `exth_flags` or `mobi_version` fields.
+- **AZW3 Title & Language Normalization**: Fixed PDB title fallback (replacing underscores with spaces) and prioritized BCP-47 language tag 524 over datetime tag 106.
+- **AZW3 Chapter Splitting**: Added fallback chapter boundaries for AZW3 on `<h1>`/`<h2>`/`<h3>` heading tags.
+
+---
+
 ## [0.13.2] - 2026-08-08
 
 ### Fixed
