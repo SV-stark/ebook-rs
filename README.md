@@ -75,19 +75,18 @@ Empirically measured conversion benchmark converting eBook formats to **EPUB 3**
 
 ---
 
-## 🆕 What's New in v0.12.0
+## 🆕 What's New in v0.13.6
 
-- **Native AI & RAG Document Chunking Engine (`src/rag.rs`)**:
-  - `book.to_rag_chunks(&config)` splits eBooks into AI-ready semantic chunks with Markdown heading hierarchy, token estimations, and exact `epubcfi` citation anchors for Vector DBs and LLM prompt ingestion.
-- **C / Multi-Language FFI Bindings (`src/ffi.rs`)**:
-  - C-compatible ABI (`#[unsafe(no_mangle)] extern "C"`) functions for zero-copy integration across Python (`ctypes`/`pyo3`), Node.js (`ffi-napi`), C/C++, Swift (iOS), Kotlin (Android), and Go.
-- **Zero-Dependency `<ebook-reader>` Web Component (`src/wasm.rs`)**:
-  - `WasmBook::get_custom_element_js()` generates a standalone `<ebook-reader>` custom element for plug-and-play web reader integration in React, Vue, Svelte, and Next.js.
-- **CJK Vertical Text & RTL Reading Modes (`src/layout.rs`)**:
-  - Added `WritingMode` enum (`HorizontalLtr`, `HorizontalRtl`, `VerticalRl`, `VerticalLr`) with dynamic CSS overrides for Arabic, Hebrew, Japanese, Chinese, and Korean vertical reading layout.
-- **CLI Converter & RAG Commands (`src/main.rs`)**:
-  - `ebook-rs convert <input> <output.epub>` converts any supported format into valid EPUB 3 using `UniversalEpub3Exporter`.
-  - `ebook-rs rag <input.epub> [max_tokens]` generates JSON AI RAG chunks directly from the terminal.
+- **Ultra-Fast Multi-Format Conversion Engine (`ebook-rs convert`)**:
+  - Convert any supported eBook format (**MOBI**, **AZW3**, **FB2**, **LIT**, **KFX**, **PDF**, **CBZ**, **ODT**, **TXT**, **MD**) directly into W3C-valid **EPUB 3** archives or **KFX** outputs in **< 1.1s** (up to **9.7× faster** than Calibre).
+- **100% Embedded Image Asset Extraction**:
+  - Decodes and extracts all embedded JPEG, PNG, GIF, and WebP images from MOBI/AZW3 PalmDOC records, FB2 Base64 `<binary>` tags, Microsoft Reader LIT container streams, and Amazon KFX payload streams into `OEBPS/images/`.
+- **Amazon KFX (Kindle Format 10) & LIT Chapter Sectioning**:
+  - Intelligent paragraph and heading chunking for KFX and LIT formats, generating proper chapter sections (`sec_0.xhtml` .. `sec_N.xhtml`) instead of single-line micro-files or monolith documents.
+- **Lazy MOBI Image Base64 Inlining**:
+  - Deferred heavy Base64 image inlining to render-time (`before_display_hooks`), eliminating conversion hangs on large image-heavy MOBI/AZW3 books.
+- **Complete Metadata Parity**:
+  - Extracts and populates OPF `<dc:creator>`, `<dc:title>`, `<dc:language>`, `<dc:publisher>`, and `<dc:identifier>` tags across all formats.
 
 ---
 
