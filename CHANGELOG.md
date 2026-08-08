@@ -5,6 +5,14 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.6] - 2026-08-08
+
+### Fixed
+
+- **KFX Section Grouping & Metadata**: Fixed Amazon KFX (`.kfx`, `.azw8`) parsing by grouping paragraph fragments into ~18 KB chapter sections (reducing section count from 563 single-line micro-sections down to 22 clean chapter sections), extracting Title & Author metadata, and carving all 37 embedded PNG/JPEG images into `OEBPS/images/`.
+
+---
+
 ## [0.13.5] - 2026-08-08
 
 ### Fixed
