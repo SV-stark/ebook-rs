@@ -5,6 +5,14 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.8] - 2026-08-08
+
+### Security & Fixed
+
+- **Search Snippet HTML Sanitization (`src/search.rs`)**: HTML-escape raw text snippets (`<`, `>`, `&`, `"`, `'`) while highlighting search matches with `<mark>` tags to prevent stored XSS vulnerabilities when displaying search results.
+- **LCP Expiration Date Normalization (`src/lcp.rs`)**: Added `normalize_iso_timestamp` for LCP license expiry comparisons to correctly handle date-only (`YYYY-MM-DD`) and full ISO timestamps (`YYYY-MM-DDTHH:MM:SSZ`).
+- **LCP Struct Serde Robustness (`src/lcp.rs`)**: Derived `Default` and `#[serde(default)]` on `LcpUser`, `LcpRights`, `LcpEncryption`, and `LcpLicense` to tolerate missing optional fields during JSON parsing.
+
 ---
 
 ## [0.11.7] - 2026-08-08

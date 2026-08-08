@@ -51,3 +51,23 @@ fn test_blackbox_readium_lcp_license_parsing() {
     let res = LcpDecryptor::decrypt_bytes(b"encrypted_data", "", &license);
     assert!(res.is_err());
 }
+
+#[test]
+fn test_blackbox_readium_lcp_expiration_date_comparison() {
+    let json_license = r#"{
+        "id": "lic-expiry",
+        "provider": "http://example.com/lcp",
+        "rights": {
+            "end": "2026-12-31"
+        }
+    }"#;
+
+    let license = LcpLicense::parse(json_license).expect("LCP JSON parse error");
+
+    // During end day 2026-12-31, license must NOT be expired
+    assert!(!license.is_expired("2026-12-31T10:00:00Z"));
+    assert!(!license.is_expired("2026-12-31T23:59:59Z"));
+
+    // On 2027-01-01, license MUST be expired
+    assert!(license.is_expired("2027-01-01T00:00:00Z"));
+}

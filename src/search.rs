@@ -91,18 +91,21 @@ impl SearchEngine {
                 let start_c = idx.saturating_sub(40);
                 let end_c = (idx + q_len + 40).min(t_len);
 
-                let raw_snippet: String = text_chars[start_c..end_c].iter().collect();
-                let match_str: String = text_chars[idx..idx + q_len].iter().collect();
-                let highlighted = if match_str.is_empty() {
-                    raw_snippet.clone()
-                } else {
-                    raw_snippet.replace(&match_str, &format!("<mark>{}</mark>", match_str))
-                };
+                let before: String = text_chars[start_c..idx].iter().collect();
+                let matched: String = text_chars[idx..idx + q_len].iter().collect();
+                let after: String = text_chars[idx + q_len..end_c].iter().collect();
 
                 let prefix = if start_c > 0 { "..." } else { "" };
                 let suffix = if end_c < t_len { "..." } else { "" };
 
-                let snippet = format!("{}{}{}", prefix, highlighted, suffix);
+                let snippet = format!(
+                    "{}{}<mark>{}</mark>{}{}",
+                    prefix,
+                    html_escape(&before),
+                    html_escape(&matched),
+                    html_escape(&after),
+                    suffix
+                );
 
                 let cfi = Cfi::from_spine_index(section.index, None, idx).to_string();
 
@@ -142,18 +145,22 @@ impl SearchEngine {
                 let start_c = char_idx.saturating_sub(40);
                 let end_c = (char_idx + q_char_len + 40).min(text_chars.len());
 
-                let raw_snippet: String = text_chars[start_c..end_c].iter().collect();
-                let query_str: String = text_chars
-                    [char_idx..(char_idx + q_char_len).min(text_chars.len())]
-                    .iter()
-                    .collect();
-                let highlighted =
-                    raw_snippet.replace(&query_str, &format!("<mark>{}</mark>", query_str));
+                let match_end = (char_idx + q_char_len).min(text_chars.len());
+                let before: String = text_chars[start_c..char_idx].iter().collect();
+                let matched: String = text_chars[char_idx..match_end].iter().collect();
+                let after: String = text_chars[match_end..end_c].iter().collect();
 
                 let prefix = if start_c > 0 { "..." } else { "" };
                 let suffix = if end_c < text_chars.len() { "..." } else { "" };
 
-                let snippet = format!("{}{}{}", prefix, highlighted, suffix);
+                let snippet = format!(
+                    "{}{}<mark>{}</mark>{}{}",
+                    prefix,
+                    html_escape(&before),
+                    html_escape(&matched),
+                    html_escape(&after),
+                    suffix
+                );
                 let cfi = Cfi::from_spine_index(section.index, None, char_idx).to_string();
 
                 results.push(SearchResult {
@@ -199,6 +206,15 @@ impl SearchEngine {
         serde_json::to_string_pretty(&collection)
             .map_err(|e| format!("Failed to serialize Readium Search JSON: {}", e))
     }
+}
+
+/// Helper function to HTML-escape arbitrary text strings to prevent stored XSS attacks.
+pub fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
 }
 
 #[cfg(test)]

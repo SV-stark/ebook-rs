@@ -4,7 +4,8 @@ use cbc::cipher::{BlockModeDecrypt, KeyIvInit};
 use serde::{Deserialize, Serialize};
 
 /// Readium LCP (Lightweight Content Protection) User License metadata.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct LcpUser {
     pub id: Option<String>,
     pub email: Option<String>,
@@ -12,7 +13,8 @@ pub struct LcpUser {
 }
 
 /// Readium LCP Rights restrictions (print/copy limits, expiration).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct LcpRights {
     pub print: Option<u64>,
     pub copy: Option<u64>,
@@ -28,7 +30,8 @@ pub struct LcpEncryption {
 }
 
 /// Readium LCP License Document parsed from META-INF/license.lcpl.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct LcpLicense {
     pub id: String,
     pub provider: String,
@@ -54,12 +57,25 @@ impl LcpLicense {
     pub fn is_expired(&self, current_iso_date: &str) -> bool {
         if let Some(ref rights) = self.rights {
             if let Some(ref end) = rights.end {
-                let cur_clean = current_iso_date.trim().trim_end_matches('Z');
-                let end_clean = end.trim().trim_end_matches('Z');
-                return cur_clean > end_clean;
+                let cur_norm = normalize_iso_timestamp(current_iso_date, false);
+                let end_norm = normalize_iso_timestamp(end, true);
+                return cur_norm > end_norm;
             }
         }
         false
+    }
+}
+
+fn normalize_iso_timestamp(s: &str, is_end_of_day: bool) -> String {
+    let clean = s.trim().trim_end_matches('Z');
+    if clean.len() == 10 {
+        if is_end_of_day {
+            format!("{}T23:59:59", clean)
+        } else {
+            format!("{}T00:00:00", clean)
+        }
+    } else {
+        clean.to_string()
     }
 }
 

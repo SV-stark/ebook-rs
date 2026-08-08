@@ -42,3 +42,33 @@ fn test_blackbox_reading_analytics_nlp() {
     assert!(analytics.word_count >= 10);
     assert!(analytics.reading_time_minutes >= 0.0);
 }
+
+#[test]
+fn test_blackbox_search_snippet_xss_sanitization() {
+    use ebook_rs::Section;
+
+    let text =
+        "Text containing <script>alert(1)</script> and <img src=x onerror=alert(2)> XSS payload.";
+    let sec = Section {
+        index: 0,
+        idref: "sec1".to_string(),
+        href: "sec1.html".to_string(),
+        full_path: "sec1.html".to_string(),
+        raw_html: text.to_string(),
+        processed_html: text.to_string(),
+        plain_text: text.to_string(),
+        plain_text_lower: text.to_lowercase(),
+        char_count: text.chars().count(),
+        viewport_width: None,
+        viewport_height: None,
+    };
+
+    let results = SearchEngine::search(&[sec], "XSS", false);
+    assert_eq!(results.len(), 1);
+    let snippet = &results[0].snippet;
+
+    // Must HTML-escape raw section text, maintaining only <mark> tags around match
+    assert!(snippet.contains("&lt;img src=x onerror=alert(2)&gt;"));
+    assert!(snippet.contains("<mark>XSS</mark>"));
+    assert!(snippet.contains("..."));
+}

@@ -200,6 +200,11 @@ impl Cfi {
             }
         }
 
+        // Prune selectors prior to the last ID anchor if present
+        if let Some(id_idx) = selectors.iter().rposition(|s| s.starts_with('#')) {
+            selectors = selectors[id_idx..].to_vec();
+        }
+
         let css_selector = if selectors.is_empty() {
             "body".to_string()
         } else {
@@ -208,13 +213,15 @@ impl Cfi {
 
         // Check if element_id exists in target HTML
         if element_id.is_none() {
-            let lower = html.to_lowercase();
+            let lower_html = html.to_lowercase();
             for step in &self.path.steps {
                 if let Some(id) = &step.element_id {
-                    if lower.contains(&format!("id=\"{}\"", id.to_lowercase()))
-                        || lower.contains(&format!("id='{}'", id.to_lowercase()))
+                    let id_lower = id.to_lowercase();
+                    if lower_html.contains(&format!("id=\"{}\"", id_lower))
+                        || lower_html.contains(&format!("id='{}'", id_lower))
                     {
                         element_id = Some(id.clone());
+                        break;
                     }
                 }
             }
