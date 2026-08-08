@@ -52,74 +52,64 @@ impl SearchEngine {
             return results;
         }
 
-        let text_chars: Vec<char> = section.plain_text.chars().collect();
-        let query_chars: Vec<char> = query.chars().collect();
-        let t_len = text_chars.len();
-        let q_len = query_chars.len();
-
-        if q_len > t_len {
-            return results;
-        }
-
-        let matches_at = |idx: usize| -> bool {
-            if idx + q_len > t_len {
-                return false;
-            }
-            for i in 0..q_len {
-                let tc = text_chars[idx + i];
-                let qc = query_chars[i];
-                if case_sensitive {
-                    if tc != qc {
-                        return false;
-                    }
-                } else {
-                    if tc != qc && !tc.eq_ignore_ascii_case(&qc) {
-                        let tc_low = tc.to_lowercase();
-                        let qc_low = qc.to_lowercase();
-                        if tc_low.ne(qc_low) {
-                            return false;
-                        }
-                    }
-                }
-            }
-            true
+        let query_lower = if case_sensitive {
+            query.to_string()
+        } else {
+            query.to_lowercase()
         };
 
-        let mut idx = 0;
-        while idx <= t_len.saturating_sub(q_len) {
-            if matches_at(idx) {
-                let start_c = idx.saturating_sub(40);
-                let end_c = (idx + q_len + 40).min(t_len);
+        let target_text = if case_sensitive {
+            &section.plain_text
+        } else {
+            &section.plain_text_lower
+        };
 
-                let before: String = text_chars[start_c..idx].iter().collect();
-                let matched: String = text_chars[idx..idx + q_len].iter().collect();
-                let after: String = text_chars[idx + q_len..end_c].iter().collect();
+        let finder = memchr::memmem::Finder::new(query_lower.as_bytes());
+        let is_ascii = target_text.is_ascii();
 
-                let prefix = if start_c > 0 { "..." } else { "" };
-                let suffix = if end_c < t_len { "..." } else { "" };
-
-                let snippet = format!(
-                    "{}{}<mark>{}</mark>{}{}",
-                    prefix,
-                    html_escape(&before),
-                    html_escape(&matched),
-                    html_escape(&after),
-                    suffix
-                );
-
-                let cfi = Cfi::from_spine_index(section.index, None, idx).to_string();
-
-                results.push(SearchResult {
-                    spine_index: section.index,
-                    snippet,
-                    cfi,
-                    char_offset: idx,
-                });
-
-                idx += q_len.max(1);
+        for match_byte_idx in finder.find_iter(target_text.as_bytes()) {
+            let char_offset = if is_ascii {
+                match_byte_idx
             } else {
-                idx += 1;
-            }
+                target_text[..match_byte_idx].chars().count()
+            };
+
+            let q_char_count = if is_ascii {
+                query_lower.len()
+            } else {
+                query_lower.chars().count()
+            };
+
+            let text_chars: Vec<char> = section.plain_text.chars().collect();
+            let total_chars = text_chars.len();
+            let start_c = char_offset.saturating_sub(40);
+            let end_c = (char_offset + q_char_count + 40).min(total_chars);
+            let match_end_c = (char_offset + q_char_count).min(total_chars);
+
+            let before: String = text_chars[start_c..char_offset].iter().collect();
+            let matched: String = text_chars[char_offset..match_end_c].iter().collect();
+            let after: String = text_chars[match_end_c..end_c].iter().collect();
+
+            let prefix = if start_c > 0 { "..." } else { "" };
+            let suffix = if end_c < total_chars { "..." } else { "" };
+
+            let snippet = format!(
+                "{}{}<mark>{}</mark>{}{}",
+                prefix,
+                html_escape(&before),
+                html_escape(&matched),
+                html_escape(&after),
+                suffix
+            );
+
+            let cfi = Cfi::from_spine_index(section.index, None, char_offset).to_string();
+
+            results.push(SearchResult {
+                spine_index: section.index,
+                snippet,
+                cfi,
+                char_offset,
+            });
         }
 
         results
