@@ -5,6 +5,14 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.7] - 2026-08-08
+
+### Fixed
+
+- **KFX Text Noise Filtering**: Implemented pure-Rust binary string carving with strict printable character ratio filtering (`carve_kfx_text_fragments`), eliminating all binary Ion symbol metadata noise (`ENTY`, `Serif`, CSS properties, internal struct pointers, `r 4enty` gibberish) from KFX text sections for crystal-clear reader rendering.
+
+---
+
 ## [0.13.6] - 2026-08-08
 
 ### Fixed

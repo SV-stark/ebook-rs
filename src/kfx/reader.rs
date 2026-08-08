@@ -25,52 +25,18 @@ impl KfxBook {
 
     /// Parse an Amazon KFX container from raw byte slice into structured metadata, spine, TOC, and HTML sections.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
-        let container = KfxContainer::parse(bytes)?;
+        let _container = KfxContainer::parse(bytes)?;
         let mut metadata = Metadata::default();
         let mut sections = Vec::new();
         let mut spine = Vec::new();
         let mut toc = Vec::new();
         let resources = HashMap::new();
 
-        let mut text_fragments = Vec::new();
-        let mut title_found = false;
-
-        // Process Payload and Entities into grouped chapter sections
-        let text_scan = String::from_utf8_lossy(&container.payload);
-        for line in text_scan.lines() {
-            let line_trim = line.trim();
-            if line_trim.contains("title") || line_trim.contains("Title") {
-                if let Some(val) = extract_kv(line_trim) {
-                    metadata.title = val;
-                    title_found = true;
-                }
-            } else if line_trim.contains("author") || line_trim.contains("creator") {
-                if let Some(val) = extract_kv(line_trim) {
-                    if !metadata.creators.contains(&val) {
-                        metadata.creators.push(val);
-                    }
-                }
-            } else if line_trim.contains("publisher") {
-                if let Some(val) = extract_kv(line_trim) {
-                    if !metadata.publishers.contains(&val) {
-                        metadata.publishers.push(val);
-                    }
-                }
-            } else if line_trim.contains("language") {
-                if let Some(val) = extract_kv(line_trim) {
-                    metadata.languages = vec![val];
-                }
-            } else if line_trim.len() > 30
-                && !line_trim.starts_with('{')
-                && !line_trim.starts_with('[')
-                && !line_trim.starts_with('$')
-            {
-                text_fragments.push(line_trim.to_string());
-            }
-        }
+        // Extract clean, human-readable text fragments from KFX binary container
+        let text_fragments = carve_kfx_text_fragments(bytes);
 
         // Fallback title / creator extraction if KV parser didn't catch them
-        if !title_found || metadata.title.is_empty() || metadata.title == "Amazon KFX Publication" {
+        if metadata.title.is_empty() || metadata.title == "Amazon KFX Publication" {
             let full_scan = String::from_utf8_lossy(bytes);
             if full_scan.contains("Alice in Wonderland") {
                 metadata.title = "Alice in Wonderland".to_string();
@@ -124,7 +90,8 @@ impl KfxBook {
         }
 
         if grouped_chapters.is_empty() {
-            let clean_text = crate::dom::sanitize_and_repair_xml(&text_scan);
+            let full_text = String::from_utf8_lossy(bytes);
+            let clean_text = crate::dom::sanitize_and_repair_xml(&full_text);
             let sec_id = "kfx_sec_0".to_string();
             let raw_html = format!(
                 "<div class=\"kfx-content\"><h1>{}</h1><p>{}</p></div>",
@@ -264,20 +231,6 @@ impl KfxBook {
     }
 }
 
-fn extract_kv(line: &str) -> Option<String> {
-    if let Some(pos) = line.find(':') {
-        let val = line[pos + 1..]
-            .trim()
-            .trim_matches('"')
-            .trim_matches('\'')
-            .trim_matches(',');
-        if !val.is_empty() {
-            return Some(val.to_string());
-        }
-    }
-    None
-}
-
 fn extract_tag_or_kv(text: &str, key: &str) -> Option<String> {
     let lower = text.to_lowercase();
     if let Some(idx) = lower.find(key) {
@@ -352,4 +305,70 @@ fn carve_kfx_images(bytes: &[u8], archive: &mut crate::archive::EpubArchive) -> 
 
     image_count
 }
+
+fn carve_kfx_text_fragments(bytes: &[u8]) -> Vec<String> {
+    let mut fragments = Vec::new();
+    let mut current = String::new();
+
+    for &b in bytes {
+        if (32..=126).contains(&b) || b == b'\n' || b == b'\r' || b == b'\t' {
+            current.push(b as char);
+        } else {
+            if current.len() >= 25 {
+                let trim = current.trim();
+                if is_valid_kfx_text_paragraph(trim) {
+                    fragments.push(trim.to_string());
+                }
+            }
+            current.clear();
+        }
+    }
+    if current.len() >= 25 {
+        let trim = current.trim();
+        if is_valid_kfx_text_paragraph(trim) {
+            fragments.push(trim.to_string());
+        }
+    }
+
+    fragments
+}
+
+fn is_valid_kfx_text_paragraph(text: &str) -> bool {
+    if text.starts_with("resource:")
+        || text.starts_with("CONT")
+        || text.starts_with("ENTY")
+        || text.starts_with("CR!")
+        || text.starts_with("!$")
+        || text.starts_with("{key:")
+        || text.contains("kfxgen_package")
+        || text.contains("Times New Roman")
+        || text.contains("Generator")
+        || text.contains("calibre_pb")
+        || text.contains("OEBPS/Images/")
+    {
+        return false;
+    }
+
+    let lower = text.to_lowercase();
+    if lower.starts_with("font-")
+        || lower.starts_with("margin-")
+        || lower.starts_with("padding-")
+        || lower.starts_with("border-")
+        || lower.starts_with("style")
+        || lower.starts_with("width")
+        || lower.starts_with("height")
+        || lower.starts_with("@font-face")
+        || lower.starts_with("@page")
+    {
+        return false;
+    }
+
+    let letters = text
+        .chars()
+        .filter(|c| c.is_alphanumeric() || c.is_whitespace() || ".,!?'\"-".contains(*c))
+        .count();
+    let ratio = letters as f64 / text.len() as f64;
+    ratio >= 0.82
+}
+
 
