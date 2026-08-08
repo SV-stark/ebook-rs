@@ -181,8 +181,9 @@ fn extract_html_from_lit_bytes(bytes: &[u8]) -> String {
     };
 
     for line in text.lines() {
-        if line.contains('<') && line.contains('>') {
-            out.push_str(line);
+        let trimmed = line.trim();
+        if !trimmed.is_empty() && (trimmed.contains('<') || trimmed.len() > 15) {
+            out.push_str(trimmed);
             out.push('\n');
         }
     }
@@ -234,7 +235,19 @@ fn split_lit_html(html: &str) -> Vec<String> {
     let lower = html.to_lowercase();
     let mut boundaries = vec![0];
 
-    for tag in &["<h1", "<h2", "<h3", "<div class=\"chapter\""] {
+    let patterns = &[
+        "<h1", "<h2", "<h3", "<div class=\"chapter\"",
+        "chapter i.", "chapter ii.", "chapter iii.", "chapter iv.", "chapter v.",
+        "chapter vi.", "chapter vii.", "chapter viii.", "chapter ix.", "chapter x.",
+        "chapter xi.", "chapter xii.",
+        "chapter i ", "chapter ii ", "chapter iii ", "chapter iv ", "chapter v ",
+        "chapter vi ", "chapter vii ", "chapter viii ", "chapter ix ", "chapter x ",
+        "chapter xi ", "chapter xii ",
+        "chapter 1", "chapter 2", "chapter 3", "chapter 4", "chapter 5",
+        "chapter 6", "chapter 7", "chapter 8", "chapter 9", "chapter 10",
+    ];
+
+    for tag in patterns {
         let mut pos = 0;
         while let Some(idx) = lower[pos..].find(tag) {
             let abs = pos + idx;
@@ -247,6 +260,40 @@ fn split_lit_html(html: &str) -> Vec<String> {
 
     boundaries.sort_unstable();
     boundaries.dedup();
+
+    // Fallback: If no tag boundaries were found and the file is large, split into ~15KB chapter chunks at line breaks
+    if boundaries.len() <= 1 && html.len() > 8000 {
+        boundaries.clear();
+        boundaries.push(0);
+        let target_size = 15000;
+        let mut pos = target_size;
+        while pos < html.len() {
+            while pos < html.len() && !html.is_char_boundary(pos) {
+                pos += 1;
+            }
+            if pos >= html.len() {
+                break;
+            }
+            let next_break = html[pos..]
+                .find('\n')
+                .or_else(|| html[pos..].find("<p"))
+                .or_else(|| html[pos..].find("<P"))
+                .or_else(|| html[pos..].find("<div"))
+                .or_else(|| html[pos..].find("<DIV"));
+            if let Some(break_offset) = next_break {
+                let mut abs = pos + break_offset;
+                while abs < html.len() && !html.is_char_boundary(abs) {
+                    abs += 1;
+                }
+                boundaries.push(abs);
+                pos = abs + target_size;
+            } else {
+                break;
+            }
+        }
+        boundaries.sort_unstable();
+        boundaries.dedup();
+    }
 
     let mut parts = Vec::new();
     if boundaries.len() > 1 {
