@@ -1,6 +1,6 @@
-# 📚 EBook-RS API Reference & Complete Documentation (v0.13.0)
+# 📚 EBook-RS API Reference & Complete Documentation (v0.14.1)
 
-`ebook-rs` (v0.13.0) is a multi-format pure Rust eBook engine supporting **EPUB 2**, **EPUB 3**, **Amazon KFX (Kindle Format 10)**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT (OpenDocument Text)**, **Plain Text (.txt)**, and **Markdown (.md)** formats with **100% Clean-Room Amazon KFX Subsystem**, **Native AI/RAG Document Chunking**, **C FFI ABI Bindings**, **WASM Web Component Renderer**, **RTL & Vertical CJK Modes**, **Hardened Sanitizer & Boundary Parsers**, **SpeechSynthesis TTS Word Synchronizer**, **Legacy Non-UTF-8 Charset Decoding**, **Automatic Language Detection**, **Zstd Compressed State Caching**, **Universal EPUB 3 Exporter**, **Zero-Copy mmap**, **Lightweight DOM AST Tree**, **Fuzzy XML Recovery**, **CFI**, and **Readium LCP/Locator** support.
+`ebook-rs` (v0.14.1) is a multi-format pure Rust eBook engine supporting **EPUB 2**, **EPUB 3**, **Amazon KFX (Kindle Format 10)**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT (OpenDocument Text)**, **Plain Text (.txt)**, and **Markdown (.md)** formats with **Academic PDF Two-Column Spatial Reflow**, **Multi-Threaded Parallel ZIP Exporting**, **CBZ Comic Pre-fetching & Manga Spread Mode**, **Native PyO3 Python Wheel Bindings**, **100% Clean-Room Amazon KFX Subsystem**, **Native AI/RAG Document Chunking**, **C FFI ABI Bindings**, **WASM Web Component Renderer**, **RTL & Vertical CJK Modes**, **Hardened Sanitizer & Boundary Parsers**, **SpeechSynthesis TTS Word Synchronizer**, **Legacy Non-UTF-8 Charset Decoding**, **Automatic Language Detection**, **Zstd Compressed State Caching**, **Universal EPUB 3 Exporter**, **Zero-Copy mmap**, **Lightweight DOM AST Tree**, **Fuzzy XML Recovery**, **CFI**, and **Readium LCP/Locator** support.
 
 ---
 
@@ -514,4 +514,70 @@ let restored_book = Book::from_zstd_cache(&zstd_cache)?;
 - **`zlib-rs`**: `flate2` with `zlib-rs` SIMD zlib decompression for 3x faster EPUB/CBZ ZIP archive reading.
 - **`memchr`**: SIMD substring searching (`memchr::memchr` / `memchr::memmem`) for ultra-fast HTML tag scanning, attribute extraction, and script stripping.
 - **`parking_lot`**: Fast 1-byte non-poisoning mutex locks (`parking_lot::Mutex`) for concurrent section caches.
+
+---
+
+## 30. Multi-Threaded Parallel ZIP Exporter (`UniversalEpub3Exporter`)
+
+Parallelizes HTML section document and image asset compression across Rayon worker threads when `parallel` feature is enabled (`entries.par_iter()`), significantly accelerating EPUB 3 export performance for 100MB+ image-heavy books:
+
+```rust
+use ebook_rs::{Book, UniversalEpub3Exporter};
+
+let book = Book::from_file("large_comic.cbz")?;
+// Exports EPUB 3 zip buffer using multi-threaded compression
+let epub_bytes = UniversalEpub3Exporter::export(&book)?;
+```
+
+---
+
+## 31. CBZ Comic Pre-fetching & 2-Page Manga Spread Mode (`CbzBook`)
+
+Provides zero-latency image pre-fetching and 2-page Right-to-Left Manga spread view layout:
+
+```rust
+use ebook_rs::cbz::CbzBook;
+use ebook_rs::Book;
+
+let mut book = CbzBook::parse_manga(&bytes, "My Manga")?;
+// Enable RTL Manga Spread Mode
+CbzBook::enable_manga_mode(&mut book);
+
+// Pre-fetch adjacent comic page image byte payloads into memory
+let prefetched_pages = CbzBook::prefetch_page_images(&book, 0, 3);
+```
+
+---
+
+## 32. Native PyO3 Python Bindings (`pip install ebook-rs`)
+
+Native Python extension bindings exposing `Book` and `Section` APIs directly to Python:
+
+```python
+import ebook_rs
+
+# Open eBook or comic archive
+book = ebook_rs.Book.open("sample.mobi")
+print("Title:", book.title)
+
+# Enable Manga Mode & Pre-fetch adjacent pages
+book.enable_manga_mode()
+pages = book.prefetch_comic_pages(0, 3)
+
+# Export AI RAG Document Chunks as JSON
+chunks_json = book.to_rag_chunks_json()
+```
+
+---
+
+## 33. Academic PDF Two-Column Spatial Reflowing Engine (`reflow_two_column_markdown`)
+
+Detects multi-column line patterns and spatial column dividers in IEEE, ArXiv, and ACM academic paper PDFs, sorting Left-Column paragraphs top-to-bottom followed by Right-Column paragraphs top-to-bottom into continuous single-column EPUB sections:
+
+```rust
+use ebook_rs::pdf::reflow_two_column_markdown;
+
+let raw_pdf_md = "Title\n\nLeft Col 1   |   Right Col 1\nLeft Col 2   |   Right Col 2";
+let single_column_md = reflow_two_column_markdown(raw_pdf_md);
+```
 
