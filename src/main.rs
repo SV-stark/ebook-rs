@@ -69,10 +69,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "convert" => {
             let in_path = args
                 .get(2)
-                .ok_or("Usage: ebook-rs convert <input.epub/mobi/pdf/fb2/txt> <output.epub>")?;
+                .ok_or("Usage: ebook-rs convert <input.epub/mobi/pdf/fb2/txt/kfx> <output.epub|output.kfx|output.json>")?;
             let out_path = args
                 .get(3)
-                .ok_or("Usage: ebook-rs convert <input.epub/mobi/pdf/fb2/txt> <output.epub>")?;
+                .ok_or("Usage: ebook-rs convert <input.epub/mobi/pdf/fb2/txt/kfx> <output.epub|output.kfx|output.json>")?;
 
             println!("🔄 Loading eBook from: {}", in_path);
             let book = Book::from_file(in_path)?;
@@ -81,13 +81,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let epub_bytes = ebook_rs::UniversalEpub3Exporter::export(&book)?;
                 fs::write(out_path, epub_bytes)?;
                 println!("✅ Converted and exported EPUB 3 file to: {}", out_path);
+            } else if out_path.ends_with(".kfx") {
+                let kfx_bytes = ebook_rs::UniversalKfxExporter::export(&book)?;
+                fs::write(out_path, kfx_bytes)?;
+                println!("✅ Converted and exported Amazon KFX file to: {}", out_path);
             } else if out_path.ends_with(".json") {
                 let chunks = book.to_rag_chunks(&ebook_rs::RagChunkConfig::default());
                 let json = serde_json::to_string_pretty(&chunks)?;
                 fs::write(out_path, json)?;
                 println!("✅ Exported RAG chunks JSON file to: {}", out_path);
             } else {
-                return Err("Unsupported output extension. Supported: .epub, .json".into());
+                return Err("Unsupported output extension. Supported: .epub, .kfx, .json".into());
             }
         }
         "rag" => {
