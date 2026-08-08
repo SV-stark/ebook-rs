@@ -63,13 +63,13 @@
 
 Empirically measured conversion benchmark converting eBook formats to **EPUB 3** on identical test hardware:
 
-| Input Format | 🚀 `ebook-rs` (v0.13.6) | 🐍 Calibre `ebook-convert` | Speedup | Image Assets Extracted | Chapter Sections | Output Parity |
+| Input Format | 🚀 `ebook-rs` (v0.14.0) | 🐍 Calibre `ebook-convert` | Speedup | Image Assets Extracted | Chapter Sections | Output Parity |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **MOBI → EPUB** | **0.82s** ⚡ | 6.12s | **7.5× Faster** | 38 / 37 (100% Parity) ✅ | 17 chapters | Matched |
-| **AZW3 (KF8) → EPUB** | **1.12s** ⚡ | 3.69s | **3.3× Faster** | 38 / 37 (100% Parity) ✅ | 14 chapters | Matched |
-| **FB2 → EPUB** | **1.12s** ⚡ | 5.29s | **4.7× Faster** | 37 / 37 (100% Parity) ✅ | 15 chapters | Matched |
-| **LIT → EPUB** | **0.85s** ⚡ | 8.29s | **9.7× Faster** | 37 / 37 (100% Parity) ✅ | 21 chapters | Matched |
-| **KFX → EPUB** | **1.09s** ⚡ | N/A *(Plugin Req.)* | **Instant Native** | 37 / 37 (100% Parity) ✅ | 22 chapters | Matched |
+| **MOBI → EPUB** | **0.98s** ⚡ | 4.64s | **4.8× Faster** | 38 / 37 (100% Parity) ✅ | 17 chapters | Matched |
+| **AZW3 (KF8) → EPUB** | **0.34s** ⚡ | 3.29s | **9.7× Faster** | 38 / 37 (100% Parity) ✅ | 14 chapters | Matched |
+| **FB2 → EPUB** | **0.26s** ⚡ | 2.73s | **10.5× Faster** | 37 / 37 (100% Parity) ✅ | 15 chapters | Matched |
+| **LIT → EPUB** | **0.48s** ⚡ | 3.53s | **7.4× Faster** | 37 / 37 (100% Parity) ✅ | 21 chapters | Matched |
+| **KFX → EPUB** | **0.37s** ⚡ | 3.84s *(Plugin Req.)* | **10.4× Faster** | 37 / 37 (100% Parity) ✅ | 22 chapters | Matched |
 
 *All conversions produce 100% W3C-validated EPUB 3 archives containing full metadata (`dc:creator`, `dc:title`, `dc:language`), Table of Contents (`nav.xhtml`), and image resources (`OEBPS/images/`).*
 
