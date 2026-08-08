@@ -12,6 +12,9 @@ exclude = ["samples/*"]
 keywords = ["epub", "reader", "ebook", "parser", "cfi"]
 categories = ["parsing", "web-programming"]
 
+[package.metadata.wasm-pack.package]
+name = "ebook-rs-wasm"
+
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
 
