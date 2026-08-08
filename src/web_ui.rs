@@ -497,59 +497,135 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
         async function loadSection(index, scrollToBottom = false) {
             if (index < 0 || index >= totalSpineSections) return;
             currentSpineIndex = index;
-            const html = await getSectionHtml(index);
-            prefetchAdjacent(index);
-            
+
             const isLight = document.body.classList.contains('theme-light');
             const isSepia = document.body.classList.contains('theme-sepia');
             const fgColor = isLight ? '#0f172a' : (isSepia ? '#451a03' : '#f8fafc');
-            
-            const colStyle = isDoubleSpread 
-                ? 'column-count: 2; column-gap: 40px; height: 100vh; column-fill: auto;' 
-                : '';
+            const pageBg = isLight ? '#ffffff' : (isSepia ? '#fbf0d9' : '#1e293b');
+            const borderCol = isLight ? '#e2e8f0' : (isSepia ? '#e7d8b8' : '#334155');
 
-            sectionFrame.srcdoc = `
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <meta charset="utf-8">
-                    <style>
-                        html, body {
-                            margin: 0;
-                            padding: 0;
-                            background: transparent;
-                        }
-                        body {
-                            font-family: Georgia, 'Times New Roman', serif;
-                            font-size: ${fontSize}px;
-                            line-height: 1.7;
-                            color: ${fgColor};
-                            padding: 32px 48px;
-                            margin: 0 auto;
-                            max-width: ${isDoubleSpread ? '1200px' : '800px'};
-                            box-sizing: border-box;
-                            ${colStyle}
-                        }
-                        a { color: #3b82f6; }
-                        img { max-width: 100%; height: auto; }
-                        mark { border-radius: 3px; padding: 2px 4px; }
-                    </style>
-                </head>
-                <body>${html}</body>
-                </html>
-            `;
+            if (isDoubleSpread) {
+                // Real 2-Page Open Book Spread (Left Page = Section N, Right Page = Section N+1)
+                const htmlLeft = await getSectionHtml(index);
+                const hasNext = index + 1 < totalSpineSections;
+                const htmlRight = hasNext ? await getSectionHtml(index + 1) : '';
+                prefetchAdjacent(hasNext ? index + 1 : index);
+
+                sectionFrame.srcdoc = `
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <meta charset="utf-8">
+                        <style>
+                            html, body {
+                                margin: 0;
+                                padding: 0;
+                                height: 100vh;
+                                overflow: hidden;
+                                background: transparent;
+                                font-family: Georgia, 'Times New Roman', serif;
+                            }
+                            .book-spread {
+                                display: flex;
+                                flex-direction: row;
+                                gap: 28px;
+                                height: calc(100vh - 40px);
+                                max-width: 1350px;
+                                margin: 20px auto;
+                                padding: 0 24px;
+                                box-sizing: border-box;
+                            }
+                            .book-page {
+                                flex: 1;
+                                height: 100%;
+                                display: flex;
+                                flex-direction: column;
+                                justify-content: space-between;
+                                background: ${pageBg};
+                                color: ${fgColor};
+                                border-radius: 8px;
+                                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+                                padding: 28px 36px;
+                                box-sizing: border-box;
+                                border: 1px solid ${borderCol};
+                                overflow: hidden;
+                            }
+                            .page-content {
+                                flex: 1;
+                                overflow-y: auto;
+                                font-size: ${fontSize}px;
+                                line-height: 1.7;
+                                padding-right: 8px;
+                            }
+                            .page-footer {
+                                text-align: center;
+                                font-size: 0.75rem;
+                                opacity: 0.5;
+                                padding-top: 10px;
+                                border-top: 1px solid rgba(150, 150, 150, 0.15);
+                            }
+                            a { color: #3b82f6; }
+                            img { max-width: 100%; height: auto; }
+                            mark { border-radius: 3px; padding: 2px 4px; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="book-spread">
+                            <div class="book-page left-page">
+                                <div class="page-content">${htmlLeft}</div>
+                                <div class="page-footer">Page ${index + 1} of ${totalSpineSections}</div>
+                            </div>
+                            <div class="book-page right-page">
+                                <div class="page-content">${htmlRight}</div>
+                                <div class="page-footer">${hasNext ? 'Page ' + (index + 2) + ' of ' + totalSpineSections : ''}</div>
+                            </div>
+                        </div>
+                    </body>
+                    </html>
+                `;
+            } else {
+                // Single Page View
+                const html = await getSectionHtml(index);
+                prefetchAdjacent(index);
+
+                sectionFrame.srcdoc = `
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <meta charset="utf-8">
+                        <style>
+                            html, body {
+                                margin: 0;
+                                padding: 0;
+                                background: transparent;
+                            }
+                            body {
+                                font-family: Georgia, 'Times New Roman', serif;
+                                font-size: ${fontSize}px;
+                                line-height: 1.7;
+                                color: ${fgColor};
+                                padding: 32px 48px;
+                                margin: 0 auto;
+                                max-width: 800px;
+                                box-sizing: border-box;
+                            }
+                            a { color: #3b82f6; }
+                            img { max-width: 100%; height: auto; }
+                            mark { border-radius: 3px; padding: 2px 4px; }
+                        </style>
+                    </head>
+                    <body>${html}</body>
+                    </html>
+                `;
+            }
 
             sectionFrame.onload = () => {
                 setupIframeListeners();
-                if (scrollToBottom) {
+                if (scrollToBottom && !isDoubleSpread) {
                     try {
                         const win = sectionFrame.contentWindow;
                         const doc = sectionFrame.contentDocument || win.document;
-                        if (isDoubleSpread) {
-                            win.scrollTo(doc.documentElement.scrollWidth, 0);
-                        } else {
-                            win.scrollTo(0, doc.documentElement.scrollHeight);
-                        }
+                        win.scrollTo(0, doc.documentElement.scrollHeight);
                     } catch (e) {}
                 }
             };
@@ -557,54 +633,53 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
         }
 
         function goNext() {
-            try {
-                const win = sectionFrame.contentWindow;
-                const doc = sectionFrame.contentDocument || win.document;
-                if (win && doc && doc.documentElement) {
-                    if (isDoubleSpread) {
-                        const maxScroll = doc.documentElement.scrollWidth - win.innerWidth;
-                        if (win.scrollX < maxScroll - 15) {
-                            win.scrollBy({ left: win.innerWidth * 0.9, behavior: 'instant' });
-                            return;
-                        }
-                    } else {
+            if (isDoubleSpread) {
+                if (currentSpineIndex + 2 < totalSpineSections) {
+                    loadSection(currentSpineIndex + 2);
+                } else if (currentSpineIndex + 1 < totalSpineSections) {
+                    loadSection(currentSpineIndex + 1);
+                }
+            } else {
+                try {
+                    const win = sectionFrame.contentWindow;
+                    const doc = sectionFrame.contentDocument || win.document;
+                    if (win && doc && doc.documentElement) {
                         const maxScroll = doc.documentElement.scrollHeight - win.innerHeight;
                         if (win.scrollY < maxScroll - 15) {
                             win.scrollBy({ top: win.innerHeight * 0.85, behavior: 'instant' });
                             return;
                         }
                     }
-                }
-            } catch (e) {}
+                } catch (e) {}
 
-            // End of current section -> load next section
-            if (currentSpineIndex + 1 < totalSpineSections) {
-                loadSection(currentSpineIndex + 1);
+                if (currentSpineIndex + 1 < totalSpineSections) {
+                    loadSection(currentSpineIndex + 1);
+                }
             }
         }
 
         function goPrev() {
-            try {
-                const win = sectionFrame.contentWindow;
-                const doc = sectionFrame.contentDocument || win.document;
-                if (win && doc && doc.documentElement) {
-                    if (isDoubleSpread) {
-                        if (win.scrollX > 15) {
-                            win.scrollBy({ left: -win.innerWidth * 0.9, behavior: 'instant' });
-                            return;
-                        }
-                    } else {
+            if (isDoubleSpread) {
+                if (currentSpineIndex - 2 >= 0) {
+                    loadSection(currentSpineIndex - 2);
+                } else if (currentSpineIndex - 1 >= 0) {
+                    loadSection(0);
+                }
+            } else {
+                try {
+                    const win = sectionFrame.contentWindow;
+                    const doc = sectionFrame.contentDocument || win.document;
+                    if (win && doc && doc.documentElement) {
                         if (win.scrollY > 15) {
                             win.scrollBy({ top: -win.innerHeight * 0.85, behavior: 'instant' });
                             return;
                         }
                     }
-                }
-            } catch (e) {}
+                } catch (e) {}
 
-            // Top of current section -> load previous section at bottom
-            if (currentSpineIndex - 1 >= 0) {
-                loadSection(currentSpineIndex - 1, true);
+                if (currentSpineIndex - 1 >= 0) {
+                    loadSection(currentSpineIndex - 1, true);
+                }
             }
         }
 

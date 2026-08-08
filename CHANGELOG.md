@@ -5,6 +5,14 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.8] - 2026-08-08
+
+### Fixed
+
+- **Real 2-Page Book Spread View (`src/web_ui.rs`)**: Replaced unconstrained CSS multi-column horizontal paragraph ribbons with a realistic 2-Page Open Book Spread (Left Page = Section $N$, Right Page = Section $N+1$), complete with page shadows, page footers, and smooth 2-page turns across all formats.
+
+---
+
 ## [0.13.7] - 2026-08-08
 
 ### Fixed
