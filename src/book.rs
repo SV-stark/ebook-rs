@@ -312,6 +312,7 @@ impl Book {
 
     /// Compresses and serializes the parsed `Book` state into a `zstd`-compressed byte buffer (`Vec<u8>`).
     /// This enables sub-millisecond instant caching and restoration of parsed books.
+    #[cfg(feature = "zstd")]
     pub fn export_zstd_cache(&self) -> Result<Vec<u8>, String> {
         let mut sections = self.sections.clone();
         for sec in &mut sections {
@@ -337,6 +338,7 @@ impl Book {
     }
 
     /// Deserializes and restores a `Book` state from a `zstd`-compressed byte buffer (`&[u8]`).
+    #[cfg(feature = "zstd")]
     pub fn from_zstd_cache(zstd_bytes: &[u8]) -> Result<Self, String> {
         let json_bytes = zstd::decode_all(zstd_bytes)
             .map_err(|e| format!("Zstd decompression failed: {}", e))?;
@@ -797,7 +799,6 @@ impl Book {
                 ));
             }
             opf_xml.push_str("  </metadata>\n  <manifest>\n    <item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>\n");
-
 
             for section in &self.sections {
                 opf_xml.push_str(&format!(

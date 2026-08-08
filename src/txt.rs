@@ -32,21 +32,33 @@ impl TxtBook {
         for line in text.lines().take(15) {
             let lower = line.to_lowercase();
             if let Some(pos) = lower.find("title:") {
-                let v = line[pos + 6..].trim().trim_matches('"').trim_matches('\'').trim();
+                let v = line[pos + 6..]
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'')
+                    .trim();
                 if !v.is_empty() {
                     title = v.to_string();
                     has_custom_title = true;
                 }
             } else if let Some(pos) = lower.find("author:").or_else(|| lower.find("creator:")) {
                 if let Some(colon) = line[pos..].find(':') {
-                    let v = line[pos + colon + 1..].trim().trim_matches('"').trim_matches('\'').trim();
+                    let v = line[pos + colon + 1..]
+                        .trim()
+                        .trim_matches('"')
+                        .trim_matches('\'')
+                        .trim();
                     if !v.is_empty() {
                         creators.push(v.to_string());
                     }
                 }
             } else if let Some(pos) = lower.find("language:").or_else(|| lower.find("lang:")) {
                 if let Some(colon) = line[pos..].find(':') {
-                    let v = line[pos + colon + 1..].trim().trim_matches('"').trim_matches('\'').trim();
+                    let v = line[pos + colon + 1..]
+                        .trim()
+                        .trim_matches('"')
+                        .trim_matches('\'')
+                        .trim();
                     if !v.is_empty() {
                         languages = vec![v.to_string()];
                     }

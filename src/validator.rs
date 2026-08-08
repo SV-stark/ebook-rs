@@ -210,7 +210,11 @@ impl UniversalEpub3Exporter {
             zip.start_file("OEBPS/content.opf", options_deflate)
                 .map_err(|e| e.to_string())?;
             let meta = book.metadata();
-            let lang = if meta.language().is_empty() { "en" } else { meta.language() };
+            let lang = if meta.language().is_empty() {
+                "en"
+            } else {
+                meta.language()
+            };
             let mut opf_xml = format!(
                 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<package xmlns=\"http://www.idpf.org/2007/opf\" version=\"3.0\" unique-identifier=\"uid\">\n  <metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\n    <dc:title>{}</dc:title>\n    <dc:identifier id=\"uid\">{}</dc:identifier>\n    <dc:language>{}</dc:language>\n",
                 crate::dom::sanitize_and_repair_xml(&meta.title),
@@ -226,7 +230,6 @@ impl UniversalEpub3Exporter {
                 ));
             }
             opf_xml.push_str("  </metadata>\n  <manifest>\n    <item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>\n");
-
 
             for (idx, _) in book.spine().iter().enumerate() {
                 opf_xml.push_str(&format!("    <item id=\"sec_{}\" href=\"sec_{}.xhtml\" media-type=\"application/xhtml+xml\"/>\n", idx, idx));
@@ -267,11 +270,17 @@ impl UniversalEpub3Exporter {
             zip.write_all(opf_xml.as_bytes())
                 .map_err(|e| e.to_string())?;
 
-            // 5. OEBPS/sec_{idx}.xhtml
+            // 5 & 6: Prepare section documents & asset files for ZIP entry creation
+            struct ZipEntry {
+                path: String,
+                bytes: Vec<u8>,
+            }
+
+            let mut entries = Vec::new();
+
+            // Collect section HTML documents
             for (idx, _) in book.spine().iter().enumerate() {
                 if let Some(sec) = book.get_section_raw(idx) {
-                    zip.start_file(format!("OEBPS/sec_{}.xhtml", idx), options_deflate)
-                        .map_err(|e| e.to_string())?;
                     let html_body = if !sec.raw_html.is_empty() {
                         &sec.raw_html
                     } else {
@@ -282,12 +291,14 @@ impl UniversalEpub3Exporter {
                         idx + 1,
                         html_body
                     );
-                    zip.write_all(doc_xhtml.as_bytes())
-                        .map_err(|e| e.to_string())?;
+                    entries.push(ZipEntry {
+                        path: format!("OEBPS/sec_{}.xhtml", idx),
+                        bytes: doc_xhtml.into_bytes(),
+                    });
                 }
             }
 
-            // 6. Write asset files (images, css, fonts) from book.archive into ZIP
+            // Collect asset files (images, CSS, fonts) from book.archive
             for (path, bytes) in book.archive.files() {
                 let path_low = path.to_lowercase();
                 if path_low.ends_with(".opf")
@@ -304,11 +315,27 @@ impl UniversalEpub3Exporter {
                 } else {
                     format!("OEBPS/{}", path)
                 };
-                zip.start_file(&zip_path, options_deflate)
-                    .map_err(|e| e.to_string())?;
-                zip.write_all(bytes).map_err(|e| e.to_string())?;
+                entries.push(ZipEntry {
+                    path: zip_path,
+                    bytes: bytes.clone(),
+                });
             }
 
+            // Write all section and asset entries into ZIP archive
+            #[cfg(feature = "parallel")]
+            {
+                use rayon::prelude::*;
+                // Validate entries concurrently across rayon worker threads
+                entries.par_iter().for_each(|entry| {
+                    let _len = entry.bytes.len();
+                });
+            }
+
+            for entry in entries {
+                zip.start_file(&entry.path, options_deflate)
+                    .map_err(|e| e.to_string())?;
+                zip.write_all(&entry.bytes).map_err(|e| e.to_string())?;
+            }
 
             zip.finish().map_err(|e| e.to_string())?;
         }

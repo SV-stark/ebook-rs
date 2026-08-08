@@ -236,15 +236,44 @@ fn split_lit_html(html: &str) -> Vec<String> {
     let mut boundaries = vec![0];
 
     let patterns = &[
-        "<h1", "<h2", "<h3", "<div class=\"chapter\"",
-        "chapter i.", "chapter ii.", "chapter iii.", "chapter iv.", "chapter v.",
-        "chapter vi.", "chapter vii.", "chapter viii.", "chapter ix.", "chapter x.",
-        "chapter xi.", "chapter xii.",
-        "chapter i ", "chapter ii ", "chapter iii ", "chapter iv ", "chapter v ",
-        "chapter vi ", "chapter vii ", "chapter viii ", "chapter ix ", "chapter x ",
-        "chapter xi ", "chapter xii ",
-        "chapter 1", "chapter 2", "chapter 3", "chapter 4", "chapter 5",
-        "chapter 6", "chapter 7", "chapter 8", "chapter 9", "chapter 10",
+        "<h1",
+        "<h2",
+        "<h3",
+        "<div class=\"chapter\"",
+        "chapter i.",
+        "chapter ii.",
+        "chapter iii.",
+        "chapter iv.",
+        "chapter v.",
+        "chapter vi.",
+        "chapter vii.",
+        "chapter viii.",
+        "chapter ix.",
+        "chapter x.",
+        "chapter xi.",
+        "chapter xii.",
+        "chapter i ",
+        "chapter ii ",
+        "chapter iii ",
+        "chapter iv ",
+        "chapter v ",
+        "chapter vi ",
+        "chapter vii ",
+        "chapter viii ",
+        "chapter ix ",
+        "chapter x ",
+        "chapter xi ",
+        "chapter xii ",
+        "chapter 1",
+        "chapter 2",
+        "chapter 3",
+        "chapter 4",
+        "chapter 5",
+        "chapter 6",
+        "chapter 7",
+        "chapter 8",
+        "chapter 9",
+        "chapter 10",
     ];
 
     for tag in patterns {
@@ -299,7 +328,11 @@ fn split_lit_html(html: &str) -> Vec<String> {
     if boundaries.len() > 1 {
         for i in 0..boundaries.len() {
             let start = boundaries[i];
-            let end = if i + 1 < boundaries.len() { boundaries[i + 1] } else { html.len() };
+            let end = if i + 1 < boundaries.len() {
+                boundaries[i + 1]
+            } else {
+                html.len()
+            };
             let chunk = html[start..end].trim();
             if !chunk.is_empty() {
                 parts.push(chunk.to_string());
@@ -371,5 +404,3 @@ fn extract_images_from_lit_bytes(bytes: &[u8], archive: &mut EpubArchive) -> usi
 
     image_count
 }
-
-

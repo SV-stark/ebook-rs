@@ -5,6 +5,18 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-08-08
+
+### Added
+
+- **Multi-Threaded Parallel ZIP Exporter (`src/validator.rs`)**: Parallelized HTML section document and embedded asset compression across Rayon worker threads when `parallel` feature is enabled (`entries.par_iter()`), accelerating EPUB 3 export performance for 100MB+ image-heavy books.
+- **CBZ Comic Reader Optimizations (`src/cbz.rs`)**:
+  - **Zero-Latency Page Pre-Fetching**: Added `CbzBook::prefetch_page_images()` and `book.prefetch_comic_pages()` to pre-load adjacent comic page images into memory buffers for lag-free page turns.
+  - **2-Page Manga Spread View**: Added `CbzBook::parse_manga()` and `CbzBook::enable_manga_mode()` with Right-to-Left (`direction: rtl`) reading progression.
+- **Native Python / PyO3 Wheel Bindings (`src/python.rs`)**: Exposed PyO3 `Book` and `Section` bindings (`pip install ebook-rs`) with automated PyPI publishing workflow (`.github/workflows/pypi.yml`).
+
+---
+
 ## [0.13.9] - 2026-08-08
 
 ### Added

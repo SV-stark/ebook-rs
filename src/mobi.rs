@@ -215,7 +215,8 @@ impl MobiBook {
             // Also try reading full-title from MOBI header full_name_offset / full_name_length
             // (bytes 84-87 = offset from record 0 start, bytes 88-91 = length)
             if title == pdb_name && rec0.len() >= 92 {
-                let fn_offset = u32::from_be_bytes([rec0[84], rec0[85], rec0[86], rec0[87]]) as usize;
+                let fn_offset =
+                    u32::from_be_bytes([rec0[84], rec0[85], rec0[86], rec0[87]]) as usize;
                 let fn_len = u32::from_be_bytes([rec0[88], rec0[89], rec0[90], rec0[91]]) as usize;
                 if fn_offset > 0 && fn_len > 0 && fn_offset + fn_len <= rec0.len() {
                     let full_name = String::from_utf8_lossy(&rec0[fn_offset..fn_offset + fn_len])
@@ -466,7 +467,11 @@ fn split_mobi_html(html: &str) -> Vec<String> {
         if boundaries.len() > 1 {
             for i in 0..boundaries.len() {
                 let start = boundaries[i];
-                let end = if i + 1 < boundaries.len() { boundaries[i + 1] } else { html.len() };
+                let end = if i + 1 < boundaries.len() {
+                    boundaries[i + 1]
+                } else {
+                    html.len()
+                };
                 let chunk = html[start..end].trim();
                 if !chunk.is_empty() {
                     parts.push(chunk.to_string());
@@ -577,7 +582,6 @@ fn extract_mobi_images_and_populate_archive(
 
     output
 }
-
 
 fn detect_image_mime(bytes: &[u8]) -> Option<&'static str> {
     if bytes.len() < 4 {

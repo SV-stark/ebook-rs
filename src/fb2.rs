@@ -98,7 +98,8 @@ impl Fb2Book {
                     let rel_path = format!("images/{}", filename);
                     let full_archive_path = format!("OEBPS/{}", rel_path);
 
-                    if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(&b64_clean) {
+                    if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(&b64_clean)
+                    {
                         archive.insert(full_archive_path, bytes);
                         binary_map.insert(clean_id, rel_path);
                     }

@@ -29,6 +29,8 @@ pub mod opds;
 pub mod opf;
 pub mod paginator;
 pub mod pdf;
+#[cfg(feature = "python")]
+pub mod python;
 pub mod rag;
 pub mod sample_builder;
 pub mod search;

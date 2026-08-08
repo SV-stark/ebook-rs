@@ -1,4 +1,4 @@
-# 📖 EBook-RS: Multi-Format Rust EBook Parser and Reader Engine (v0.13.9)
+# 📖 EBook-RS: Multi-Format Rust EBook Parser and Reader Engine (v0.14.0)
 
 `ebook-rs` is a high-performance, 100% pure Rust parser and reader engine for **EPUB 2**, **EPUB 3**, **Amazon KFX (Kindle Format 10)**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT**, **TXT**, and **MD** formats, designed for full feature parity with **epub.js** and **foliate-js**, equipped with native AI/RAG document chunking, C FFI multi-language bindings, and Web Component support.
 
@@ -8,7 +8,7 @@
 
 ### 📂 Format Support
 
-| Feature | 🚀 `ebook-rs` (v0.13.9) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.14.0) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **EPUB 2 & 3 Support** | ✅ Full OPF + NCX/NAV | ✅ Yes | ✅ Yes | ✅ Yes |
 | **EPUB 3 Fixed-Layout (FXL)** | ✅ 2-page spread renderer | ✅ Yes | ✅ Yes | ❌ No |
@@ -75,18 +75,17 @@ Empirically measured conversion benchmark converting eBook formats to **EPUB 3**
 
 ---
 
-## 🆕 What's New in v0.13.9
+## 🆕 What's New in v0.14.0
 
-- **Mobipocket DRM Encryption Guard (`src/mobi.rs`)**:
-  - Direct inspection of Mobipocket header DRM encryption flags (`rec0[12..14]`). Safely intercepts DRM-protected MOBI/AZW eBooks and returns a clean, friendly error message.
-- **TXT & Markdown Header Metadata Extraction (`src/txt.rs`)**:
-  - Automatic metadata tag extraction (`Title:`, `Author:`/`Creator:`, `Language:`/`Lang:`) from the top 15 header lines of `.txt` and `.md` files.
-- **Amazon KFX Chapter Sectioning & Heading Extraction (`src/kfx/reader.rs`)**:
-  - Dynamic chapter section heading fallback (`extract_first_heading`), enhanced key-value tag parsing, embedded image tags in HTML section chunks, and refined TOC labeling.
-- **Realistic 2-Page Book Spread View (`src/web_ui.rs`)**:
-  - Realistic 2-page open book spread layout (Left Page = Section $N$, Right Page = Section $N+1$) with page drop-shadows, page footers, and smooth page turning.
-- **Ultra-Fast Multi-Format Conversion Engine (`ebook-rs convert`)**:
-  - Convert any supported eBook format (**MOBI**, **AZW3**, **FB2**, **LIT**, **KFX**, **PDF**, **CBZ**, **ODT**, **TXT**, **MD**) directly into W3C-valid **EPUB 3** archives or **KFX** outputs in **< 1.1s** (up to **9.7× faster** than Calibre).
+- **Multi-Threaded Parallel ZIP Exporter (`src/validator.rs`)**:
+  - Parallelizes HTML section document and image asset compression across Rayon worker threads (`entries.par_iter()`), significantly accelerating EPUB 3 export speeds for 100MB+ image-heavy books.
+- **CBZ Comic Reader Optimizations (`src/cbz.rs`)**:
+  - **Zero-Latency Page Pre-fetching**: Added `CbzBook::prefetch_page_images()` and `book.prefetch_comic_pages()` to pre-load adjacent comic page image bytes into memory for instant page turns.
+  - **2-Page Manga Spread View Mode**: Added `CbzBook::parse_manga()` and `CbzBook::enable_manga_mode()` with Right-to-Left (`direction: rtl`) reading progression.
+- **Native Python / PyO3 Wheel Bindings (`pip install ebook-rs`)**:
+  - Native Python extension bindings (`PyBook`, `PySection`) with automated PyPI publishing workflow (`.github/workflows/pypi.yml`).
+- **Mobipocket & ADEPT DRM Encryption Guard (`src/mobi.rs`)**:
+  - Direct inspection of Mobipocket and Readium LCP DRM envelope headers (`rec0[12..14]`) returning explicit, actionable error messages.
 
 ---
 
@@ -135,7 +134,26 @@ ebook-rs convert book.epub chunks.json
 ebook-rs rag book.epub 512
 ```
 
-### 3. C / Python FFI API Integration
+### 3. Native Python API (`pip install ebook-rs`)
+
+```python
+import ebook_rs
+
+# Open any eBook format (EPUB, MOBI, KFX, AZW3, FB2, LIT, CBZ, PDF, TXT, MD)
+book = ebook_rs.Book.open("sample.mobi")
+
+print(f"Title: {book.title}")
+print(f"Authors: {book.authors}")
+print(f"Section Count: {book.section_count}")
+
+# Generate AI / RAG chunks with CFI citations directly in Python
+rag_chunks_json = book.to_rag_chunks_json(max_tokens=512)
+
+# Convert any format to EPUB 3 or KFX bytes
+epub_bytes = book.export_epub3_bytes()
+```
+
+### 4. C FFI API Integration
 
 ```c
 #include "ebook_rs.h"

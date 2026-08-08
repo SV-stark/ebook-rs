@@ -135,14 +135,18 @@ impl WasmBook {
 
     /// Export publication as Readium WebPub Manifest JSON string.
     pub fn get_webpub_manifest_json(&self) -> Result<String, JsValue> {
-        let manifest = crate::webpub::WebPubManifest::from_book(&self.inner);
+        let manifest = self.inner.to_webpub_manifest();
         serde_json::to_string(&manifest).map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
     /// Re-export publication as Universal EPUB3 raw Uint8Array byte vector.
     pub fn export_epub_bytes(&self) -> Result<Vec<u8>, JsValue> {
-        crate::validator::UniversalEpub3Exporter::export(&self.inner)
-            .map_err(|e| JsValue::from_str(&e))
+        crate::UniversalEpub3Exporter::export(&self.inner).map_err(|e| JsValue::from_str(&e))
+    }
+
+    /// Enable 2-Page Manga Spread mode (Right-to-Left reading progression).
+    pub fn enable_manga_mode(&mut self) {
+        crate::cbz::CbzBook::enable_manga_mode(&mut self.inner);
     }
 
     /// Get standalone zero-dependency `<ebook-reader>` HTMLElement Web Component JS definition string.

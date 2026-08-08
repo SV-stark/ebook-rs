@@ -157,10 +157,7 @@ impl KfxBook {
 
                 let raw_html = format!(
                     "<div class=\"kfx-section\"><h2>{}</h2><div>{}{}\n{}</div></div>",
-                    label,
-                    img_tag,
-                    chap_html,
-                    img_tag
+                    label, img_tag, chap_html, img_tag
                 );
                 let plain_text = crate::section::extract_plain_text(&raw_html);
                 let plain_text_lower = plain_text.to_lowercase();
@@ -295,7 +292,11 @@ fn extract_tag_or_kv(text: &str, key: &str) -> Option<String> {
                         .trim_matches('\'')
                         .trim_matches(',')
                         .trim();
-                    if !val.is_empty() && val.len() < 120 && !val.contains('{') && !val.contains('$') {
+                    if !val.is_empty()
+                        && val.len() < 120
+                        && !val.contains('{')
+                        && !val.contains('$')
+                    {
                         return Some(val.to_string());
                     }
                 }
@@ -450,5 +451,3 @@ mod tests {
         );
     }
 }
-
-

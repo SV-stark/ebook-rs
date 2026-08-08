@@ -153,6 +153,57 @@ impl CbzBook {
         book.generate_locations(1000);
         Ok(book)
     }
+
+    /// Parse a CBZ comic book archive in Manga mode (Right-to-Left reading progression).
+    pub fn parse_manga(bytes: &[u8], title_fallback: &str) -> Result<Book, String> {
+        let mut book = Self::parse(bytes, title_fallback)?;
+        Self::enable_manga_mode(&mut book);
+        Ok(book)
+    }
+
+    /// Enable 2-Page Manga Spread mode (Right-to-Left reading progression).
+    pub fn enable_manga_mode(book: &mut Book) {
+        book.opf.metadata.direction = PageProgressionDirection::Rtl;
+        for sec in &mut book.sections {
+            if !sec.processed_html.contains("dir=\"rtl\"") {
+                sec.processed_html = sec
+                    .processed_html
+                    .replace("<div", "<div dir=\"rtl\" class=\"manga-spread\"");
+            }
+        }
+    }
+
+    /// Pre-fetch image byte payloads for adjacent comic pages to enable zero-latency page turns.
+    pub fn prefetch_page_images(
+        book: &Book,
+        current_index: usize,
+        window: usize,
+    ) -> Vec<(usize, String, Vec<u8>)> {
+        let mut result = Vec::new();
+        let end = (current_index + window).min(book.sections.len());
+
+        for idx in current_index..end {
+            if let Some(sec) = book.sections.get(idx) {
+                if let Some(img_src) = extract_img_src_from_html(&sec.raw_html) {
+                    if let Ok((bytes, _mime)) = book.get_resource_bytes(&img_src) {
+                        result.push((idx, img_src, bytes));
+                    }
+                }
+            }
+        }
+        result
+    }
+}
+
+fn extract_img_src_from_html(html: &str) -> Option<String> {
+    let lower = html.to_lowercase();
+    if let Some(pos) = lower.find("src=\"") {
+        let start = pos + 5;
+        if let Some(end) = html[start..].find('"') {
+            return Some(html[start..start + end].to_string());
+        }
+    }
+    None
 }
 
 #[allow(dead_code)]
