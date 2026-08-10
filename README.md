@@ -27,6 +27,9 @@
 - [📊 Conversion Benchmarks](#-format-conversion-benchmark-ebook-rs-vs-calibre-ebook-convert)
 - [💻 CLI Usage](#-cli-usage)
 - [📚 Complete API Reference](#-complete-api-reference)
+- [🏗️ Architecture Overview](#-architecture-overview)
+- [🤝 Contributing](#-contributing)
+- [🙏 Acknowledgments](#-acknowledgments--credits)
 - [📜 License](#-license)
 
 ---
@@ -240,6 +243,64 @@ For detailed function signatures, struct documentation, and module guides, refer
 - **[`API.md`](file:///E:/ebook-rs/API.md)**: Full API reference guide.
 - **[`docs/MCP_SERVER.md`](file:///E:/ebook-rs/docs/MCP_SERVER.md)**: Model Context Protocol (MCP) server specification.
 - **[Docs.rs Documentation](https://docs.rs/ebook-rs)**: Generated Rust API docs.
+
+---
+
+## 🏗️ Architecture Overview
+
+`ebook-rs` is designed around a zero-copy, highly modular system architecture:
+
+```
+                      ┌────────────────────────────────────────┐
+                      │          Book (src/book.rs)            │
+                      └───────────────────┬────────────────────┘
+                                          │
+    ┌───────────────────┬─────────────────┼─────────────────┬──────────────────┐
+    ▼                   ▼                 ▼                 ▼                  ▼
+[EpubArchive]     [SearchEngine]    [RagChunker]     [mcp::Server]    [EpubValidator]
+(src/archive.rs)  (src/search.rs)   (src/rag.rs)     (src/mcp.rs)     (src/validator.rs)
+```
+
+- **`src/book.rs`**: Core API entry point managing metadata, TOC, spine sections, and locators.
+- **`src/search.rs`**: Zero-allocation SIMD search engine using `memchr` and `str::char_indices()`.
+- **`src/rag.rs`**: Okapi BM25 relevance scoring and AI document chunking engine.
+- **`src/mcp.rs`**: Model Context Protocol (MCP 2024-11-05) JSON-RPC stdio & HTTP server.
+- **`src/section.rs`**: Sub-5ms lazy section hydration and Base64 asset inlining.
+- **`src/validator.rs`**: Structural EPUB 2/3 validator and multi-threaded EPUB3/KFX exporter.
+
+---
+
+## 🤝 Contributing
+
+Contributions are warmly welcomed! Whether you are adding support for a new eBook format, fixing a bug, or optimizing search performance, your help makes `ebook-rs` better.
+
+### Development Workflow
+
+1. **Clone & Build**:
+   ```bash
+   git clone https://github.com/SV-stark/ebook-rs.git
+   cd ebook-rs
+   cargo build --all-features
+   ```
+2. **Run Test Suite**:
+   ```bash
+   cargo test --all-features
+   ```
+3. **Check Code Formatting & Lints**:
+   ```bash
+   cargo fmt -- --check
+   cargo clippy --all-targets --all-features
+   ```
+4. **Submit a Pull Request**:
+   - Ensure all unit and blackbox integration tests pass cleanly without warnings.
+   - Include a concise description of your changes in your PR description.
+
+---
+
+## 🙏 Acknowledgments & Credits
+
+- Inspired by the feature capabilities of **[epub.js](https://github.com/futurepress/epub.js)** and **[foliate-js](https://github.com/johnfactotum/foliate-js)**.
+- Compliant with **[W3C EPUB 3.3 Specifications](https://www.w3.org/publishing/epub33/)** and **[Readium Foundation Architecture](https://readium.org)**.
 
 ---
 
