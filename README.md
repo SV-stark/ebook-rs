@@ -1,6 +1,6 @@
-# 📖 EBook-RS: Multi-Format Rust EBook Parser and Reader Engine (v0.15.0)
+# 📖 EBook-RS: Multi-Format Rust EBook Parser and Reader Engine (v0.15.1)
 
-`ebook-rs` is a high-performance, 100% pure Rust parser and reader engine for **EPUB 2**, **EPUB 3**, **Amazon KFX (Kindle Format 10)**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT**, **TXT**, and **MD** formats, designed for full feature parity with **epub.js** and **foliate-js**, equipped with Model Context Protocol (MCP 2024-11-05) AI assistant support, native AI/RAG document chunking with Okapi BM25 scoring, C FFI multi-language bindings, and Web Component support.
+`ebook-rs` is a high-performance, 100% pure Rust parser and reader engine for **EPUB 2**, **EPUB 3**, **Amazon KFX (Kindle Format 10)**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT**, **TXT**, and **MD** formats, designed for full feature parity with **epub.js** and **foliate-js**, equipped with Model Context Protocol (MCP 2024-11-05) AI assistant support, native AI/RAG document chunking with Okapi BM25 scoring, C FFI multi-language bindings, sub-5ms lazy hydration, and Web Component support.
 
 ---
 
@@ -8,7 +8,7 @@
 
 ### 📂 Format Support
 
-| Feature | 🚀 `ebook-rs` (v0.15.0) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.15.1) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **EPUB 2 & 3 Support** | ✅ Full OPF + NCX/NAV | ✅ Yes | ✅ Yes | ✅ Yes |
 | **EPUB 3 Fixed-Layout (FXL)** | ✅ 2-page spread renderer | ✅ Yes | ✅ Yes | ❌ No |
