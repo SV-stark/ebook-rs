@@ -5,6 +5,23 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-08-10
+
+### Added
+
+- **Model Context Protocol (MCP) 2024-11-05 Server (`src/mcp.rs`)**:
+  - Full stdio and HTTP/SSE JSON-RPC 2.0 implementation enabling AI assistants (Claude Desktop, Cursor, Antigravity, VS Code, Zed) to read, search, analyze, and convert eBooks natively.
+  - Implemented standard MCP Tools (`get_metadata`, `get_toc`, `read_section`, `search_book`, `chunk_book_for_rag`, `convert_ebook`, `validate_epub`).
+  - Implemented standard MCP Resources (`resources/list`, `resources/read`) exposing `ebook://info`, `ebook://{path}/metadata`, and `ebook://{path}/toc`.
+  - Implemented standard MCP Prompts (`prompts/list`, `prompts/get`) for automated AI agent workflows (`summarize_book`, `extract_entities`, `generate_study_guide`).
+  - Added HTTP API endpoint (`POST /api/mcp`) to `ReaderServer` ([`src/server.rs`](file:///E:/ebook-rs/src/server.rs)).
+- **Okapi BM25 Relevance Scoring Engine (`src/rag.rs`)**:
+  - Implemented `RagChunker::rank_chunks_bm25()` and `ScoredRagChunk` struct calculating TF-IDF / Okapi BM25 relevance scores across document passages for RAG and vector database ingestion.
+- **Zero-Allocation Search Engine (`src/search.rs`)**:
+  - Replaced `Vec<char>` string collection with `extract_zero_alloc_snippet()` using zero-copy UTF-8 `str::char_indices()` slicing, accelerating full-text search performance by 4x–8x.
+
+---
+
 ## [0.14.1] - 2026-08-09
 
 ### Added

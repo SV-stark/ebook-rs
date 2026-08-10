@@ -74,31 +74,20 @@ impl SearchEngine {
                 target_text[..match_byte_idx].chars().count()
             };
 
-            let q_char_count = if is_ascii {
-                query_lower.len()
-            } else {
-                query_lower.chars().count()
-            };
+            let match_len = query_lower.len();
 
-            let text_chars: Vec<char> = section.plain_text.chars().collect();
-            let total_chars = text_chars.len();
-            let start_c = char_offset.saturating_sub(40);
-            let end_c = (char_offset + q_char_count + 40).min(total_chars);
-            let match_end_c = (char_offset + q_char_count).min(total_chars);
+            let (before, matched, after, has_prefix, has_suffix) =
+                extract_zero_alloc_snippet(&section.plain_text, match_byte_idx, match_len);
 
-            let before: String = text_chars[start_c..char_offset].iter().collect();
-            let matched: String = text_chars[char_offset..match_end_c].iter().collect();
-            let after: String = text_chars[match_end_c..end_c].iter().collect();
-
-            let prefix = if start_c > 0 { "..." } else { "" };
-            let suffix = if end_c < total_chars { "..." } else { "" };
+            let prefix = if has_prefix { "..." } else { "" };
+            let suffix = if has_suffix { "..." } else { "" };
 
             let snippet = format!(
                 "{}{}<mark>{}</mark>{}{}",
                 prefix,
-                html_escape(&before),
-                html_escape(&matched),
-                html_escape(&after),
+                html_escape(before),
+                html_escape(matched),
+                html_escape(after),
                 suffix
             );
 
@@ -195,6 +184,61 @@ impl SearchEngine {
 
         serde_json::to_string_pretty(&collection)
             .map_err(|e| format!("Failed to serialize Readium Search JSON: {}", e))
+    }
+}
+
+/// Extract snippet window surrounding a match without converting the entire string to a Vec<char>.
+fn extract_zero_alloc_snippet(
+    text: &str,
+    byte_offset: usize,
+    match_bytes_len: usize,
+) -> (&str, &str, &str, bool, bool) {
+    if text.is_ascii() {
+        let start_b = byte_offset.saturating_sub(40);
+        let end_match_b = (byte_offset + match_bytes_len).min(text.len());
+        let end_b = (end_match_b + 40).min(text.len());
+
+        let prefix = start_b > 0;
+        let suffix = end_b < text.len();
+
+        let before = &text[start_b..byte_offset];
+        let matched = &text[byte_offset..end_match_b];
+        let after = &text[end_match_b..end_b];
+
+        (before, matched, after, prefix, suffix)
+    } else {
+        let safe_byte_offset = byte_offset.min(text.len());
+        let before_slice = &text[..safe_byte_offset];
+        let mut start_b = 0;
+        let mut count = 0;
+        for (idx, _) in before_slice.char_indices().rev() {
+            count += 1;
+            if count == 40 {
+                start_b = idx;
+                break;
+            }
+        }
+
+        let end_match_b = (safe_byte_offset + match_bytes_len).min(text.len());
+        let after_slice = &text[end_match_b..];
+        let mut end_b = text.len();
+        let mut count = 0;
+        for (idx, c) in after_slice.char_indices() {
+            count += 1;
+            if count == 40 {
+                end_b = end_match_b + idx + c.len_utf8();
+                break;
+            }
+        }
+
+        let prefix = start_b > 0;
+        let suffix = end_b < text.len();
+
+        let before = &text[start_b..safe_byte_offset];
+        let matched = &text[safe_byte_offset..end_match_b];
+        let after = &text[end_match_b..end_b];
+
+        (before, matched, after, prefix, suffix)
     }
 }
 

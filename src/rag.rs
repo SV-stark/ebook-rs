@@ -240,6 +240,91 @@ impl RagChunker {
         }
         (headings, paragraphs)
     }
+
+    /// Rank RAG chunks using Okapi BM25 relevance scoring algorithm for a search query.
+    pub fn rank_chunks_bm25(chunks: &[RagChunk], query: &str, top_k: usize) -> Vec<ScoredRagChunk> {
+        let query_terms: Vec<String> = query
+            .to_lowercase()
+            .split_whitespace()
+            .map(|s| s.trim_matches(|c: char| !c.is_alphanumeric()).to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        if query_terms.is_empty() || chunks.is_empty() {
+            return Vec::new();
+        }
+
+        let num_docs = chunks.len() as f32;
+        let avg_doc_len = chunks
+            .iter()
+            .map(|c| c.text.split_whitespace().count())
+            .sum::<usize>() as f32
+            / num_docs.max(1.0);
+
+        // Compute Inverse Document Frequency (IDF) for query terms
+        let mut idf_map = std::collections::HashMap::new();
+        for term in &query_terms {
+            let doc_freq = chunks
+                .iter()
+                .filter(|c| c.text.to_lowercase().contains(term))
+                .count() as f32;
+            let idf = ((num_docs - doc_freq + 0.5) / (doc_freq + 0.5) + 1.0).ln();
+            idf_map.insert(term.clone(), idf.max(0.0));
+        }
+
+        let k1 = 1.2f32;
+        let b = 0.75f32;
+
+        let mut scored_chunks: Vec<ScoredRagChunk> = chunks
+            .iter()
+            .map(|chunk| {
+                let doc_words: Vec<String> = chunk
+                    .text
+                    .to_lowercase()
+                    .split_whitespace()
+                    .map(|s| s.trim_matches(|c: char| !c.is_alphanumeric()).to_string())
+                    .collect();
+
+                let doc_len = doc_words.len() as f32;
+                let mut score = 0.0f32;
+
+                for term in &query_terms {
+                    let tf = doc_words.iter().filter(|w| w == &term).count() as f32;
+                    if tf > 0.0 {
+                        let idf = idf_map.get(term).cloned().unwrap_or(0.0);
+                        let num = tf * (k1 + 1.0);
+                        let den = tf + k1 * (1.0 - b + b * (doc_len / avg_doc_len.max(1.0)));
+                        score += idf * (num / den);
+                    }
+                }
+
+                ScoredRagChunk {
+                    chunk: chunk.clone(),
+                    bm25_score: score,
+                }
+            })
+            .filter(|sc| sc.bm25_score > 0.0)
+            .collect();
+
+        scored_chunks.sort_by(|a, b| {
+            b.bm25_score
+                .partial_cmp(&a.bm25_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        if top_k > 0 && scored_chunks.len() > top_k {
+            scored_chunks.truncate(top_k);
+        }
+
+        scored_chunks
+    }
+}
+
+/// A RAG document chunk with Okapi BM25 relevance score.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScoredRagChunk {
+    pub chunk: RagChunk,
+    pub bm25_score: f32,
 }
 
 #[cfg(test)]
@@ -277,5 +362,38 @@ mod tests {
         assert!(chunks[0].markdown.contains("# Chapter 1"));
         assert!(chunks[0].text.contains("First paragraph"));
         assert!(chunks[0].cfi.contains("epubcfi"));
+    }
+
+    #[test]
+    fn test_bm25_ranking() {
+        let chunk1 = RagChunk {
+            id: "c1".to_string(),
+            spine_index: 0,
+            chapter_title: "Ch 1".to_string(),
+            heading_hierarchy: vec![],
+            cfi: "epubcfi(/6/2)".to_string(),
+            text: "Quantum computing uses qubits for quantum algorithms.".to_string(),
+            markdown: "Quantum computing uses qubits for quantum algorithms.".to_string(),
+            token_count_estimate: 10,
+            book_title: "Physics".to_string(),
+            book_author: "Author".to_string(),
+        };
+        let chunk2 = RagChunk {
+            id: "c2".to_string(),
+            spine_index: 1,
+            chapter_title: "Ch 2".to_string(),
+            heading_hierarchy: vec![],
+            cfi: "epubcfi(/6/4)".to_string(),
+            text: "Classical computers use binary bits.".to_string(),
+            markdown: "Classical computers use binary bits.".to_string(),
+            token_count_estimate: 8,
+            book_title: "Physics".to_string(),
+            book_author: "Author".to_string(),
+        };
+
+        let ranked = RagChunker::rank_chunks_bm25(&[chunk1, chunk2], "quantum qubits", 10);
+        assert!(!ranked.is_empty());
+        assert_eq!(ranked[0].chunk.id, "c1");
+        assert!(ranked[0].bm25_score > 0.0);
     }
 }

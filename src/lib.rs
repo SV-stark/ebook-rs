@@ -19,6 +19,7 @@ pub mod layout;
 pub mod lcp;
 pub mod lit;
 pub mod locations;
+pub mod mcp;
 pub mod media_overlay;
 pub mod metadata;
 pub mod mobi;
@@ -46,6 +47,8 @@ pub mod webpub;
 pub mod server;
 #[cfg(feature = "server")]
 pub mod web_ui;
+
+pub use mcp::run_mcp_server;
 
 pub use analytics::ReadingAnalytics;
 pub use annotations::{Annotation, AnnotationManager, AnnotationType};

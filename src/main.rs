@@ -13,6 +13,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mode = args.get(1).map(|s| s.as_str()).unwrap_or("serve");
 
     match mode {
+        "mcp" => {
+            eprintln!("🚀 Starting ebook-rs Model Context Protocol (MCP) server on stdio...");
+            ebook_rs::run_mcp_server()?;
+        }
         "parse" => {
             let path = args.get(2).ok_or("Usage: ebook-rs parse <path.epub>")?;
             let book = Book::from_file(path)?;

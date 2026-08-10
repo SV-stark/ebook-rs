@@ -1,6 +1,6 @@
 [package]
 name = "ebook-rs"
-version = "0.14.1"
+version = "0.15.0"
 edition = "2024"
 authors = ["SV-Stark"]
 description = "Pure Rust multi-format eBook engine (EPUB2/3, MOBI, AZW3, FB2, LIT, CBZ, PDF, ODT, TXT, MD) with SpeechSynthesis TTS Word Synchronizer, Legacy Charset Decoding, Auto Language Detection, Zstd State Caching, Universal EPUB3 Exporter, Zero-Copy mmap, and Readium LCP/Locator APIs."
@@ -29,7 +29,8 @@ path = "src/main.rs"
 required-features = ["server"]
 
 [features]
-default = ["server", "opds", "parallel", "mmap", "serde", "zstd"]
+default = ["server", "opds", "parallel", "mmap", "serde", "zstd", "mcp"]
+mcp = ["serde", "dep:serde_json"]
 server = ["dep:tiny_http", "dep:url"]
 wasm = ["dep:wasm-bindgen", "dep:getrandom", "serde"]
 python = ["dep:pyo3"]

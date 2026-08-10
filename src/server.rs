@@ -66,6 +66,32 @@ impl ReaderServer {
                             Response::from_string(READER_HTML).with_header(header),
                         );
                     }
+                    "/api/mcp" => {
+                        let mut body = String::new();
+                        let _ = request.as_reader().read_to_string(&mut body);
+                        if let Ok(mcp_req) =
+                            serde_json::from_str::<crate::mcp::JsonRpcRequest>(&body)
+                        {
+                            if let Some(resp_val) = crate::mcp::process_mcp_request(&mcp_req) {
+                                let json_resp =
+                                    serde_json::to_string(&resp_val).unwrap_or_default();
+                                let header = Header::from_bytes(
+                                    &b"Content-Type"[..],
+                                    &b"application/json"[..],
+                                )
+                                .unwrap();
+                                send_response(
+                                    request,
+                                    Response::from_string(json_resp).with_header(header),
+                                );
+                                return;
+                            }
+                        }
+                        let header =
+                            Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
+                                .unwrap();
+                        send_response(request, Response::from_string("{}").with_header(header));
+                    }
                     "/api/book/metadata" => {
                         let book = book_arc.read().unwrap_or_else(|e| e.into_inner());
                         let json = serde_json::to_string(book.metadata()).unwrap_or_default();

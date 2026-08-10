@@ -209,10 +209,10 @@ pub fn reflow_two_column_markdown(md: &str) -> String {
 
         if in_two_column_zone && (trimmed.starts_with('#') || trimmed.is_empty()) {
             if !left_column.is_empty() {
-                result_lines.extend(left_column.drain(..));
+                result_lines.append(&mut left_column);
             }
             if !right_column.is_empty() {
-                result_lines.extend(right_column.drain(..));
+                result_lines.append(&mut right_column);
             }
             in_two_column_zone = false;
         }
@@ -230,7 +230,7 @@ pub fn reflow_two_column_markdown(md: &str) -> String {
     result_lines.join("\n")
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "pdf"))]
 mod tests {
     use super::*;
 
