@@ -18,6 +18,120 @@
 
 ---
 
+## 📋 Table of Contents
+- [📦 Installation](#-installation)
+- [🚀 Quick Start (Rust)](#-quick-start-rust)
+- [🐍 Python Bindings](#-python-bindings)
+- [🤖 Model Context Protocol (MCP) Server](#-model-context-protocol-mcp-server)
+- [⚡ Feature Parity Matrix](#-feature-parity-matrix)
+- [📊 Conversion Benchmarks](#-format-conversion-benchmark-ebook-rs-vs-calibre-ebook-convert)
+- [💻 CLI Usage](#-cli-usage)
+- [📚 Complete API Reference](#-complete-api-reference)
+- [📜 License](#-license)
+
+---
+
+## 📦 Installation
+
+Add `ebook-rs` to your `Cargo.toml`:
+
+```toml
+[dependencies]
+ebook-rs = "0.15.1"
+```
+
+Or install via `cargo`:
+
+```bash
+cargo add ebook-rs
+```
+
+For Python projects:
+
+```bash
+pip install ebook-rs
+```
+
+---
+
+## 🚀 Quick Start (Rust)
+
+```rust
+use ebook_rs::{Book, SearchEngine, RagChunkConfig};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 1. Open any eBook file (EPUB, MOBI, KFX, PDF, FB2, CBZ, TXT, MD)
+    let book = Book::from_file("books/alice.epub")?;
+
+    println!("📖 Title: {}", book.metadata().title);
+    println!("✍️ Author: {}", book.metadata().creators.join(", "));
+    println!("📚 Total Sections: {}", book.sections.len());
+
+    // 2. Read chapter section content
+    let section = book.get_section(0)?;
+    println!("Chapter 1 Plain Text:\n{}", section.plain_text);
+
+    // 3. Perform zero-allocation SIMD full-text search
+    let results = book.search("Rabbit");
+    for hit in results.iter().take(3) {
+        println!("[Section {}] CFI: {}\nSnippet: {}\n", hit.spine_index, hit.cfi, hit.snippet);
+    }
+
+    // 4. Generate AI RAG document chunks with Okapi BM25 ranking
+    let chunks = book.to_rag_chunks(&RagChunkConfig::default());
+    let ranked = ebook_rs::rag::RagChunker::rank_chunks_bm25(&chunks, "White Rabbit", 5);
+    println!("Top RAG Chunk Score: {}", ranked[0].bm25_score);
+
+    Ok(())
+}
+```
+
+---
+
+## 🐍 Python Bindings
+
+```python
+from ebook_rs import PyBook
+
+# Load eBook file
+book = PyBook.open("sample.epub")
+
+print(f"Title: {book.title}")
+print(f"Authors: {book.authors}")
+print(f"Sections: {book.section_count}")
+
+# Read Section HTML & RAG JSON
+html = book.get_section_html(0)
+rag_json = book.to_rag_chunks_json(max_tokens=512)
+```
+
+---
+
+## 🤖 Model Context Protocol (MCP) Server
+
+`ebook-rs` includes a built-in **Model Context Protocol (MCP 2024-11-05)** JSON-RPC server on `stdio` or `HTTP/SSE`. Plug it into **Claude Desktop**, **Cursor**, **Antigravity**, or **VS Code** to enable AI assistants to read and query eBook libraries natively.
+
+### Run Server:
+```bash
+ebook-rs mcp
+```
+
+### Claude Desktop / Cursor Setup (`claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "ebook-rs": {
+      "command": "ebook-rs",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+> See detailed MCP documentation in [`docs/MCP_SERVER.md`](file:///E:/ebook-rs/docs/MCP_SERVER.md).
+
+---
+
 ## ⚡ Feature Parity Matrix
 
 ### 📂 Format Support
@@ -83,7 +197,7 @@
 
 ---
 
-### ⚡ Format Conversion Benchmark (`ebook-rs` vs Calibre `ebook-convert`)
+## ⚡ Format Conversion Benchmark (`ebook-rs` vs Calibre `ebook-convert`)
 
 Empirically measured conversion benchmark converting eBook formats to **EPUB 3** on identical test hardware:
 
@@ -95,17 +209,40 @@ Empirically measured conversion benchmark converting eBook formats to **EPUB 3**
 | **LIT → EPUB** | **0.48s** ⚡ | 3.53s | **7.4× Faster** | 37 / 37 (100% Parity) ✅ | 21 chapters | Matched |
 | **KFX → EPUB** | **0.37s** ⚡ | 3.84s *(Plugin Req.)* | **10.4× Faster** | 37 / 37 (100% Parity) ✅ | 22 chapters | Matched |
 
-*All conversions produce 100% W3C-validated EPUB 3 archives containing full metadata (`dc:creator`, `dc:title`, `dc:language`), Table of Contents (`nav.xhtml`), and image resources (`OEBPS/images/`).*
+---
+
+## 💻 CLI Usage
+
+The `ebook-rs` executable provides several utility sub-commands:
+
+```bash
+# Parse metadata and TOC
+ebook-rs parse sample.epub
+
+# Perform full-text search
+ebook-rs search sample.epub "query"
+
+# Launch Model Context Protocol (MCP) AI server
+ebook-rs mcp
+
+# Convert formats (MOBI/FB2/PDF -> EPUB / KFX / RAG JSON)
+ebook-rs convert sample.mobi output.epub
+
+# Launch local HTTP Reader web server (Port 8080)
+ebook-rs serve sample.epub
+```
 
 ---
 
-## 🆕 What's New in v0.15.1
+## 📚 Complete API Reference
 
-- **Model Context Protocol (MCP 2024-11-05) Server (`src/mcp.rs`)**:
-  - Native Stdio & HTTP/SSE JSON-RPC server enabling AI tools (Claude Desktop, Cursor, Antigravity, VS Code) to query books, read chapters, and extract TOCs.
-- **Okapi BM25 Relevance Scoring Engine (`src/rag.rs`)**:
-  - TF-IDF / Okapi BM25 scoring algorithm ranking RAG document chunks for semantic search & vector database ingestion.
-- **Zero-Allocation Full-Text Search (`src/search.rs`)**:
-  - Replaced `Vec<char>` heap collections with `extract_zero_alloc_snippet()` zero-copy `str::char_indices()` slicing, accelerating search by 4x–8x.
-- **Sub-5ms Lazy Resource Hydration (`src/section.rs`)**:
-  - Deferred Base64 asset inlining to section render time, speeding up initial book opening times by 80x (< 5ms startup).
+For detailed function signatures, struct documentation, and module guides, refer to:
+- **[`API.md`](file:///E:/ebook-rs/API.md)**: Full API reference guide.
+- **[`docs/MCP_SERVER.md`](file:///E:/ebook-rs/docs/MCP_SERVER.md)**: Model Context Protocol (MCP) server specification.
+- **[Docs.rs Documentation](https://docs.rs/ebook-rs)**: Generated Rust API docs.
+
+---
+
+## 📜 License
+
+Distributed under the **MIT License**. See [`LICENSE`](file:///E:/ebook-rs/LICENSE) for more information.
