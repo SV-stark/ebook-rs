@@ -54,14 +54,12 @@ impl Section {
         href: String,
         full_path: String,
         archive: &EpubArchive,
-        strategy: &AssetDeliveryStrategy,
+        _strategy: &AssetDeliveryStrategy,
     ) -> Result<Self, String> {
         let raw_html = archive.read_string(&full_path)?;
         let plain_text = extract_plain_text(&raw_html);
         let plain_text_lower = plain_text.to_lowercase();
         let char_count = plain_text.chars().count();
-        let processed_html =
-            process_section_resources_with_strategy(&raw_html, &full_path, archive, strategy);
         let (viewport_width, viewport_height) = parse_viewport_meta(&raw_html);
 
         Ok(Self {
@@ -69,8 +67,8 @@ impl Section {
             idref,
             href,
             full_path,
+            processed_html: raw_html.clone(),
             raw_html,
-            processed_html,
             plain_text,
             plain_text_lower,
             char_count,
