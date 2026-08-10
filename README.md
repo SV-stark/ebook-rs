@@ -2,7 +2,7 @@
 
 # 📖 `ebook-rs`
 
-**High-Performance Pure-Rust Multi-Format eBook Engine & AI/MCP Server**
+**High-Performance Pure-Rust Multi-Format eBook Parsing & Reader Engine**
 
 [![Crates.io Version](https://img.shields.io/crates/v/ebook-rs.svg?style=flat-square&color=orange)](https://crates.io/crates/ebook-rs)
 [![Crates.io Downloads](https://img.shields.io/crates/d/ebook-rs.svg?style=flat-square&color=blue)](https://crates.io/crates/ebook-rs)
@@ -12,7 +12,7 @@
 [![Rust Edition](https://img.shields.io/badge/rust-2024%20%7C%201.85%2B-informational?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/crates/l/ebook-rs.svg?style=flat-square&color=green)](LICENSE)
 
-*Fast, zero-copy, multi-format eBook engine for **EPUB 2/3, MOBI, AZW3, KFX, FB2, CBZ, PDF, ODT, TXT & MD** featuring native Model Context Protocol (MCP 2024-11-05) AI server support, Okapi BM25 RAG chunking, sub-5ms lazy hydration, and PyO3/WASM/FFI bindings.*
+*Pure Rust multi-format eBook engine (**EPUB 2/3, MOBI, AZW3, KFX, FB2, CBZ, PDF, ODT, TXT & MD**) featuring Readium CFI locators, TTS word sync, academic PDF reflow, EPUB3 exporter, zero-copy search, Python/WASM/FFI bindings, and native MCP AI server support.*
 
 </div>
 
