@@ -45,7 +45,7 @@ zstd = ["dep:zstd"]
 
 [dependencies]
 getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
-pyo3 = { version = "0.23", features = ["extension-module", "abi3-py38"], optional = true }
+pyo3 = { version = "0.24", features = ["extension-module", "abi3-py38"], optional = true }
 mimalloc = { version = "0.1", optional = true, default-features = false }
 zip = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
 roxmltree = "0.21"
