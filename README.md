@@ -19,18 +19,97 @@
 ---
 
 ## 📋 Table of Contents
+- [⚡ Feature Parity Matrix](#-feature-parity-matrix)
+- [📊 Conversion Benchmarks](#-format-conversion-benchmark-ebook-rs-vs-calibre-ebook-convert)
 - [📦 Installation](#-installation)
 - [🚀 Quick Start (Rust)](#-quick-start-rust)
 - [🐍 Python Bindings](#-python-bindings)
 - [🤖 Model Context Protocol (MCP) Server](#-model-context-protocol-mcp-server)
-- [⚡ Feature Parity Matrix](#-feature-parity-matrix)
-- [📊 Conversion Benchmarks](#-format-conversion-benchmark-ebook-rs-vs-calibre-ebook-convert)
 - [💻 CLI Usage](#-cli-usage)
 - [📚 Complete API Reference](#-complete-api-reference)
 - [🏗️ Architecture Overview](#-architecture-overview)
 - [🤝 Contributing](#-contributing)
 - [🙏 Acknowledgments](#-acknowledgments--credits)
 - [📜 License](#-license)
+
+---
+
+## ⚡ Feature Parity Matrix
+
+### 📂 Format Support
+
+| Feature | 🚀 `ebook-rs` (v0.15.1) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+|---|:---:|:---:|:---:|:---:|
+| **EPUB 2 & 3 Support** | ✅ Full OPF + NCX/NAV | ✅ Yes | ✅ Yes | ✅ Yes |
+| **EPUB 3 Fixed-Layout (FXL)** | ✅ 2-page spread renderer | ✅ Yes | ✅ Yes | ❌ No |
+| **Amazon KFX (KF10) Support** | ✅ Clean-room `b"CONT"` container | ❌ No | ✅ Yes | ❌ No |
+| **MOBI & AZW3 (KF8) Support** | ✅ Native PalmDOC LZ77 | ❌ No | ✅ Yes | ❌ No |
+| **FB2 (FictionBook 2) Support** | ✅ Native XML + xlink:href | ❌ No | ✅ Yes | ❌ No |
+| **KEPUB (Kobo EPUB) Support** | ✅ Native | ❌ No | ✅ Yes | ❌ No |
+| **LIT (Microsoft Reader) Support** | ✅ Native | ❌ No | ✅ Yes | ❌ No |
+| **CBZ (Comic Book ZIP) Support** | ✅ Native ZIP Images | ❌ No | ✅ Yes | ❌ No |
+| **PDF Support & Academic 2-Column Reflow** | ✅ `pdf_oxide` spatial reflow | ❌ No | ❌ No | ❌ No |
+| **ODT (OpenDocument Text)** | ✅ `office_oxide` | ❌ No | ❌ No | ❌ No |
+| **TXT / Markdown Support** | ✅ Auto-reflow sections | ❌ No | ❌ No | ❌ No |
+| **Auto Format Detection** | ✅ Magic-byte detection | ❌ No | ❌ No | ❌ No |
+
+### 🧭 Navigation, Rendering & Security
+
+| Feature | 🚀 `ebook-rs` (v0.15.1) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+|---|:---:|:---:|:---:|:---:|
+| **IDPF CFI Engine** | ✅ Parse / format / compare / range | ✅ Yes | ✅ Yes | ✅ Yes |
+| **CFI DOM Resolver** | ✅ `cfi.resolve_dom_path(html)` | ✅ Yes | ✅ Yes | ❌ No |
+| **Readium CFI Unified Locator** | ✅ Full model | ✅ Yes | ✅ Yes | ❌ No |
+| **Location / Reading Progress** | ✅ `locations_from_sections()` | ✅ Yes | ✅ Yes | ✅ Yes |
+| **SpeechSynthesis TTS Word Synchronizer** | ✅ `tokenize_tts_words()` token spans | ❌ No | ❌ No | ❌ No |
+| **SMIL Media Overlays (Sync)** | ✅ NPT clock parser | ✅ Yes | ✅ Yes | ❌ No |
+| **EPUB NCX / NAV TOC Parsing** | ✅ Deep recursive nav tree | ✅ Yes | ✅ Yes | ✅ Yes |
+| **RTL & CJK Vertical Writing** | ✅ `direction: rtl` + `vertical-rl` | ✅ Yes | ✅ Yes | ❌ No |
+| **Viewport Meta Parsing** | ✅ Zero-alloc slice parse | ✅ Yes | ✅ Yes | ❌ No |
+| **Reflow Paginator** | ✅ `ReflowPaginator::paginate_section` | ✅ Yes | ✅ Yes | ❌ No |
+| **Readium LCP DRM License Parser** | ✅ `LcpLicense` + expiry checks | ❌ No | ✅ Yes | ❌ No |
+| **Legacy Non-UTF-8 Auto-Decoding** | ✅ Auto Win-1252/Shift-JIS/GBK | ❌ No | ❌ No | ❌ No |
+
+### 🔍 Search, Analytics & AI RAG
+
+| Feature | 🚀 `ebook-rs` (v0.15.1) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+|---|:---:|:---:|:---:|:---:|
+| **Model Context Protocol (MCP 2024-11-05)** | ✅ Built-in Stdio & HTTP Server | ❌ No | ❌ No | ❌ No |
+| **Okapi BM25 Relevance Scoring** | ✅ `rank_chunks_bm25()` TF-IDF | ❌ No | ❌ No | ❌ No |
+| **AI & RAG Chunking Engine** | ✅ `to_rag_chunks()` + CFI citations | ❌ No | ❌ No | ❌ No |
+| **Zero-Allocation Full-Text Search** | ✅ SIMD `char_indices` slicing | ❌ No | ✅ Basic | ❌ No |
+| **Regex Search** | ✅ `regex_search` | ❌ No | ❌ No | ❌ No |
+| **Search Context Snippets** | ✅ `<mark>` highlights + XSS guard | ❌ No | ✅ Yes | ❌ No |
+| **Readium Search JSON Export** | ✅ Readium-compliant JSON | ❌ No | ✅ Yes | ❌ No |
+| **NLP Reading Analytics** | ✅ Word count / reading time / complexity | ❌ No | ❌ No | ❌ No |
+| **Auto Language Detection** | ✅ `detect_language` (`whatlang`) | ❌ No | ❌ No | ❌ No |
+
+### 🌐 Interoperability, Exporters & Performance
+
+| Feature | 🚀 `ebook-rs` (v0.15.1) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+|---|:---:|:---:|:---:|:---:|
+| **Universal EPUB 3 & KFX Exporters** | ✅ `export_epub3` & `export_kfx` | ❌ No | ❌ No | ❌ No |
+| **Sub-5ms Lazy Resource Hydration** | ✅ On-demand asset inlining | ❌ No | ❌ No | ❌ No |
+| **Zstd Compressed State Caching** | ✅ Instant `export_zstd_cache()` | ❌ No | ❌ No | ❌ No |
+| **C / Python / Node FFI Bindings** | ✅ `ebook_rs::ffi` C ABI + PyO3 | ❌ No | ❌ No | ❌ No |
+| **Web Component Generator** | ✅ `<ebook-reader>` HTMLElement | ❌ No | ❌ No | ❌ No |
+| **WASM Client SDK** | ✅ `WasmBook` WASM bindings | ✅ Yes | ✅ Yes | ❌ No |
+| **W3C Web Annotation (JSON-LD)** | ✅ Full CRUD + `to_w3c_json` | ❌ No | ✅ Yes | ❌ No |
+| **Readium WebPub Manifest Export** | ✅ `book.to_webpub_manifest()` | ❌ No | ✅ Yes | ❌ No |
+
+---
+
+## ⚡ Format Conversion Benchmark (`ebook-rs` vs Calibre `ebook-convert`)
+
+Empirically measured conversion benchmark converting eBook formats to **EPUB 3** on identical test hardware:
+
+| Input Format | 🚀 `ebook-rs` (v0.15.1) | 🐍 Calibre `ebook-convert` | Speedup | Image Assets Extracted | Chapter Sections | Output Parity |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| **MOBI → EPUB** | **0.98s** ⚡ | 4.64s | **4.8× Faster** | 38 / 37 (100% Parity) ✅ | 17 chapters | Matched |
+| **AZW3 (KF8) → EPUB** | **0.34s** ⚡ | 3.29s | **9.7× Faster** | 38 / 37 (100% Parity) ✅ | 14 chapters | Matched |
+| **FB2 → EPUB** | **0.26s** ⚡ | 2.73s | **10.5× Faster** | 37 / 37 (100% Parity) ✅ | 15 chapters | Matched |
+| **LIT → EPUB** | **0.48s** ⚡ | 3.53s | **7.4× Faster** | 37 / 37 (100% Parity) ✅ | 21 chapters | Matched |
+| **KFX → EPUB** | **0.37s** ⚡ | 3.84s *(Plugin Req.)* | **10.4× Faster** | 37 / 37 (100% Parity) ✅ | 22 chapters | Matched |
 
 ---
 
@@ -132,85 +211,6 @@ ebook-rs mcp
 ```
 
 > See detailed MCP documentation in [`docs/MCP_SERVER.md`](file:///E:/ebook-rs/docs/MCP_SERVER.md).
-
----
-
-## ⚡ Feature Parity Matrix
-
-### 📂 Format Support
-
-| Feature | 🚀 `ebook-rs` (v0.15.1) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
-|---|:---:|:---:|:---:|:---:|
-| **EPUB 2 & 3 Support** | ✅ Full OPF + NCX/NAV | ✅ Yes | ✅ Yes | ✅ Yes |
-| **EPUB 3 Fixed-Layout (FXL)** | ✅ 2-page spread renderer | ✅ Yes | ✅ Yes | ❌ No |
-| **Amazon KFX (KF10) Support** | ✅ Clean-room `b"CONT"` container | ❌ No | ✅ Yes | ❌ No |
-| **MOBI & AZW3 (KF8) Support** | ✅ Native PalmDOC LZ77 | ❌ No | ✅ Yes | ❌ No |
-| **FB2 (FictionBook 2) Support** | ✅ Native XML + xlink:href | ❌ No | ✅ Yes | ❌ No |
-| **KEPUB (Kobo EPUB) Support** | ✅ Native | ❌ No | ✅ Yes | ❌ No |
-| **LIT (Microsoft Reader) Support** | ✅ Native | ❌ No | ✅ Yes | ❌ No |
-| **CBZ (Comic Book ZIP) Support** | ✅ Native ZIP Images | ❌ No | ✅ Yes | ❌ No |
-| **PDF Support & Academic 2-Column Reflow** | ✅ `pdf_oxide` spatial reflow | ❌ No | ❌ No | ❌ No |
-| **ODT (OpenDocument Text)** | ✅ `office_oxide` | ❌ No | ❌ No | ❌ No |
-| **TXT / Markdown Support** | ✅ Auto-reflow sections | ❌ No | ❌ No | ❌ No |
-| **Auto Format Detection** | ✅ Magic-byte detection | ❌ No | ❌ No | ❌ No |
-
-### 🧭 Navigation, Rendering & Security
-
-| Feature | 🚀 `ebook-rs` (v0.15.1) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
-|---|:---:|:---:|:---:|:---:|
-| **IDPF CFI Engine** | ✅ Parse / format / compare / range | ✅ Yes | ✅ Yes | ✅ Yes |
-| **CFI DOM Resolver** | ✅ `cfi.resolve_dom_path(html)` | ✅ Yes | ✅ Yes | ❌ No |
-| **Readium CFI Unified Locator** | ✅ Full model | ✅ Yes | ✅ Yes | ❌ No |
-| **Location / Reading Progress** | ✅ `locations_from_sections()` | ✅ Yes | ✅ Yes | ✅ Yes |
-| **SpeechSynthesis TTS Word Synchronizer** | ✅ `tokenize_tts_words()` token spans | ❌ No | ❌ No | ❌ No |
-| **SMIL Media Overlays (Sync)** | ✅ NPT clock parser | ✅ Yes | ✅ Yes | ❌ No |
-| **EPUB NCX / NAV TOC Parsing** | ✅ Deep recursive nav tree | ✅ Yes | ✅ Yes | ✅ Yes |
-| **RTL & CJK Vertical Writing** | ✅ `direction: rtl` + `vertical-rl` | ✅ Yes | ✅ Yes | ❌ No |
-| **Viewport Meta Parsing** | ✅ Zero-alloc slice parse | ✅ Yes | ✅ Yes | ❌ No |
-| **Reflow Paginator** | ✅ `ReflowPaginator::paginate_section` | ✅ Yes | ✅ Yes | ❌ No |
-| **Readium LCP DRM License Parser** | ✅ `LcpLicense` + expiry checks | ❌ No | ✅ Yes | ❌ No |
-| **Legacy Non-UTF-8 Auto-Decoding** | ✅ Auto Win-1252/Shift-JIS/GBK | ❌ No | ❌ No | ❌ No |
-
-### 🔍 Search, Analytics & AI RAG
-
-| Feature | 🚀 `ebook-rs` (v0.15.1) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
-|---|:---:|:---:|:---:|:---:|
-| **Model Context Protocol (MCP 2024-11-05)** | ✅ Built-in Stdio & HTTP Server | ❌ No | ❌ No | ❌ No |
-| **Okapi BM25 Relevance Scoring** | ✅ `rank_chunks_bm25()` TF-IDF | ❌ No | ❌ No | ❌ No |
-| **AI & RAG Chunking Engine** | ✅ `to_rag_chunks()` + CFI citations | ❌ No | ❌ No | ❌ No |
-| **Zero-Allocation Full-Text Search** | ✅ SIMD `char_indices` slicing | ❌ No | ✅ Basic | ❌ No |
-| **Regex Search** | ✅ `regex_search` | ❌ No | ❌ No | ❌ No |
-| **Search Context Snippets** | ✅ `<mark>` highlights + XSS guard | ❌ No | ✅ Yes | ❌ No |
-| **Readium Search JSON Export** | ✅ Readium-compliant JSON | ❌ No | ✅ Yes | ❌ No |
-| **NLP Reading Analytics** | ✅ Word count / reading time / complexity | ❌ No | ❌ No | ❌ No |
-| **Auto Language Detection** | ✅ `detect_language` (`whatlang`) | ❌ No | ❌ No | ❌ No |
-
-### 🌐 Interoperability, Exporters & Performance
-
-| Feature | 🚀 `ebook-rs` (v0.15.1) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
-|---|:---:|:---:|:---:|:---:|
-| **Universal EPUB 3 & KFX Exporters** | ✅ `export_epub3` & `export_kfx` | ❌ No | ❌ No | ❌ No |
-| **Sub-5ms Lazy Resource Hydration** | ✅ On-demand asset inlining | ❌ No | ❌ No | ❌ No |
-| **Zstd Compressed State Caching** | ✅ Instant `export_zstd_cache()` | ❌ No | ❌ No | ❌ No |
-| **C / Python / Node FFI Bindings** | ✅ `ebook_rs::ffi` C ABI + PyO3 | ❌ No | ❌ No | ❌ No |
-| **Web Component Generator** | ✅ `<ebook-reader>` HTMLElement | ❌ No | ❌ No | ❌ No |
-| **WASM Client SDK** | ✅ `WasmBook` WASM bindings | ✅ Yes | ✅ Yes | ❌ No |
-| **W3C Web Annotation (JSON-LD)** | ✅ Full CRUD + `to_w3c_json` | ❌ No | ✅ Yes | ❌ No |
-| **Readium WebPub Manifest Export** | ✅ `book.to_webpub_manifest()` | ❌ No | ✅ Yes | ❌ No |
-
----
-
-## ⚡ Format Conversion Benchmark (`ebook-rs` vs Calibre `ebook-convert`)
-
-Empirically measured conversion benchmark converting eBook formats to **EPUB 3** on identical test hardware:
-
-| Input Format | 🚀 `ebook-rs` (v0.15.1) | 🐍 Calibre `ebook-convert` | Speedup | Image Assets Extracted | Chapter Sections | Output Parity |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **MOBI → EPUB** | **0.98s** ⚡ | 4.64s | **4.8× Faster** | 38 / 37 (100% Parity) ✅ | 17 chapters | Matched |
-| **AZW3 (KF8) → EPUB** | **0.34s** ⚡ | 3.29s | **9.7× Faster** | 38 / 37 (100% Parity) ✅ | 14 chapters | Matched |
-| **FB2 → EPUB** | **0.26s** ⚡ | 2.73s | **10.5× Faster** | 37 / 37 (100% Parity) ✅ | 15 chapters | Matched |
-| **LIT → EPUB** | **0.48s** ⚡ | 3.53s | **7.4× Faster** | 37 / 37 (100% Parity) ✅ | 21 chapters | Matched |
-| **KFX → EPUB** | **0.37s** ⚡ | 3.84s *(Plugin Req.)* | **10.4× Faster** | 37 / 37 (100% Parity) ✅ | 22 chapters | Matched |
 
 ---
 
