@@ -65,30 +65,59 @@ impl RagChunker {
         let meta = book.metadata();
         let book_title = meta.title.clone();
         let book_author = meta.creators.join(", ");
-        let mut all_chunks = Vec::new();
+        #[cfg(feature = "parallel")]
+        {
+            use rayon::prelude::*;
+            (0..book.spine().len())
+                .into_par_iter()
+                .filter_map(|idx| {
+                    book.get_section(idx).ok().map(|sec| {
+                        let chapter_title = book
+                            .toc()
+                            .iter()
+                            .find(|t| t.href.contains(&sec.href))
+                            .map(|t| t.label.clone())
+                            .unwrap_or_else(|| format!("Section {}", idx + 1));
 
-        for idx in 0..book.spine().len() {
-            if let Ok(sec) = book.get_section(idx) {
-                let chapter_title = book
-                    .toc()
-                    .iter()
-                    .find(|t| t.href.contains(&sec.href))
-                    .map(|t| t.label.clone())
-                    .unwrap_or_else(|| format!("Section {}", idx + 1));
-
-                let section_chunks = Self::chunk_section(
-                    &sec,
-                    idx,
-                    &chapter_title,
-                    &book_title,
-                    &book_author,
-                    config,
-                );
-                all_chunks.extend(section_chunks);
-            }
+                        Self::chunk_section(
+                            &sec,
+                            idx,
+                            &chapter_title,
+                            &book_title,
+                            &book_author,
+                            config,
+                        )
+                    })
+                })
+                .flatten()
+                .collect()
         }
 
-        all_chunks
+        #[cfg(not(feature = "parallel"))]
+        {
+            let mut all_chunks = Vec::new();
+            for idx in 0..book.spine().len() {
+                if let Ok(sec) = book.get_section(idx) {
+                    let chapter_title = book
+                        .toc()
+                        .iter()
+                        .find(|t| t.href.contains(&sec.href))
+                        .map(|t| t.label.clone())
+                        .unwrap_or_else(|| format!("Section {}", idx + 1));
+
+                    let section_chunks = Self::chunk_section(
+                        &sec,
+                        idx,
+                        &chapter_title,
+                        &book_title,
+                        &book_author,
+                        config,
+                    );
+                    all_chunks.extend(section_chunks);
+                }
+            }
+            all_chunks
+        }
     }
 
     /// Chunk a single section into AI-ready semantic RAG chunks.

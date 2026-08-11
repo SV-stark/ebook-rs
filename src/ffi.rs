@@ -2,6 +2,7 @@ use crate::book::Book;
 use crate::rag::RagChunkConfig;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr;
 
 /// C-compatible opaque handle to a `Book` instance.
@@ -21,13 +22,14 @@ pub unsafe extern "C" fn ebook_rs_book_from_bytes(
     if bytes_ptr.is_null() || bytes_len == 0 {
         return ptr::null_mut();
     }
-    unsafe {
+    let res = catch_unwind(AssertUnwindSafe(|| unsafe {
         let slice = std::slice::from_raw_parts(bytes_ptr, bytes_len);
         match Book::from_bytes(slice) {
             Ok(book) => Box::into_raw(Box::new(book)),
             Err(_) => ptr::null_mut(),
         }
-    }
+    }));
+    res.unwrap_or(ptr::null_mut())
 }
 
 /// Free a `Book` instance created by `ebook_rs_book_from_bytes`.
@@ -37,9 +39,9 @@ pub unsafe extern "C" fn ebook_rs_book_from_bytes(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ebook_rs_book_free(handle: CBookHandle) {
     if !handle.is_null() {
-        unsafe {
+        let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
             drop(Box::from_raw(handle));
-        }
+        }));
     }
 }
 
@@ -53,7 +55,7 @@ pub unsafe extern "C" fn ebook_rs_get_metadata_json(handle: CBookHandle) -> *mut
     if handle.is_null() {
         return ptr::null_mut();
     }
-    unsafe {
+    let res = catch_unwind(AssertUnwindSafe(|| unsafe {
         let book = &*handle;
         match serde_json::to_string(book.metadata()) {
             Ok(json) => match CString::new(json) {
@@ -62,7 +64,8 @@ pub unsafe extern "C" fn ebook_rs_get_metadata_json(handle: CBookHandle) -> *mut
             },
             Err(_) => ptr::null_mut(),
         }
-    }
+    }));
+    res.unwrap_or(ptr::null_mut())
 }
 
 /// Get Table of Contents formatted as a C JSON string.
@@ -75,7 +78,7 @@ pub unsafe extern "C" fn ebook_rs_get_toc_json(handle: CBookHandle) -> *mut c_ch
     if handle.is_null() {
         return ptr::null_mut();
     }
-    unsafe {
+    let res = catch_unwind(AssertUnwindSafe(|| unsafe {
         let book = &*handle;
         match serde_json::to_string(book.toc()) {
             Ok(json) => match CString::new(json) {
@@ -84,7 +87,8 @@ pub unsafe extern "C" fn ebook_rs_get_toc_json(handle: CBookHandle) -> *mut c_ch
             },
             Err(_) => ptr::null_mut(),
         }
-    }
+    }));
+    res.unwrap_or(ptr::null_mut())
 }
 
 /// Get processed HTML for a specific section index.
@@ -100,7 +104,7 @@ pub unsafe extern "C" fn ebook_rs_get_section_html(
     if handle.is_null() {
         return ptr::null_mut();
     }
-    unsafe {
+    let res = catch_unwind(AssertUnwindSafe(|| unsafe {
         let book = &*handle;
         match book.get_section(index) {
             Ok(sec) => match CString::new(sec.processed_html.as_str()) {
@@ -109,7 +113,8 @@ pub unsafe extern "C" fn ebook_rs_get_section_html(
             },
             Err(_) => ptr::null_mut(),
         }
-    }
+    }));
+    res.unwrap_or(ptr::null_mut())
 }
 
 /// Perform full-text search and return JSON array of search results with CFI anchors.
@@ -125,7 +130,7 @@ pub unsafe extern "C" fn ebook_rs_search_json(
     if handle.is_null() || query_ptr.is_null() {
         return ptr::null_mut();
     }
-    unsafe {
+    let res = catch_unwind(AssertUnwindSafe(|| unsafe {
         let book = &*handle;
         let query = match CStr::from_ptr(query_ptr).to_str() {
             Ok(q) => q,
@@ -139,7 +144,8 @@ pub unsafe extern "C" fn ebook_rs_search_json(
             },
             Err(_) => ptr::null_mut(),
         }
-    }
+    }));
+    res.unwrap_or(ptr::null_mut())
 }
 
 /// Generate AI / RAG document chunks formatted as a C JSON string.
@@ -155,7 +161,7 @@ pub unsafe extern "C" fn ebook_rs_to_rag_chunks_json(
     if handle.is_null() {
         return ptr::null_mut();
     }
-    unsafe {
+    let res = catch_unwind(AssertUnwindSafe(|| unsafe {
         let book = &*handle;
         let config = RagChunkConfig {
             max_tokens: if max_tokens == 0 { 512 } else { max_tokens },
@@ -169,7 +175,8 @@ pub unsafe extern "C" fn ebook_rs_to_rag_chunks_json(
             },
             Err(_) => ptr::null_mut(),
         }
-    }
+    }));
+    res.unwrap_or(ptr::null_mut())
 }
 
 /// Free C string allocated by `ebook-rs` C FFI functions.
@@ -179,9 +186,9 @@ pub unsafe extern "C" fn ebook_rs_to_rag_chunks_json(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ebook_rs_string_free(ptr: *mut c_char) {
     if !ptr.is_null() {
-        unsafe {
+        let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
             drop(CString::from_raw(ptr));
-        }
+        }));
     }
 }
 

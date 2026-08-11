@@ -5,6 +5,20 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.4] - 2026-08-11
+
+### Added
+
+- **Strongly-Typed Error Hierarchy (`src/error.rs`)**:
+  - Introduced `EbookError` enum covering `Io`, `Xml`, `Zip`, `DrmProtected`, `InvalidFormat`, `CorruptedData`, `NotFound`, and `Custom` variants.
+  - Full lossless conversion to `String` and `std::fmt::Display` implementation maintaining 100% backward compatibility with existing `Result<T, String>` APIs.
+- **Foreign C FFI Boundary Unwind Protection (`src/ffi.rs`)**:
+  - Enclosed all C FFI entrypoints (`ebook_rs_book_from_bytes`, `ebook_rs_get_metadata_json`, etc.) in `std::panic::catch_unwind` to guarantee safe panic handling and prevent undefined behavior across foreign C ABI boundaries.
+- **Parallel AI RAG Document Chunking (`src/rag.rs`)**:
+  - Implemented `rayon` parallel iteration (`(0..book.spine().len()).into_par_iter()`) for `RagChunker::chunk_book` when the `parallel` feature is active.
+
+---
+
 ## [0.15.1] - 2026-08-10
 
 ### Performance
