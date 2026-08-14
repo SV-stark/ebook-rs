@@ -2,6 +2,7 @@ use crate::Cfi;
 use crate::annotations::AnnotationManager;
 use crate::archive::EpubArchive;
 use crate::deobfuscate::FontDeobfuscator;
+use crate::error::EbookError;
 use crate::layout::RenditionLayout;
 use crate::locations::Locations;
 use crate::metadata::{ManifestItem, Metadata, SpineItem};
@@ -9,7 +10,8 @@ use crate::nav::{Landmark, NavPoint, PageListItem, parse_landmarks, parse_nav_xh
 use crate::opf::parse_opf;
 use crate::search::{SearchEngine, SearchResult};
 use crate::section::Section;
-use std::collections::HashMap;
+use ahash::AHashMap;
+use std::path::Path;
 use std::sync::Arc;
 
 pub type BeforeDisplayHook = Arc<dyn Fn(&mut String, &str) + Send + Sync>;
@@ -27,16 +29,18 @@ pub struct Book {
     pub layout: RenditionLayout,
     pub font_deobfuscator: FontDeobfuscator,
     pub before_display_hooks: Vec<BeforeDisplayHook>,
-    pub media_overlays: HashMap<String, crate::media_overlay::MediaOverlayPackage>,
-    pub render_cache: parking_lot::Mutex<HashMap<usize, String>>,
+    pub media_overlays: AHashMap<String, crate::media_overlay::MediaOverlayPackage>,
+    pub render_cache: parking_lot::Mutex<AHashMap<usize, String>>,
 }
 
 impl Book {
     /// Load an EPUB, KEPUB, MOBI, AZW3, FB2, LIT, CBZ, or CBR book from a file path.
-    pub fn from_file(path: &str) -> Result<Self, String> {
-        let bytes = std::fs::read(path)
-            .map_err(|e| format!("Failed to read ebook file {}: {}", path, e))?;
-        let filename = std::path::Path::new(path)
+    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, EbookError> {
+        let p = path.as_ref();
+        let bytes = std::fs::read(p).map_err(|e| {
+            EbookError::Io(format!("Failed to read ebook file {}: {}", p.display(), e))
+        })?;
+        let filename = p
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("Comic Book");
@@ -44,17 +48,17 @@ impl Book {
     }
 
     /// Open an EPUB, KEPUB, MOBI, AZW3, FB2, LIT, CBZ, or CBR ebook from an in-memory byte slice.
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, EbookError> {
         Self::from_bytes_with_title(bytes, "eBook")
     }
 
     /// Open an eBook from an in-memory byte slice with a title fallback.
-    pub fn from_bytes_with_title(bytes: &[u8], title_fallback: &str) -> Result<Self, String> {
+    pub fn from_bytes_with_title(bytes: &[u8], title_fallback: &str) -> Result<Self, EbookError> {
         if bytes.starts_with(b"Rar!\x1a\x07\x00")
             || bytes.starts_with(b"Rar!\x1a\x07\x01\x00")
             || bytes.starts_with(b"Rar!\x1a\x07")
         {
-            return Err("CBR (RAR format) is not supported in pure-Rust mode (RARv4/RARv5 detected). Please convert the file to CBZ (ZIP format).".to_string());
+            return Err(EbookError::InvalidFormat("CBR (RAR format) is not supported in pure-Rust mode (RARv4/RARv5 detected). Please convert the file to CBZ (ZIP format).".to_string()));
         }
         if bytes.starts_with(b"%PDF-") {
             return crate::pdf::PdfBook::parse(bytes, title_fallback);
@@ -91,19 +95,38 @@ impl Book {
             return crate::txt::TxtBook::parse(bytes, title_fallback, is_md);
         }
 
-        Err("Unsupported or corrupted eBook format".to_string())
+        Err(EbookError::InvalidFormat(
+            "Unsupported or corrupted eBook format".to_string(),
+        ))
+    }
+
+    /// Open an eBook from any `Read + Seek` stream with a default title.
+    pub fn from_reader<R: std::io::Read + std::io::Seek>(reader: R) -> Result<Self, EbookError> {
+        Self::from_reader_with_title(reader, "eBook")
+    }
+
+    /// Open an eBook from any `Read + Seek` stream with custom title fallback.
+    pub fn from_reader_with_title<R: std::io::Read + std::io::Seek>(
+        mut reader: R,
+        title_fallback: &str,
+    ) -> Result<Self, EbookError> {
+        let mut bytes = Vec::new();
+        reader
+            .read_to_end(&mut bytes)
+            .map_err(|e| EbookError::Io(format!("Failed to read stream: {}", e)))?;
+        Self::from_bytes_with_title(&bytes, title_fallback)
     }
 
     /// Internal builder from an initialized archive.
-    fn from_archive(archive: EpubArchive) -> Result<Self, String> {
+    fn from_archive(archive: EpubArchive) -> Result<Self, EbookError> {
         // E8 Fix: Detect DRM encryption (ADEPT / LCP)
         if archive.contains("META-INF/rights.xml") || archive.contains("license.lcpl") {
-            return Err("DRM protected eBook (ADEPT/LCP). Decryption keys are required to read encrypted content.".to_string());
+            return Err(EbookError::DrmProtected("DRM protected eBook (ADEPT/LCP). Decryption keys are required to read encrypted content.".to_string()));
         }
 
         let opf_path = archive.get_opf_path()?;
         let opf_xml = archive.read_string(&opf_path)?;
-        let opf = parse_opf(&opf_xml, &opf_path)?;
+        let opf = parse_opf(&opf_xml, &opf_path).map_err(EbookError::Xml)?;
 
         let mut toc = Vec::new();
         let mut landmarks = Vec::new();
@@ -174,7 +197,7 @@ impl Book {
         locations.finalize();
 
         // Load EPUB 3 Media Overlays (SMIL Sync)
-        let mut media_overlays = HashMap::new();
+        let mut media_overlays = AHashMap::new();
         for item in opf.manifest.values() {
             if item.media_type == "application/smil+xml" || item.href.ends_with(".smil") {
                 if let Ok(smil_xml) = archive.read_string(&item.full_path) {
@@ -201,8 +224,68 @@ impl Book {
             font_deobfuscator,
             before_display_hooks: Vec::new(),
             media_overlays,
-            render_cache: parking_lot::Mutex::new(HashMap::new()),
+            render_cache: parking_lot::Mutex::new(AHashMap::new()),
         })
+    }
+
+    /// Access reference to underlying `EpubArchive` container.
+    pub fn archive(&self) -> &EpubArchive {
+        &self.archive
+    }
+
+    /// Access mutable reference to underlying `EpubArchive` container.
+    pub fn archive_mut(&mut self) -> &mut EpubArchive {
+        &mut self.archive
+    }
+
+    /// Access reference to OPF package document.
+    pub fn opf(&self) -> &crate::opf::OpfPackage {
+        &self.opf
+    }
+
+    /// Access list of parsed ebook sections.
+    pub fn sections(&self) -> &[Section] {
+        &self.sections
+    }
+
+    /// Access mutable list of parsed ebook sections.
+    pub fn sections_mut(&mut self) -> &mut [Section] {
+        &mut self.sections
+    }
+
+    /// Access reference to location and CFI index.
+    pub fn locations(&self) -> &Locations {
+        &self.locations
+    }
+
+    /// Access reference to annotations manager.
+    pub fn annotations(&self) -> &AnnotationManager {
+        &self.annotations
+    }
+
+    /// Access mutable reference to annotations manager.
+    pub fn annotations_mut(&mut self) -> &mut AnnotationManager {
+        &mut self.annotations
+    }
+
+    /// Access rendition layout property (Reflowable or Pre-paginated).
+    pub fn layout(&self) -> &RenditionLayout {
+        &self.layout
+    }
+
+    /// Access font deobfuscator.
+    pub fn font_deobfuscator(&self) -> &FontDeobfuscator {
+        &self.font_deobfuscator
+    }
+
+    /// Access registered before-display hooks.
+    pub fn before_display_hooks(&self) -> &[BeforeDisplayHook] {
+        &self.before_display_hooks
+    }
+
+    /// Access map of SMIL media overlays.
+    pub fn media_overlays(&self) -> &AHashMap<String, crate::media_overlay::MediaOverlayPackage> {
+        &self.media_overlays
     }
 
     /// Register a pre-display HTML transformation hook (Feature 2).
@@ -224,7 +307,7 @@ impl Book {
     }
 
     /// Manifest map.
-    pub fn manifest(&self) -> &ahash::AHashMap<String, ManifestItem> {
+    pub fn manifest(&self) -> &AHashMap<String, ManifestItem> {
         &self.opf.manifest
     }
 
@@ -386,7 +469,7 @@ impl Book {
             font_deobfuscator: FontDeobfuscator::new(),
             before_display_hooks: Vec::new(),
             media_overlays: cache.media_overlays,
-            render_cache: parking_lot::Mutex::new(HashMap::new()),
+            render_cache: parking_lot::Mutex::new(AHashMap::new()),
         })
     }
 
@@ -688,11 +771,13 @@ impl Book {
 
     #[cfg(feature = "mmap")]
     /// Open eBook from a file using zero-copy memory-mapped I/O (via `memmap2`).
-    pub fn from_mmap<P: AsRef<std::path::Path>>(path: P) -> Result<Self, String> {
-        let file = std::fs::File::open(path.as_ref())
-            .map_err(|e| format!("Failed to open file for mmap: {}", e))?;
+    pub fn from_mmap<P: AsRef<std::path::Path>>(path: P) -> Result<Self, EbookError> {
+        let p = path.as_ref();
+        let file = std::fs::File::open(p)
+            .map_err(|e| EbookError::Io(format!("Failed to open file for mmap: {}", e)))?;
         let mmap = unsafe {
-            memmap2::Mmap::map(&file).map_err(|e| format!("Failed to memory-map file: {}", e))?
+            memmap2::Mmap::map(&file)
+                .map_err(|e| EbookError::Io(format!("Failed to memory-map file: {}", e)))?
         };
         Self::from_bytes(&mmap)
     }
@@ -1046,9 +1131,9 @@ pub struct BookCacheState {
     pub sections: Vec<Section>,
     pub locations: Locations,
     pub layout: RenditionLayout,
-    pub archive_files: HashMap<String, Vec<u8>>,
+    pub archive_files: AHashMap<String, Vec<u8>>,
     pub annotations: AnnotationManager,
-    pub media_overlays: HashMap<String, crate::media_overlay::MediaOverlayPackage>,
+    pub media_overlays: AHashMap<String, crate::media_overlay::MediaOverlayPackage>,
 }
 
 // ─── Async API (requires `async` feature + tokio) ──────────────────────────
@@ -1058,6 +1143,8 @@ pub struct BookCacheState {
 #[cfg(feature = "async")]
 pub mod async_api {
     use super::Book;
+    use crate::error::EbookError;
+    use std::path::Path;
 
     /// Asynchronously load an eBook from a filesystem path.
     /// Uses `tokio::fs::read` for non-blocking I/O — ideal for async server handlers.
@@ -1066,23 +1153,21 @@ pub mod async_api {
     /// ```ignore
     /// let book = ebook_rs::book::async_api::from_file_async("book.epub").await?;
     /// ```
-    pub async fn from_file_async(path: &str) -> Result<Book, String> {
-        let bytes = tokio::fs::read(path)
+    pub async fn from_file_async<P: AsRef<Path>>(path: P) -> Result<Book, EbookError> {
+        let p = path.as_ref();
+        let bytes = tokio::fs::read(p)
             .await
-            .map_err(|e| format!("Async read failed for {}: {}", path, e))?;
-        let filename = std::path::Path::new(path)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("eBook");
+            .map_err(|e| EbookError::Io(format!("Async read failed for {}: {}", p.display(), e)))?;
+        let filename = p.file_stem().and_then(|s| s.to_str()).unwrap_or("eBook");
         Book::from_bytes_with_title(&bytes, filename)
     }
 
     /// Asynchronously load an eBook by reading bytes via any async reader.
-    /// Returns a parsed `Book` or a descriptive error string.
-    pub async fn from_bytes_async(bytes: Vec<u8>) -> Result<Book, String> {
+    /// Returns a parsed `Book` or a descriptive error.
+    pub async fn from_bytes_async(bytes: Vec<u8>) -> Result<Book, EbookError> {
         tokio::task::spawn_blocking(move || Book::from_bytes(&bytes))
             .await
-            .map_err(|e| format!("Async book parse task failed: {}", e))?
+            .map_err(|e| EbookError::Custom(format!("Async book parse task failed: {}", e)))?
     }
 
     /// Asynchronously lazy-load a section by index.

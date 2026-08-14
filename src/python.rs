@@ -69,7 +69,7 @@ impl PyBook {
     pub fn open(path: &str) -> PyResult<Self> {
         Book::from_file(path)
             .map(|book| PyBook { inner: book })
-            .map_err(PyValueError::new_err)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     /// Load an eBook from an in-memory byte slice.
@@ -77,7 +77,7 @@ impl PyBook {
     pub fn from_bytes(bytes: &[u8]) -> PyResult<Self> {
         Book::from_bytes(bytes)
             .map(|book| PyBook { inner: book })
-            .map_err(PyValueError::new_err)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     /// Publication title.
@@ -115,7 +115,7 @@ impl PyBook {
         self.inner
             .get_section(index)
             .map(|section| PySection { inner: section })
-            .map_err(PyValueError::new_err)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     /// Retrieve rendered HTML section content by 0-based spine index.
@@ -123,7 +123,7 @@ impl PyBook {
         self.inner
             .get_section(index)
             .map(|section| section.processed_html)
-            .map_err(PyValueError::new_err)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     /// Retrieve Section by manifest href path.
@@ -173,12 +173,14 @@ impl PyBook {
 
     /// Export book as a W3C-valid EPUB 3 ZIP archive buffer.
     pub fn export_epub3_bytes(&self) -> PyResult<Vec<u8>> {
-        UniversalEpub3Exporter::export(&self.inner).map_err(PyRuntimeError::new_err)
+        UniversalEpub3Exporter::export(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
     /// Export book as an Amazon KFX binary container buffer.
     pub fn export_kfx_bytes(&self) -> PyResult<Vec<u8>> {
-        UniversalKfxExporter::export(&self.inner).map_err(PyRuntimeError::new_err)
+        UniversalKfxExporter::export(&self.inner)
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
     /// Enable 2-Page Manga Spread mode (Right-to-Left reading progression).

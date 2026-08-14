@@ -1,13 +1,14 @@
 use crate::archive::EpubArchive;
 use crate::book::Book;
 use crate::deobfuscate::FontDeobfuscator;
+use crate::error::EbookError;
 use crate::layout::RenditionLayout;
 use crate::metadata::{Metadata, PageProgressionDirection, SpineItem};
 use crate::nav::NavPoint;
 use crate::opf::OpfPackage;
 use crate::section::Section;
+use ahash::AHashMap;
 use roxmltree::Document;
-use std::collections::HashMap;
 use std::io::Read;
 
 /// OpenDocument Text (.odt) document parser engine.
@@ -15,17 +16,19 @@ pub struct OdtBook;
 
 impl OdtBook {
     /// Parse OpenDocument Text (.odt) archive bytes into a `Book` instance.
-    pub fn parse(bytes: &[u8], title_fallback: &str) -> Result<Book, String> {
+    pub fn parse(bytes: &[u8], title_fallback: &str) -> Result<Book, EbookError> {
         let reader = std::io::Cursor::new(bytes);
         let mut archive = zip::ZipArchive::new(reader)
-            .map_err(|e| format!("Failed to open ODT ZIP archive: {}", e))?;
+            .map_err(|e| EbookError::Zip(format!("Failed to open ODT ZIP archive: {}", e)))?;
 
         let mut content_xml = String::new();
         if let Ok(mut file) = archive.by_name("content.xml") {
             file.read_to_string(&mut content_xml)
-                .map_err(|e| format!("Failed to read content.xml in ODT: {}", e))?;
+                .map_err(|e| EbookError::Io(format!("Failed to read content.xml in ODT: {}", e)))?;
         } else {
-            return Err("ODT archive missing content.xml".to_string());
+            return Err(EbookError::InvalidFormat(
+                "ODT archive missing content.xml".to_string(),
+            ));
         }
 
         let mut title = title_fallback.to_string();
@@ -213,7 +216,7 @@ impl OdtBook {
             cover_id: None,
             cover_href: None,
             direction: PageProgressionDirection::Ltr,
-            meta_properties: HashMap::new(),
+            meta_properties: AHashMap::new(),
             accessibility: Default::default(),
         };
 
@@ -222,7 +225,7 @@ impl OdtBook {
             opf_path: "content.opf".to_string(),
             opf_dir: "".to_string(),
             metadata,
-            manifest: ahash::AHashMap::new(),
+            manifest: AHashMap::new(),
             spine,
             guide: Vec::new(),
             toc_item_id: None,
@@ -241,8 +244,8 @@ impl OdtBook {
             annotations: crate::annotations::AnnotationManager::default(),
             before_display_hooks: Vec::new(),
             font_deobfuscator: FontDeobfuscator::parse_encryption_xml(""),
-            media_overlays: HashMap::new(),
-            render_cache: parking_lot::Mutex::new(HashMap::new()),
+            media_overlays: AHashMap::new(),
+            render_cache: parking_lot::Mutex::new(AHashMap::new()),
         };
 
         book.generate_locations(1000);

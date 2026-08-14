@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use ahash::AHashMap;
 
 /// IDPF & Adobe Font De-obfuscation Engine.
 pub struct FontDeobfuscator {
-    encrypted_fonts: HashMap<String, String>, // path -> algorithm URI
+    encrypted_fonts: AHashMap<String, String>, // path -> algorithm URI
 }
 
 impl Default for FontDeobfuscator {
@@ -14,13 +14,13 @@ impl Default for FontDeobfuscator {
 impl FontDeobfuscator {
     pub fn new() -> Self {
         Self {
-            encrypted_fonts: HashMap::new(),
+            encrypted_fonts: AHashMap::new(),
         }
     }
 
     /// Parse `META-INF/encryption.xml` if present in archive.
     pub fn parse_encryption_xml(xml_content: &str) -> Self {
-        let mut encrypted_fonts = HashMap::new();
+        let mut encrypted_fonts = AHashMap::new();
         if let Ok(doc) = roxmltree::Document::parse(xml_content) {
             for node in doc.descendants() {
                 if node.has_tag_name("EncryptedData") {

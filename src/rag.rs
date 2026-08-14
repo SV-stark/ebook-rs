@@ -291,7 +291,7 @@ impl RagChunker {
             / num_docs.max(1.0);
 
         // Compute Inverse Document Frequency (IDF) for query terms
-        let mut idf_map = std::collections::HashMap::new();
+        let mut idf_map = ahash::AHashMap::new();
         for term in &query_terms {
             let doc_freq = chunks
                 .iter()

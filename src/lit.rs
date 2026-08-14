@@ -1,21 +1,24 @@
 use crate::archive::EpubArchive;
 use crate::book::Book;
 use crate::deobfuscate::FontDeobfuscator;
+use crate::error::EbookError;
 use crate::layout::RenditionLayout;
 use crate::metadata::{Metadata, PageProgressionDirection, SpineItem};
 use crate::nav::NavPoint;
 use crate::opf::OpfPackage;
 use crate::section::{Section, extract_plain_text};
-use std::collections::HashMap;
+use ahash::AHashMap;
 
 /// Microsoft Reader LIT Format Parser.
 pub struct LitBook;
 
 impl LitBook {
     /// Parse Microsoft Reader LIT file bytes into a `Book` struct.
-    pub fn parse(bytes: &[u8]) -> Result<Book, String> {
+    pub fn parse(bytes: &[u8]) -> Result<Book, EbookError> {
         if bytes.len() < 8 {
-            return Err("File too small for LIT header".to_string());
+            return Err(EbookError::InvalidFormat(
+                "File too small for LIT header".to_string(),
+            ));
         }
 
         // LIT files start with ITOL / ITLS header or raw container stream
@@ -23,7 +26,9 @@ impl LitBook {
             && !bytes.starts_with(b"ITLS")
             && !bytes.contains_str(b"ITOL")
         {
-            return Err("Not a valid Microsoft Reader LIT container".to_string());
+            return Err(EbookError::InvalidFormat(
+                "Not a valid Microsoft Reader LIT container".to_string(),
+            ));
         }
 
         // Extract HTML text strings embedded inside LIT binary container streams
@@ -116,7 +121,7 @@ impl LitBook {
             cover_id: None,
             cover_href: None,
             direction: PageProgressionDirection::Ltr,
-            meta_properties: HashMap::new(),
+            meta_properties: AHashMap::new(),
             accessibility: Default::default(),
         };
 
@@ -125,7 +130,7 @@ impl LitBook {
             opf_path: "content.opf".to_string(),
             opf_dir: "".to_string(),
             metadata,
-            manifest: ahash::AHashMap::new(),
+            manifest: AHashMap::new(),
             spine,
             guide: Vec::new(),
             toc_item_id: None,
@@ -147,8 +152,8 @@ impl LitBook {
             annotations: crate::annotations::AnnotationManager::default(),
             before_display_hooks: Vec::new(),
             font_deobfuscator: FontDeobfuscator::parse_encryption_xml(""),
-            media_overlays: HashMap::new(),
-            render_cache: parking_lot::Mutex::new(HashMap::new()),
+            media_overlays: AHashMap::new(),
+            render_cache: parking_lot::Mutex::new(AHashMap::new()),
         };
 
         book.generate_locations(1000);

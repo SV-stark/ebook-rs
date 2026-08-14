@@ -1,12 +1,13 @@
 use crate::archive::EpubArchive;
 use crate::book::Book;
 use crate::deobfuscate::FontDeobfuscator;
+use crate::error::EbookError;
 use crate::layout::RenditionLayout;
 use crate::metadata::{Metadata, PageProgressionDirection, SpineItem};
 use crate::nav::NavPoint;
 use crate::opf::OpfPackage;
 use crate::section::{Section, extract_plain_text};
-use std::collections::HashMap;
+use ahash::AHashMap;
 
 /// PalmDOC LZ77 Decompressor.
 pub fn decompress_palmdoc(data: &[u8]) -> Vec<u8> {
@@ -67,9 +68,11 @@ pub struct MobiBook;
 
 impl MobiBook {
     /// Parse MOBI / AZW3 raw binary data into a `Book` struct.
-    pub fn parse(bytes: &[u8]) -> Result<Book, String> {
+    pub fn parse(bytes: &[u8]) -> Result<Book, EbookError> {
         if bytes.len() < 78 {
-            return Err("File too small for MOBI/AZW3 PDB header".to_string());
+            return Err(EbookError::InvalidFormat(
+                "File too small for MOBI/AZW3 PDB header".to_string(),
+            ));
         }
 
         let name_bytes = &bytes[0..32];
@@ -79,7 +82,9 @@ impl MobiBook {
 
         let num_records = u16::from_be_bytes([bytes[76], bytes[77]]) as usize;
         if bytes.len() < 78 + num_records * 8 {
-            return Err("Truncated MOBI PDB record offset table".to_string());
+            return Err(EbookError::InvalidFormat(
+                "Truncated MOBI PDB record offset table".to_string(),
+            ));
         }
 
         let mut record_offsets = Vec::with_capacity(num_records);
@@ -95,7 +100,9 @@ impl MobiBook {
         }
 
         if record_offsets.is_empty() {
-            return Err("MOBI archive has 0 records".to_string());
+            return Err(EbookError::InvalidFormat(
+                "MOBI archive has 0 records".to_string(),
+            ));
         }
 
         let rec0_offset = record_offsets[0];
@@ -106,7 +113,9 @@ impl MobiBook {
         };
 
         if rec0_offset >= bytes.len() || rec0_end > bytes.len() || rec0_offset + 16 > rec0_end {
-            return Err("Invalid Record 0 bounds in MOBI header".to_string());
+            return Err(EbookError::InvalidFormat(
+                "Invalid Record 0 bounds in MOBI header".to_string(),
+            ));
         }
 
         let rec0 = &bytes[rec0_offset..rec0_end];
@@ -116,7 +125,7 @@ impl MobiBook {
         if rec0.len() >= 14 {
             let encryption_type = u16::from_be_bytes([rec0[12], rec0[13]]);
             if encryption_type != 0 {
-                return Err("Book is protected by Mobipocket DRM encryption. Please remove DRM to read or convert this book.".to_string());
+                return Err(EbookError::DrmProtected("Book is protected by Mobipocket DRM encryption. Please remove DRM to read or convert this book.".to_string()));
             }
         }
 
@@ -353,7 +362,7 @@ impl MobiBook {
             cover_id: None,
             cover_href: None,
             direction,
-            meta_properties: HashMap::new(),
+            meta_properties: AHashMap::new(),
             accessibility: Default::default(),
         };
 
@@ -362,7 +371,7 @@ impl MobiBook {
             opf_path: "OEBPS/content.opf".to_string(),
             opf_dir: "OEBPS".to_string(),
             metadata,
-            manifest: ahash::AHashMap::new(),
+            manifest: AHashMap::new(),
             spine,
             guide: Vec::new(),
             toc_item_id: None,
@@ -381,8 +390,8 @@ impl MobiBook {
             annotations: crate::annotations::AnnotationManager::default(),
             before_display_hooks: Vec::new(),
             font_deobfuscator: FontDeobfuscator::parse_encryption_xml(""),
-            media_overlays: HashMap::new(),
-            render_cache: parking_lot::Mutex::new(HashMap::new()),
+            media_overlays: AHashMap::new(),
+            render_cache: parking_lot::Mutex::new(AHashMap::new()),
         };
 
         book.generate_locations(1000);
@@ -517,7 +526,7 @@ fn extract_mobi_images_and_populate_archive(
     first_image_index: usize,
     archive: &mut EpubArchive,
 ) -> String {
-    let mut image_map: HashMap<usize, String> = HashMap::new();
+    let mut image_map: AHashMap<usize, String> = AHashMap::new();
     let num_records = record_offsets.len();
 
     let start_img_rec = first_image_index.max(1);

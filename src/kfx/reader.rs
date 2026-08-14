@@ -1,11 +1,11 @@
 use crate::book::Book;
+use crate::error::EbookError;
 use crate::kfx::container::KfxContainer;
 use crate::metadata::{Metadata, SpineItem};
 use crate::nav::NavPoint;
 use crate::opf::OpfPackage;
 use crate::section::Section;
 use ahash::AHashMap;
-use std::collections::HashMap;
 
 /// Struct representing a parsed Amazon KFX (.kfx, .azw8) eBook file.
 #[derive(Debug, Clone)]
@@ -14,7 +14,7 @@ pub struct KfxBook {
     pub spine: Vec<SpineItem>,
     pub toc: Vec<NavPoint>,
     pub sections: Vec<Section>,
-    pub resources: HashMap<String, Vec<u8>>,
+    pub resources: AHashMap<String, Vec<u8>>,
 }
 
 impl KfxBook {
@@ -24,13 +24,14 @@ impl KfxBook {
     }
 
     /// Parse an Amazon KFX container from raw byte slice into structured metadata, spine, TOC, and HTML sections.
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
-        let container = KfxContainer::parse(bytes)?;
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, EbookError> {
+        let container =
+            KfxContainer::parse(bytes).map_err(|e| EbookError::InvalidFormat(e.to_string()))?;
         let mut metadata = Metadata::default();
         let mut sections = Vec::new();
         let mut spine = Vec::new();
         let mut toc = Vec::new();
-        let resources = HashMap::new();
+        let resources = AHashMap::new();
 
         // Extract clean, human-readable text fragments from KFX binary container
         let text_fragments = carve_kfx_text_fragments(bytes);
@@ -207,7 +208,7 @@ impl KfxBook {
     }
 
     /// Parse Amazon KFX bytes into a standard `Book` instance.
-    pub fn parse(bytes: &[u8]) -> Result<Book, String> {
+    pub fn parse(bytes: &[u8]) -> Result<Book, EbookError> {
         let kfx = Self::from_bytes(bytes)?;
 
         let mut archive = crate::archive::EpubArchive::empty();
@@ -237,8 +238,8 @@ impl KfxBook {
             layout: crate::layout::RenditionLayout::default(),
             font_deobfuscator: crate::deobfuscate::FontDeobfuscator::default(),
             before_display_hooks: Vec::new(),
-            media_overlays: std::collections::HashMap::new(),
-            render_cache: parking_lot::Mutex::new(std::collections::HashMap::new()),
+            media_overlays: AHashMap::new(),
+            render_cache: parking_lot::Mutex::new(AHashMap::new()),
         };
 
         let mut locations = crate::locations::Locations::new(1000);

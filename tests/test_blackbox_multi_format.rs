@@ -11,7 +11,7 @@ fn test_blackbox_pdf_parsing() {
             assert_eq!(pdf_book.sections.len(), 1);
         }
         Err(err) => {
-            assert!(err.to_lowercase().contains("pdf"));
+            assert!(err.to_string().to_lowercase().contains("pdf"));
         }
     }
 }

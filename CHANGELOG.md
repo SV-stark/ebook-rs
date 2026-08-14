@@ -5,6 +5,27 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.5] - 2026-08-14
+
+### Added
+
+- **Universal Stream & Reader Input Support (`src/archive.rs`, `src/book.rs`)**:
+  - Implemented `EpubArchive::from_reader<R: Read + Seek>(reader: R)` and `EpubArchive::open<P: AsRef<Path>>(path: P)` for non-allocating, stream-based archive initialization.
+  - Added `Book::from_reader_with_title<R: Read + Seek>(reader: R, title_fallback: &str)` enabling seamless parsing from streams, tempfiles, and network readers.
+- **End-to-End Strongly-Typed `EbookError` Integration**:
+  - Migrated `EpubArchive`, `Book::from_mmap`, and `async_api` (`from_file_async`, `from_bytes_async`) from raw `String` errors to structured `EbookError` types.
+  - Enhanced Zip bomb decompressed size limits with typed `EbookError::Zip` diagnostics.
+
+### Fixed & Improved
+
+- **WASM & PyO3 Compatibility**:
+  - Updated WASM bindgen and Python wheel bindings for seamless `EbookError` string conversions.
+  - Fixed map lookups and state caching with optimized `AHashMap`.
+- **Clippy & Code Quality**:
+  - Full codebase validation with `cargo fmt` and `cargo clippy --all-targets --all-features -- -D warnings` (0 errors, 0 warnings).
+
+---
+
 ## [0.15.4] - 2026-08-11
 
 ### Added

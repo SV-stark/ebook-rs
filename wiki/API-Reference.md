@@ -1,6 +1,6 @@
-# 📚 `ebook-rs` Complete API Reference & Parity Guide (v0.14.1)
+# 📚 `ebook-rs` Complete API Reference & Parity Guide (v0.15.5)
 
-This document provides complete API documentation for `ebook-rs` (v0.14.1), bifurcated into **Drop-in Replacements for `epub.js`** and **`ebook-rs` Native Extensions**.
+This document provides complete API documentation for `ebook-rs` (v0.15.5), bifurcated into **Drop-in Replacements for `epub.js`** and **`ebook-rs` Native Extensions**.
 
 ---
 

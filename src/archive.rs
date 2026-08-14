@@ -1,46 +1,51 @@
-use std::collections::HashMap;
-use std::io::{Cursor, Read};
+use crate::error::EbookError;
+use ahash::AHashMap;
+use std::io::{Cursor, Read, Seek};
+use std::path::Path;
 use zip::ZipArchive;
 
 /// Represents an EPUB archive (ZIP container) in memory or from file.
 #[derive(Clone)]
 pub struct EpubArchive {
-    files: HashMap<String, Vec<u8>>,
-    files_lower: HashMap<String, String>,
+    files: AHashMap<String, Vec<u8>>,
 }
 
 impl EpubArchive {
     /// Open an `EpubArchive` from a filesystem path.
-    pub fn open(path: &str) -> Result<Self, String> {
-        let bytes =
-            std::fs::read(path).map_err(|e| format!("Failed to read EPUB file {}: {}", path, e))?;
-        Self::from_bytes(&bytes)
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, EbookError> {
+        let path_ref = path.as_ref();
+        let file = std::fs::File::open(path_ref).map_err(|e| {
+            EbookError::Io(format!(
+                "Failed to open EPUB file {}: {}",
+                path_ref.display(),
+                e
+            ))
+        })?;
+        Self::from_reader(file)
     }
 
     /// Create an empty `EpubArchive` instance.
     pub fn empty() -> Self {
         Self {
-            files: HashMap::new(),
-            files_lower: HashMap::new(),
+            files: AHashMap::new(),
         }
     }
 
     /// Insert or update a file entry in the archive.
     pub fn insert(&mut self, path: impl Into<String>, data: Vec<u8>) {
-        let key = path.into();
-        self.files_lower.insert(key.to_lowercase(), key.clone());
+        let key = normalize_path(&path.into());
         self.files.insert(key, data);
     }
 
     /// Access reference to underlying files map in the archive.
-    pub fn files(&self) -> &HashMap<String, Vec<u8>> {
+    pub fn files(&self) -> &AHashMap<String, Vec<u8>> {
         &self.files
     }
 
     /// Retrieve `.opf` package document path from `META-INF/container.xml`.
-    pub fn get_opf_path(&self) -> Result<String, String> {
+    pub fn get_opf_path(&self) -> Result<String, EbookError> {
         let container_xml = self.read_string("META-INF/container.xml")?;
-        crate::opf::parse_container_xml(&container_xml)
+        crate::opf::parse_container_xml(&container_xml).map_err(EbookError::Xml)
     }
 
     /// Helper to detect MIME type from entry file extension.
@@ -74,12 +79,15 @@ impl EpubArchive {
     }
 
     /// Create an `EpubArchive` from raw ZIP byte data with Zip Bomb protection.
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
-        let cursor = Cursor::new(bytes);
-        let mut zip =
-            ZipArchive::new(cursor).map_err(|e| format!("Failed to parse ZIP archive: {}", e))?;
-        let mut files = HashMap::new();
-        let mut files_lower = HashMap::new();
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, EbookError> {
+        Self::from_reader(Cursor::new(bytes))
+    }
+
+    /// Create an `EpubArchive` from any `Read + Seek` stream with Zip Bomb protection.
+    pub fn from_reader<R: Read + Seek>(reader: R) -> Result<Self, EbookError> {
+        let mut zip = ZipArchive::new(reader)
+            .map_err(|e| EbookError::Zip(format!("Failed to parse ZIP archive: {}", e)))?;
+        let mut files = AHashMap::new();
         let mut total_decompressed_bytes: u64 = 0;
         const MAX_TOTAL_SIZE: u64 = 500 * 1024 * 1024; // 500 MB max total size
         const MAX_ENTRY_SIZE: u64 = 200 * 1024 * 1024; // 200 MB max entry size
@@ -87,7 +95,7 @@ impl EpubArchive {
         for i in 0..zip.len() {
             let mut file = zip
                 .by_index(i)
-                .map_err(|e| format!("Failed to read file index {}: {}", i, e))?;
+                .map_err(|e| EbookError::Zip(format!("Failed to read file index {}: {}", i, e)))?;
             let name = file.name().to_string();
             // Ignore directories
             if name.ends_with('/') {
@@ -95,10 +103,10 @@ impl EpubArchive {
             }
 
             if file.size() > MAX_ENTRY_SIZE {
-                return Err(format!(
+                return Err(EbookError::Zip(format!(
                     "ZIP entry '{}' exceeds maximum allowed uncompressed size of 200MB",
                     name
-                ));
+                )));
             }
 
             let mut content = Vec::new();
@@ -106,9 +114,9 @@ impl EpubArchive {
             let mut entry_bytes_read: u64 = 0;
 
             loop {
-                let n = file
-                    .read(&mut chunk)
-                    .map_err(|e| format!("Failed to read entry content {}: {}", name, e))?;
+                let n = file.read(&mut chunk).map_err(|e| {
+                    EbookError::Io(format!("Failed to read entry content {}: {}", name, e))
+                })?;
                 if n == 0 {
                     break;
                 }
@@ -116,51 +124,54 @@ impl EpubArchive {
                 total_decompressed_bytes += n as u64;
 
                 if entry_bytes_read > MAX_ENTRY_SIZE {
-                    return Err(format!(
+                    return Err(EbookError::Zip(format!(
                         "ZIP entry '{}' decompressed size exceeded 200MB limit",
                         name
-                    ));
+                    )));
                 }
                 if total_decompressed_bytes > MAX_TOTAL_SIZE {
-                    return Err(
+                    return Err(EbookError::Zip(
                         "ZIP archive total decompressed size exceeded 500MB safety limit"
                             .to_string(),
-                    );
+                    ));
                 }
                 content.extend_from_slice(&chunk[..n]);
             }
 
             let normalized = normalize_path(&name);
-            files_lower.insert(normalized.to_lowercase(), normalized.clone());
             files.insert(normalized, content);
         }
 
-        Ok(Self { files, files_lower })
+        Ok(Self { files })
     }
 
     /// Read raw bytes of a file in the archive (cloning into a new Vec<u8>).
-    pub fn read_bytes(&self, path: &str) -> Result<Vec<u8>, String> {
+    pub fn read_bytes(&self, path: &str) -> Result<Vec<u8>, EbookError> {
         self.read_bytes_ref(path).map(|bytes| bytes.to_vec())
     }
 
-    /// Zero-copy reference getter for raw file bytes in the archive (P6 Fix).
-    pub fn read_bytes_ref(&self, path: &str) -> Result<&[u8], String> {
+    /// Zero-copy reference getter for raw file bytes in the archive.
+    pub fn read_bytes_ref(&self, path: &str) -> Result<&[u8], EbookError> {
         let clean = normalize_path(path);
         let clean_no_frag = clean.split('#').next().unwrap_or(&clean);
         if let Some(data) = self.files.get(clean_no_frag) {
             return Ok(data.as_slice());
         }
-        let lower = clean_no_frag.to_lowercase();
-        if let Some(orig_key) = self.files_lower.get(&lower) {
-            if let Some(data) = self.files.get(orig_key) {
-                return Ok(data.as_slice());
-            }
+        if let Some((_, data)) = self
+            .files
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(clean_no_frag))
+        {
+            return Ok(data.as_slice());
         }
-        Err(format!("File not found in archive: {}", path))
+        Err(EbookError::NotFound(format!(
+            "File not found in archive: {}",
+            path
+        )))
     }
 
     /// Read text content of a file in the archive with SIMD UTF-8 decoding.
-    pub fn read_string(&self, path: &str) -> Result<String, String> {
+    pub fn read_string(&self, path: &str) -> Result<String, EbookError> {
         let bytes = self.read_bytes_ref(path)?;
         if let Ok(s) = simdutf8::basic::from_utf8(bytes) {
             Ok(s.to_string())
@@ -169,17 +180,19 @@ impl EpubArchive {
         }
     }
 
-    /// Check if a file exists in the archive (P5 Fix: O(1) lookup).
+    /// Check if a file exists in the archive.
     pub fn contains(&self, path: &str) -> bool {
         let clean = normalize_path(path);
         let clean_no_frag = clean.split('#').next().unwrap_or(&clean);
         self.files.contains_key(clean_no_frag)
-            || self.files_lower.contains_key(&clean_no_frag.to_lowercase())
+            || self
+                .files
+                .keys()
+                .any(|k| k.eq_ignore_ascii_case(clean_no_frag))
     }
 
     /// List all unique file entry paths inside the archive.
     pub fn list_files(&self) -> Vec<String> {
-        // P2 Fix: Iterate keys directly without double allocation into a HashSet
         let mut paths: Vec<String> = self.files.keys().cloned().collect();
         paths.sort();
         paths.dedup();

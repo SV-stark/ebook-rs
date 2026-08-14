@@ -1,5 +1,5 @@
+use ahash::AHashMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -30,13 +30,13 @@ pub struct Annotation {
 /// Manager for annotations.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AnnotationManager {
-    annotations: HashMap<String, Annotation>,
+    annotations: AHashMap<String, Annotation>,
 }
 
 impl AnnotationManager {
     pub fn new() -> Self {
         Self {
-            annotations: HashMap::new(),
+            annotations: AHashMap::new(),
         }
     }
 

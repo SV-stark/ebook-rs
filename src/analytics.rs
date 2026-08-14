@@ -33,7 +33,7 @@ impl ReadingAnalytics {
         };
 
         // Compute top frequency keywords (excluding common stopwords)
-        let mut freq_map = std::collections::HashMap::new();
+        let mut freq_map = ahash::AHashMap::new();
         let mut total_chars = 0;
 
         for word in &words {

@@ -1,24 +1,25 @@
 use crate::archive::EpubArchive;
 use crate::book::Book;
 use crate::deobfuscate::FontDeobfuscator;
+use crate::error::EbookError;
 use crate::layout::RenditionLayout;
 use crate::metadata::{Metadata, PageProgressionDirection, SpineItem};
 use crate::nav::NavPoint;
 use crate::opf::OpfPackage;
 use crate::section::Section;
-use std::collections::HashMap;
+use ahash::AHashMap;
 
 /// Comic Book Archive (CBZ / CBR) Parser.
 pub struct CbzBook;
 
 impl CbzBook {
     /// Parse CBZ (ZIP) or raw image container bytes into a `Book` struct.
-    pub fn parse(bytes: &[u8], title_fallback: &str) -> Result<Book, String> {
+    pub fn parse(bytes: &[u8], title_fallback: &str) -> Result<Book, EbookError> {
         if bytes.starts_with(b"Rar!\x1a\x07\x00")
             || bytes.starts_with(b"Rar!\x1a\x07\x01\x00")
             || bytes.starts_with(b"Rar!\x1a\x07")
         {
-            return Err("CBR (RAR format) is not supported in pure-Rust mode (RARv4/RARv5 detected). Please convert the file to CBZ (ZIP format).".to_string());
+            return Err(EbookError::InvalidFormat("CBR (RAR format) is not supported in pure-Rust mode (RARv4/RARv5 detected). Please convert the file to CBZ (ZIP format).".to_string()));
         }
 
         let archive = EpubArchive::from_bytes(bytes)?;
@@ -26,7 +27,7 @@ impl CbzBook {
     }
 
     /// Parse a CBZ comic book directly from an already-extracted in-memory archive container.
-    pub fn from_archive(archive: EpubArchive, title_fallback: &str) -> Result<Book, String> {
+    pub fn from_archive(archive: EpubArchive, title_fallback: &str) -> Result<Book, EbookError> {
         let mut image_names: Vec<String> = archive
             .files()
             .keys()
@@ -48,7 +49,9 @@ impl CbzBook {
             .collect();
 
         if image_names.is_empty() {
-            return Err("CBZ archive contains no valid image pages".to_string());
+            return Err(EbookError::InvalidFormat(
+                "CBZ archive contains no valid image pages".to_string(),
+            ));
         }
 
         // Sort image pages naturally by filename (e.g. page2 before page10)
@@ -118,7 +121,7 @@ impl CbzBook {
             cover_id: None,
             cover_href: None,
             direction: PageProgressionDirection::Ltr,
-            meta_properties: HashMap::new(),
+            meta_properties: AHashMap::new(),
             accessibility: Default::default(),
         };
 
@@ -127,7 +130,7 @@ impl CbzBook {
             opf_path: "content.opf".to_string(),
             opf_dir: "".to_string(),
             metadata,
-            manifest: ahash::AHashMap::new(),
+            manifest: AHashMap::new(),
             spine,
             guide: Vec::new(),
             toc_item_id: None,
@@ -146,8 +149,8 @@ impl CbzBook {
             annotations: crate::annotations::AnnotationManager::default(),
             before_display_hooks: Vec::new(),
             font_deobfuscator: FontDeobfuscator::parse_encryption_xml(""),
-            media_overlays: HashMap::new(),
-            render_cache: parking_lot::Mutex::new(HashMap::new()),
+            media_overlays: AHashMap::new(),
+            render_cache: parking_lot::Mutex::new(AHashMap::new()),
         };
 
         book.generate_locations(1000);
@@ -155,7 +158,7 @@ impl CbzBook {
     }
 
     /// Parse a CBZ comic book archive in Manga mode (Right-to-Left reading progression).
-    pub fn parse_manga(bytes: &[u8], title_fallback: &str) -> Result<Book, String> {
+    pub fn parse_manga(bytes: &[u8], title_fallback: &str) -> Result<Book, EbookError> {
         let mut book = Self::parse(bytes, title_fallback)?;
         Self::enable_manga_mode(&mut book);
         Ok(book)

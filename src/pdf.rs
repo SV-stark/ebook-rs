@@ -1,5 +1,8 @@
 use crate::book::Book;
+use crate::error::EbookError;
 
+#[cfg(feature = "pdf")]
+use ahash::AHashMap;
 #[cfg(feature = "pdf")]
 use crate::{
     archive::EpubArchive,
@@ -10,8 +13,6 @@ use crate::{
     opf::OpfPackage,
     section::{Section, extract_plain_text},
 };
-#[cfg(feature = "pdf")]
-use std::collections::HashMap;
 
 /// PDF Document Parser using pre-extracted text / markdown via `pdf_oxide`.
 pub struct PdfBook;
@@ -19,16 +20,19 @@ pub struct PdfBook;
 impl PdfBook {
     /// Parse raw PDF byte data into a `Book` struct.
     #[cfg(feature = "pdf")]
-    pub fn parse(bytes: &[u8], title_fallback: &str) -> Result<Book, String> {
-        let doc = pdf_oxide::PdfDocument::from_bytes(bytes.to_vec())
-            .map_err(|e| format!("Failed to open PDF document with pdf_oxide: {}", e))?;
+    pub fn parse(bytes: &[u8], title_fallback: &str) -> Result<Book, EbookError> {
+        let doc = pdf_oxide::PdfDocument::from_bytes(bytes.to_vec()).map_err(|e| {
+            EbookError::InvalidFormat(format!("Failed to open PDF document with pdf_oxide: {}", e))
+        })?;
 
-        let page_count = doc
-            .page_count()
-            .map_err(|e| format!("Failed to get PDF page count: {}", e))?;
+        let page_count = doc.page_count().map_err(|e| {
+            EbookError::InvalidFormat(format!("Failed to get PDF page count: {}", e))
+        })?;
 
         if page_count == 0 {
-            return Err("PDF document contains 0 pages".to_string());
+            return Err(EbookError::InvalidFormat(
+                "PDF document contains 0 pages".to_string(),
+            ));
         }
 
         let capacity = page_count.min(1024);
@@ -98,7 +102,7 @@ impl PdfBook {
             cover_id: None,
             cover_href: None,
             direction: PageProgressionDirection::Ltr,
-            meta_properties: HashMap::new(),
+            meta_properties: AHashMap::new(),
             accessibility: Default::default(),
         };
 
@@ -107,7 +111,7 @@ impl PdfBook {
             opf_path: "content.opf".to_string(),
             opf_dir: "".to_string(),
             metadata,
-            manifest: ahash::AHashMap::new(),
+            manifest: AHashMap::new(),
             spine,
             guide: Vec::new(),
             toc_item_id: None,
@@ -126,8 +130,8 @@ impl PdfBook {
             annotations: crate::annotations::AnnotationManager::default(),
             before_display_hooks: Vec::new(),
             font_deobfuscator: FontDeobfuscator::parse_encryption_xml(""),
-            media_overlays: HashMap::new(),
-            render_cache: parking_lot::Mutex::new(HashMap::new()),
+            media_overlays: AHashMap::new(),
+            render_cache: parking_lot::Mutex::new(AHashMap::new()),
         };
 
         book.generate_locations(1000);
@@ -135,8 +139,10 @@ impl PdfBook {
     }
 
     #[cfg(not(feature = "pdf"))]
-    pub fn parse(_bytes: &[u8], _title_fallback: &str) -> Result<Book, String> {
-        Err("PDF support requires the 'pdf' feature flag to be enabled in Cargo.toml".to_string())
+    pub fn parse(_bytes: &[u8], _title_fallback: &str) -> Result<Book, EbookError> {
+        Err(EbookError::InvalidFormat(
+            "PDF support requires the 'pdf' feature flag to be enabled in Cargo.toml".to_string(),
+        ))
     }
 }
 

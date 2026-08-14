@@ -8,7 +8,8 @@ fn test_blackbox_cbr_rar_detection_error_message() {
         Ok(_) => panic!("CBR file should return Err in pure-Rust mode"),
         Err(err) => {
             assert!(
-                err.contains("CBR (RAR format) is not supported in pure-Rust mode"),
+                err.to_string()
+                    .contains("CBR (RAR format) is not supported in pure-Rust mode"),
                 "Should return clear Option A error message directing user to convert to CBZ: {}",
                 err
             );

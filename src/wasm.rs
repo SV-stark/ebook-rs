@@ -18,7 +18,7 @@ impl WasmBook {
     /// Load an EPUB book from raw byte array Uint8Array in JS.
     #[wasm_bindgen(constructor)]
     pub fn new(bytes: &[u8]) -> Result<WasmBook, JsValue> {
-        let book = Book::from_bytes(bytes).map_err(|e| JsValue::from_str(&e))?;
+        let book = Book::from_bytes(bytes).map_err(|e| JsValue::from_str(&e.to_string()))?;
         Ok(WasmBook { inner: book })
     }
 
@@ -141,7 +141,8 @@ impl WasmBook {
 
     /// Re-export publication as Universal EPUB3 raw Uint8Array byte vector.
     pub fn export_epub_bytes(&self) -> Result<Vec<u8>, JsValue> {
-        crate::UniversalEpub3Exporter::export(&self.inner).map_err(|e| JsValue::from_str(&e))
+        crate::UniversalEpub3Exporter::export(&self.inner)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
     /// Enable 2-Page Manga Spread mode (Right-to-Left reading progression).

@@ -38,7 +38,7 @@
 
 ### 📂 Format Support
 
-| Feature | 🚀 `ebook-rs` (v0.15.1) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.15.5) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **EPUB 2 & 3 Support** | ✅ Full OPF + NCX/NAV | ✅ Yes | ✅ Yes | ✅ Yes |
 | **EPUB 3 Fixed-Layout (FXL)** | ✅ 2-page spread renderer | ✅ Yes | ✅ Yes | ❌ No |
@@ -55,7 +55,7 @@
 
 ### 🧭 Navigation, Rendering & Security
 
-| Feature | 🚀 `ebook-rs` (v0.15.1) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.15.5) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **IDPF CFI Engine** | ✅ Parse / format / compare / range | ✅ Yes | ✅ Yes | ✅ Yes |
 | **CFI DOM Resolver** | ✅ `cfi.resolve_dom_path(html)` | ✅ Yes | ✅ Yes | ❌ No |
@@ -72,7 +72,7 @@
 
 ### 🔍 Search, Analytics & AI RAG
 
-| Feature | 🚀 `ebook-rs` (v0.15.1) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.15.5) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **Model Context Protocol (MCP 2024-11-05)** | ✅ Built-in Stdio & HTTP Server | ❌ No | ❌ No | ❌ No |
 | **Okapi BM25 Relevance Scoring** | ✅ `rank_chunks_bm25()` TF-IDF | ❌ No | ❌ No | ❌ No |
@@ -86,7 +86,7 @@
 
 ### 🌐 Interoperability, Exporters & Performance
 
-| Feature | 🚀 `ebook-rs` (v0.15.1) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.15.5) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **Universal EPUB 3 & KFX Exporters** | ✅ `export_epub3` & `export_kfx` | ❌ No | ❌ No | ❌ No |
 | **Sub-5ms Lazy Resource Hydration** | ✅ On-demand asset inlining | ❌ No | ❌ No | ❌ No |
@@ -103,7 +103,7 @@
 
 Empirically measured conversion benchmark converting eBook formats to **EPUB 3** on identical test hardware:
 
-| Input Format | 🚀 `ebook-rs` (v0.15.1) | 🐍 Calibre `ebook-convert` | Speedup | Image Assets Extracted | Chapter Sections | Output Parity |
+| Input Format | 🚀 `ebook-rs` (v0.15.5) | 🐍 Calibre `ebook-convert` | Speedup | Image Assets Extracted | Chapter Sections | Output Parity |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
 | **MOBI → EPUB** | **0.98s** ⚡ | 4.64s | **4.8× Faster** | 38 / 37 (100% Parity) ✅ | 17 chapters | Matched |
 | **AZW3 (KF8) → EPUB** | **0.34s** ⚡ | 3.29s | **9.7× Faster** | 38 / 37 (100% Parity) ✅ | 14 chapters | Matched |
@@ -119,7 +119,7 @@ Add `ebook-rs` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ebook-rs = "0.15.1"
+ebook-rs = "0.15.5"
 ```
 
 Or install via `cargo`:

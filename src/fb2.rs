@@ -1,27 +1,31 @@
 use crate::archive::EpubArchive;
 use crate::book::Book;
 use crate::deobfuscate::FontDeobfuscator;
+use crate::error::EbookError;
 use crate::layout::RenditionLayout;
 use crate::metadata::{Metadata, PageProgressionDirection, SpineItem};
 use crate::nav::NavPoint;
 use crate::opf::OpfPackage;
 use crate::section::{Section, extract_plain_text};
+use ahash::AHashMap;
 use base64::Engine;
 use roxmltree::Document;
-use std::collections::HashMap;
 
 /// FictionBook 2 (FB2) XML Parser.
 pub struct Fb2Book;
 
 impl Fb2Book {
     /// Parse FB2 raw XML bytes into a `Book` struct.
-    pub fn parse(bytes: &[u8]) -> Result<Book, String> {
+    pub fn parse(bytes: &[u8]) -> Result<Book, EbookError> {
         let xml = String::from_utf8_lossy(bytes);
-        let doc = Document::parse(&xml).map_err(|e| format!("FB2 XML parse error: {}", e))?;
+        let doc = Document::parse(&xml)
+            .map_err(|e| EbookError::Xml(format!("FB2 XML parse error: {}", e)))?;
 
         let root = doc.root_element();
         if !root.has_tag_name("FictionBook") && !xml.contains("<FictionBook") {
-            return Err("Not a valid FictionBook 2 (FB2) document".to_string());
+            return Err(EbookError::InvalidFormat(
+                "Not a valid FictionBook 2 (FB2) document".to_string(),
+            ));
         }
 
         let mut title = "Untitled FB2 Book".to_string();
@@ -70,7 +74,7 @@ impl Fb2Book {
         }
 
         // Extract <binary> Base64 images into archive and binary_map
-        let mut binary_map = HashMap::new();
+        let mut binary_map = AHashMap::new();
         let mut archive = EpubArchive::empty();
 
         for node in root.descendants() {
@@ -214,7 +218,7 @@ impl Fb2Book {
             cover_id: None,
             cover_href: None,
             direction: PageProgressionDirection::Ltr,
-            meta_properties: HashMap::new(),
+            meta_properties: AHashMap::new(),
             accessibility: Default::default(),
         };
 
@@ -223,7 +227,7 @@ impl Fb2Book {
             opf_path: "content.opf".to_string(),
             opf_dir: "".to_string(),
             metadata,
-            manifest: ahash::AHashMap::new(),
+            manifest: AHashMap::new(),
             spine,
             guide: Vec::new(),
             toc_item_id: None,
@@ -242,8 +246,8 @@ impl Fb2Book {
             annotations: crate::annotations::AnnotationManager::default(),
             before_display_hooks: Vec::new(),
             font_deobfuscator: FontDeobfuscator::parse_encryption_xml(""),
-            media_overlays: HashMap::new(),
-            render_cache: parking_lot::Mutex::new(HashMap::new()),
+            media_overlays: AHashMap::new(),
+            render_cache: parking_lot::Mutex::new(AHashMap::new()),
         };
 
         book.generate_locations(1000);
@@ -265,7 +269,7 @@ fn collect_descendant_text(node: &roxmltree::Node) -> String {
 
 fn convert_fb2_section_to_html(
     sec: &roxmltree::Node,
-    binary_map: &HashMap<String, String>,
+    binary_map: &AHashMap<String, String>,
 ) -> String {
     let mut html = String::from("<div>");
 

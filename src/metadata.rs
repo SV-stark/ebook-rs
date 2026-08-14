@@ -1,5 +1,5 @@
+use ahash::AHashMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Page progression direction (LTR, RTL, Default).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -27,7 +27,7 @@ pub struct Metadata {
     pub cover_id: Option<String>,
     pub cover_href: Option<String>,
     pub direction: PageProgressionDirection,
-    pub meta_properties: HashMap<String, String>,
+    pub meta_properties: AHashMap<String, String>,
     pub accessibility: AccessibilityMetadata,
 }
 
