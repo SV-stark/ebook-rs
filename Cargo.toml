@@ -1,9 +1,9 @@
 [package]
 name = "ebook-rs"
-version = "0.16.0"
+version = "0.16.1"
 edition = "2024"
 authors = ["SV-Stark"]
-description = "Pure Rust multi-format eBook engine (EPUB2/3, MOBI, AZW3, FB2, LIT, CBZ, PDF, ODT, DOCX, RTF, TXT, MD) with SpeechSynthesis TTS Word Synchronizer, Legacy Charset Decoding, Auto Language Detection, Zstd State Caching, Universal EPUB3 Exporter, Zero-Copy mmap, and Readium LCP/Locator APIs."
+description = "Pure Rust multi-format eBook engine (EPUB 2/3, MOBI, AZW3, KFX, FB2, LIT, CBZ, PDF, ODT, DOCX, RTF, TXT, MD) featuring Mozilla UniFFI, Readium CFI/LCP, SpeechSynthesis TTS sync, CJK vertical/RTL reflow, EPUB3 optimizer, AI RAG BM25 chunking, zero-copy search, Zstd caching, Python/WASM bindings, and native MCP server."
 license = "MIT"
 repository = "https://github.com/SV-stark/ebook-rs"
 homepage = "https://github.com/SV-stark/ebook-rs"

@@ -5,6 +5,17 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.1] - 2026-08-17
+
+### Added & Improved
+
+- **Unified Metadata & Documentation Alignment**:
+  - Aligned package descriptions and feature matrices across `Cargo.toml`, `pyproject.toml`, `README.md`, and `API.md` with complete format and capability enumeration (EPUB 2/3, MOBI, AZW3, KFX, FB2, LIT, CBZ, PDF, ODT, DOCX, RTF, TXT, MD, Mozilla UniFFI, Readium CFI/LCP, TTS sync, CJK vertical/RTL, EPUB3 optimizer, AI RAG BM25 chunking).
+- **Clippy & Linter Perfection**:
+  - Full codebase validation with `cargo clippy --all-targets --all-features -- -D warnings` (0 errors, 0 warnings).
+
+---
+
 ## [0.16.0] - 2026-08-17
 
 ### Added
