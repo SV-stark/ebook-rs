@@ -5,6 +5,42 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-08-17
+
+### Added
+
+- **Mozilla UniFFI Mobile & Native Bindings (`src/uniffi_api.rs`)**:
+  - Implemented thread-safe `UniBook` interface for direct Swift (iOS/macOS) and Kotlin (Android) native integration with zero C FFI boilerplate.
+  - Added native export records `UniSearchResult` and `UniSectionSummary` supporting searching, TOC retrieval, metadata serialization, and section pagination.
+- **Vertical Writing (CJK) & RTL Pagination (`src/paginator.rs`)**:
+  - Added first-class support for Japanese/Chinese vertical text (`WritingMode::VerticalRl`, `WritingMode::VerticalLr`) with top-to-bottom column progression and CSS property generation (`writing-mode: vertical-rl; text-orientation: upright;`).
+  - Added Arabic and Hebrew right-to-left pagination support (`WritingMode::HorizontalRtl`, `TextDirection::Rtl`).
+  - Added CJK Unicode block detection (`is_cjk_char`) for proportional glyph width calculations.
+- **Web Audio API & SMIL Karaoke Synchronization (`src/media_overlay.rs`)**:
+  - Extended SMIL media overlay engine with `WebAudioCue`, `KaraokeCueSheet`, and `to_karaoke_cue_sheet()`.
+  - Added `annotate_html_with_media_overlays()` injecting karaoke data attributes (`data-audio-src`, `data-clip-begin`, `data-clip-end`, `class="media-overlay-active-target"`) for word-by-word synchronized audio highlighting.
+  - Added `generate_web_audio_manifest()` for exporting Web Audio API JSON playback manifests.
+- **Lazy Archive Decompression for Giant Files (`src/archive.rs`)**:
+  - Implemented transparent Lazy Mode when total uncompressed archive size exceeds 500MB (e.g. manga omnibus, comics, multi-gigabyte collections).
+  - Preserves structural XML metadata in memory while decompressing individual chapter bodies and image assets on-demand.
+- **Markdown YAML/TOML Frontmatter, Obsidian Wikilinks & Callouts (`src/txt.rs`)**:
+  - Supported YAML (`---`) and TOML (`+++`) metadata frontmatter parsing (`title`, `authors`, `lang`, `description`, `publisher`, `tags`, `isbn`).
+  - Implemented Obsidian-style wikilinks `[[Chapter 1]]`, `[[Chapter 1|Custom Label]]`, and `[[#heading]]`.
+  - Implemented GFM & Obsidian callouts (`> [!NOTE]`, `> [!WARNING]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!CAUTION]`, `> [!INFO]`).
+- **Microsoft Word (.docx) Document Parser (`src/docx.rs`)**:
+  - Implemented `DocxBook::parse` parsing WordprocessingML XML documents, extracting headings (`Heading1`/`Heading2`), bold/italic/underline/strike formatting, tables, embedded media images, and Dublin Core metadata into a unified `Book`.
+  - Added automatic magic detection for `.docx` ZIP packages in `Book::from_bytes` and `Book::from_file`.
+- **Rich Text Format (.rtf) Parser Engine (`src/rtf.rs`)**:
+  - Implemented `RtfBook::parse` supporting RTF control words (`\b`, `\i`, `\ul`, `\strike`, `\par`, `\line`, `\page`), nested group state stacks, code page conversions, Unicode escapes (`\uN`), tables (`\trowd`/`\cell`/`\row`), and embedded pictures (`\pict\pngblip`/`\jpegblip`).
+  - Added automatic format detection for `{\rtf` files in `Book::from_bytes`.
+- **Lossless EPUB 3 Optimizer & Minifier (`src/optimizer.rs`, `src/book.rs`)**:
+  - Added `EpubOptimizer` with HTML minification, CSS minification, unused CSS purging across section DOMs, and SHA-1 asset/font deduplication.
+  - Added `Book::export_optimized_epub3_bytes(&self, options)`.
+- **Fast `memchr` / SIMD Sanitization Accelerators (`src/dom.rs`, `src/section.rs`)**:
+  - Optimized XML entity recovery and HTML script/iframe stripping using vectorized `memchr` scanning.
+
+---
+
 ## [0.15.5] - 2026-08-14
 
 ### Added

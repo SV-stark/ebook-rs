@@ -9,7 +9,8 @@ use crate::opf::OpfPackage;
 use crate::section::Section;
 use ahash::AHashMap;
 
-/// Plain Text (.txt) and Markdown (.md) document parser engine.
+/// Plain Text (.txt) and Markdown (.md) document parser engine with YAML/TOML frontmatter,
+/// Obsidian-style wikilinks (`[[wikilink]]`), and GFM/Obsidian callout block support (`> [!NOTE]`).
 pub struct TxtBook;
 
 impl TxtBook {
@@ -19,8 +20,8 @@ impl TxtBook {
         title_fallback: &str,
         is_markdown: bool,
     ) -> Result<Book, EbookError> {
-        let text = String::from_utf8_lossy(bytes);
-        if text.trim().is_empty() {
+        let raw_text = String::from_utf8_lossy(bytes);
+        if raw_text.trim().is_empty() {
             return Err(EbookError::InvalidFormat("Text file is empty".to_string()));
         }
 
@@ -32,44 +33,77 @@ impl TxtBook {
             && !title_fallback.ends_with("Book")
             && !title_fallback.to_lowercase().contains("ignored");
         let mut creators = Vec::new();
+        let mut publishers = Vec::new();
         let mut languages = vec!["en".to_string()];
+        let mut description = Some("Markdown Document".to_string());
+        let mut subjects = vec!["Text".to_string()];
+        let mut identifier = None;
 
-        for line in text.lines().take(15) {
-            let lower = line.to_lowercase();
-            if let Some(pos) = lower.find("title:") {
-                let v = line[pos + 6..]
-                    .trim()
-                    .trim_matches('"')
-                    .trim_matches('\'')
-                    .trim();
-                if !v.is_empty() {
-                    title = v.to_string();
-                    has_custom_title = true;
-                }
-            } else if let Some(pos) = lower.find("author:").or_else(|| lower.find("creator:")) {
-                if let Some(colon) = line[pos..].find(':') {
-                    let v = line[pos + colon + 1..]
+        let content_text = if is_markdown {
+            let (extracted_meta, body) = extract_frontmatter(&raw_text);
+            if let Some(t) = extracted_meta.title {
+                title = t;
+                has_custom_title = true;
+            }
+            if !extracted_meta.creators.is_empty() {
+                creators = extracted_meta.creators;
+            }
+            if !extracted_meta.languages.is_empty() {
+                languages = extracted_meta.languages;
+            }
+            if let Some(d) = extracted_meta.description {
+                description = Some(d);
+            }
+            if !extracted_meta.publishers.is_empty() {
+                publishers = extracted_meta.publishers;
+            }
+            if !extracted_meta.subjects.is_empty() {
+                subjects = extracted_meta.subjects;
+            }
+            if let Some(id) = extracted_meta.identifier {
+                identifier = Some(id);
+            }
+            body
+        } else {
+            // Legacy inline metadata sniffing for plain text files
+            for line in raw_text.lines().take(15) {
+                let lower = line.to_lowercase();
+                if let Some(pos) = lower.find("title:") {
+                    let v = line[pos + 6..]
                         .trim()
                         .trim_matches('"')
                         .trim_matches('\'')
                         .trim();
                     if !v.is_empty() {
-                        creators.push(v.to_string());
+                        title = v.to_string();
+                        has_custom_title = true;
                     }
-                }
-            } else if let Some(pos) = lower.find("language:").or_else(|| lower.find("lang:")) {
-                if let Some(colon) = line[pos..].find(':') {
-                    let v = line[pos + colon + 1..]
-                        .trim()
-                        .trim_matches('"')
-                        .trim_matches('\'')
-                        .trim();
-                    if !v.is_empty() {
-                        languages = vec![v.to_string()];
+                } else if let Some(pos) = lower.find("author:").or_else(|| lower.find("creator:")) {
+                    if let Some(colon) = line[pos..].find(':') {
+                        let v = line[pos + colon + 1..]
+                            .trim()
+                            .trim_matches('"')
+                            .trim_matches('\'')
+                            .trim();
+                        if !v.is_empty() {
+                            creators.push(v.to_string());
+                        }
+                    }
+                } else if let Some(pos) = lower.find("language:").or_else(|| lower.find("lang:")) {
+                    if let Some(colon) = line[pos..].find(':') {
+                        let v = line[pos + colon + 1..]
+                            .trim()
+                            .trim_matches('"')
+                            .trim_matches('\'')
+                            .trim();
+                        if !v.is_empty() {
+                            languages = vec![v.to_string()];
+                        }
                     }
                 }
             }
-        }
+            raw_text.to_string()
+        };
 
         let mut sections = Vec::new();
         let mut spine = Vec::new();
@@ -84,12 +118,76 @@ impl TxtBook {
             let mut code_lang = String::new();
             let mut code_buf = String::new();
 
-            for line in text.lines() {
+            let mut in_callout = false;
+            let mut callout_type = String::new();
+            let mut callout_title = String::new();
+            let mut callout_lines = Vec::new();
+
+            let flush_callout = |current_html: &mut String,
+                                 plain_buf: &mut String,
+                                 c_type: &str,
+                                 c_title: &str,
+                                 c_lines: &mut Vec<String>| {
+                if c_lines.is_empty() {
+                    return;
+                }
+                let icon = match c_type {
+                    "note" | "info" => "ℹ️",
+                    "tip" => "💡",
+                    "warning" | "caution" => "⚠️",
+                    "important" | "danger" => "❗",
+                    "question" | "faq" => "❓",
+                    "example" => "📋",
+                    "quote" => "💬",
+                    _ => "📌",
+                };
+                let display_title = if c_title.is_empty() {
+                    let mut chars = c_type.chars();
+                    match chars.next() {
+                        Some(f) => f.to_uppercase().collect::<String>() + chars.as_str(),
+                        None => "Note".to_string(),
+                    }
+                } else {
+                    c_title.to_string()
+                };
+
+                let mut inner_html = String::new();
+                for cl in c_lines.iter() {
+                    inner_html.push_str(&format!("<p>{}</p>\n", parse_inline_markdown(cl)));
+                    plain_buf.push_str(cl);
+                    plain_buf.push('\n');
+                }
+
+                let callout_block = format!(
+                    "<div class=\"callout callout-{}\">\n<div class=\"callout-title\"><span class=\"callout-icon\">{}</span> {}</div>\n<div class=\"callout-content\">\n{}</div>\n</div>\n",
+                    c_type,
+                    icon,
+                    xml_escape(&display_title),
+                    inner_html
+                );
+                current_html.push_str(&callout_block);
+                c_lines.clear();
+            };
+
+            for line in content_text.lines() {
                 let trimmed = line.trim();
+
+                // Code block handling
                 if trimmed.starts_with("```") {
+                    if in_callout {
+                        flush_callout(
+                            &mut current_section_html,
+                            &mut plain_text_buf,
+                            &callout_type,
+                            &callout_title,
+                            &mut callout_lines,
+                        );
+                        in_callout = false;
+                    }
+
                     if in_code_block {
                         let pre_html = format!(
-                            "<pre><code class=\"language-{}\">\n{}</code></pre>",
+                            "<pre><code class=\"language-{}\">\n{}</code></pre>\n",
                             if code_lang.is_empty() {
                                 "text"
                             } else {
@@ -98,7 +196,6 @@ impl TxtBook {
                             xml_escape(&code_buf)
                         );
                         current_section_html.push_str(&pre_html);
-                        current_section_html.push('\n');
                         plain_text_buf.push_str(&code_buf);
                         plain_text_buf.push('\n');
 
@@ -118,6 +215,44 @@ impl TxtBook {
                     continue;
                 }
 
+                // Callout start detection (`> [!NOTE] Title`)
+                if trimmed.starts_with('>') {
+                    let quote_content = trimmed.trim_start_matches('>').trim();
+                    if quote_content.starts_with("[!") && quote_content.contains(']') {
+                        if in_callout {
+                            flush_callout(
+                                &mut current_section_html,
+                                &mut plain_text_buf,
+                                &callout_type,
+                                &callout_title,
+                                &mut callout_lines,
+                            );
+                        }
+
+                        let end_bracket = quote_content.find(']').unwrap();
+                        let tag_type = quote_content[2..end_bracket].to_lowercase();
+                        let custom_title = quote_content[end_bracket + 1..].trim();
+
+                        in_callout = true;
+                        callout_type = tag_type;
+                        callout_title = custom_title.to_string();
+                        continue;
+                    } else if in_callout {
+                        callout_lines.push(quote_content.to_string());
+                        continue;
+                    }
+                } else if in_callout {
+                    flush_callout(
+                        &mut current_section_html,
+                        &mut plain_text_buf,
+                        &callout_type,
+                        &callout_title,
+                        &mut callout_lines,
+                    );
+                    in_callout = false;
+                }
+
+                // Headings
                 if trimmed.starts_with('#') {
                     let level = trimmed.chars().take_while(|c| *c == '#').count();
                     let heading_text = trimmed.trim_start_matches('#').trim();
@@ -164,14 +299,14 @@ impl TxtBook {
                         plain_text_buf.clear();
                     }
 
+                    let parsed_heading = parse_inline_markdown(heading_text);
                     let h_tag = format!(
-                        "<h{}>{}</h{}>",
+                        "<h{}>{}</h{}>\n",
                         level.min(6),
-                        xml_escape(heading_text),
+                        parsed_heading,
                         level.min(6)
                     );
                     current_section_html.push_str(&h_tag);
-                    current_section_html.push('\n');
                     plain_text_buf.push_str(heading_text);
                     plain_text_buf.push('\n');
 
@@ -184,12 +319,22 @@ impl TxtBook {
                         subitems: Vec::new(),
                     });
                 } else if !trimmed.is_empty() {
-                    let p_html = format!("<p>{}</p>", xml_escape(trimmed));
+                    let inline_parsed = parse_inline_markdown(trimmed);
+                    let p_html = format!("<p>{}</p>\n", inline_parsed);
                     current_section_html.push_str(&p_html);
-                    current_section_html.push('\n');
                     plain_text_buf.push_str(trimmed);
                     plain_text_buf.push('\n');
                 }
+            }
+
+            if in_callout {
+                flush_callout(
+                    &mut current_section_html,
+                    &mut plain_text_buf,
+                    &callout_type,
+                    &callout_title,
+                    &mut callout_lines,
+                );
             }
 
             if !plain_text_buf.is_empty() || sections.is_empty() {
@@ -226,10 +371,11 @@ impl TxtBook {
                 });
             }
         } else {
+            // Plain text parsing
             let mut html_buf = String::new();
             let mut plain_text_buf = String::new();
 
-            for paragraph in text.split("\n\n") {
+            for paragraph in content_text.split("\n\n") {
                 let p_clean = paragraph.trim();
                 if !p_clean.is_empty() {
                     html_buf.push_str(&format!("<p>{}</p>\n", xml_escape(p_clean)));
@@ -278,14 +424,14 @@ impl TxtBook {
         let metadata = Metadata {
             title,
             creators,
-            publishers: Vec::new(),
+            publishers,
             languages,
             rights: None,
-            description: Some("Text Document".to_string()),
-            identifier: None,
+            description,
+            identifier,
             pub_date: None,
             modified_date: None,
-            subjects: vec!["Text".to_string()],
+            subjects,
             cover_id: None,
             cover_href: None,
             direction: PageProgressionDirection::Ltr,
@@ -324,6 +470,198 @@ impl TxtBook {
         book.generate_locations(1000);
         Ok(book)
     }
+}
+
+/// Parsed metadata container from YAML / TOML frontmatter.
+#[derive(Debug, Default)]
+struct FrontmatterMeta {
+    pub title: Option<String>,
+    pub creators: Vec<String>,
+    pub publishers: Vec<String>,
+    pub languages: Vec<String>,
+    pub description: Option<String>,
+    pub subjects: Vec<String>,
+    pub identifier: Option<String>,
+}
+
+/// Extract YAML (`--- ... ---`) or TOML (`+++ ... +++`) frontmatter from Markdown source.
+fn extract_frontmatter(text: &str) -> (FrontmatterMeta, String) {
+    let mut meta = FrontmatterMeta::default();
+    let trimmed_start = text.trim_start();
+
+    let (delimiter, after_delim) = if let Some(stripped) = trimmed_start.strip_prefix("---") {
+        ("---", stripped)
+    } else if let Some(stripped) = trimmed_start.strip_prefix("+++") {
+        ("+++", stripped)
+    } else {
+        return (meta, text.to_string());
+    };
+
+    if let Some(closing_idx) = after_delim.find(delimiter) {
+        let frontmatter_content = &after_delim[..closing_idx];
+        let body = &after_delim[closing_idx + delimiter.len()..];
+
+        for line in frontmatter_content.lines() {
+            let line_trimmed = line.trim();
+            if line_trimmed.is_empty() || line_trimmed.starts_with('#') {
+                continue;
+            }
+            if let Some(colon_pos) = line_trimmed.find(':').or_else(|| line_trimmed.find('=')) {
+                let key = line_trimmed[..colon_pos].trim().to_lowercase();
+                let val = line_trimmed[colon_pos + 1..]
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'')
+                    .trim();
+
+                match key.as_str() {
+                    "title" => meta.title = Some(val.to_string()),
+                    "author" | "creator" => meta.creators.push(val.to_string()),
+                    "authors" | "creators" => {
+                        let cleaned = val.trim_matches('[').trim_matches(']');
+                        for a in cleaned.split(',') {
+                            let clean_a = a.trim().trim_matches('"').trim_matches('\'').trim();
+                            if !clean_a.is_empty() {
+                                meta.creators.push(clean_a.to_string());
+                            }
+                        }
+                    }
+                    "language" | "lang" => meta.languages = vec![val.to_string()],
+                    "description" | "summary" => meta.description = Some(val.to_string()),
+                    "publisher" => meta.publishers.push(val.to_string()),
+                    "isbn" | "identifier" | "id" => meta.identifier = Some(val.to_string()),
+                    "tags" | "subjects" => {
+                        let cleaned = val.trim_matches('[').trim_matches(']');
+                        for tag in cleaned.split(',') {
+                            let clean_tag = tag.trim().trim_matches('"').trim_matches('\'').trim();
+                            if !clean_tag.is_empty() {
+                                meta.subjects.push(clean_tag.to_string());
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        (meta, body.trim_start().to_string())
+    } else {
+        (meta, text.to_string())
+    }
+}
+
+/// Convert inline Markdown formatting, Obsidian wikilinks `[[Link|Label]]`, bold, italic, and code.
+fn parse_inline_markdown(input: &str) -> String {
+    let mut out = String::with_capacity(input.len() + 16);
+    let mut i = 0;
+    let chars: Vec<char> = input.chars().collect();
+
+    while i < chars.len() {
+        // 1. Obsidian-style wikilinks `[[target|label]]` or `[[target]]`
+        if i + 1 < chars.len() && chars[i] == '[' && chars[i + 1] == '[' {
+            if let Some(end_pos) = chars[i + 2..].windows(2).position(|w| w == [']', ']']) {
+                let abs_end = i + 2 + end_pos;
+                let link_content: String = chars[i + 2..abs_end].iter().collect();
+                let parts: Vec<&str> = link_content.split('|').collect();
+
+                let (target, label) = match parts.len() {
+                    1 => {
+                        let t = parts[0].trim();
+                        let l = if t.starts_with('#') {
+                            t.trim_start_matches('#')
+                        } else {
+                            t
+                        };
+                        (t, l)
+                    }
+                    _ => (parts[0].trim(), parts[1].trim()),
+                };
+
+                let href = if target.starts_with('#') {
+                    target.to_string()
+                } else {
+                    format!("#{}", target.to_lowercase().replace(' ', "-"))
+                };
+
+                out.push_str(&format!(
+                    "<a href=\"{}\" class=\"wikilink\">{}</a>",
+                    xml_escape(&href),
+                    xml_escape(label)
+                ));
+                i = abs_end + 2;
+                continue;
+            }
+        }
+
+        // 2. Standard Markdown links `[label](url)`
+        if chars[i] == '[' {
+            if let Some(close_bracket) = chars[i + 1..].iter().position(|c| *c == ']') {
+                let abs_close = i + 1 + close_bracket;
+                if abs_close + 1 < chars.len() && chars[abs_close + 1] == '(' {
+                    if let Some(close_paren) = chars[abs_close + 2..].iter().position(|c| *c == ')')
+                    {
+                        let abs_paren = abs_close + 2 + close_paren;
+                        let label: String = chars[i + 1..abs_close].iter().collect();
+                        let url: String = chars[abs_close + 2..abs_paren].iter().collect();
+
+                        out.push_str(&format!(
+                            "<a href=\"{}\">{}</a>",
+                            xml_escape(&url),
+                            xml_escape(&label)
+                        ));
+                        i = abs_paren + 1;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        // 3. Inline code `` `code` ``
+        if chars[i] == '`' {
+            if let Some(close_tick) = chars[i + 1..].iter().position(|c| *c == '`') {
+                let abs_tick = i + 1 + close_tick;
+                let code_content: String = chars[i + 1..abs_tick].iter().collect();
+                out.push_str(&format!("<code>{}</code>", xml_escape(&code_content)));
+                i = abs_tick + 1;
+                continue;
+            }
+        }
+
+        // 4. Bold `**text**`
+        if i + 1 < chars.len() && chars[i] == '*' && chars[i + 1] == '*' {
+            if let Some(close_bold) = chars[i + 2..].windows(2).position(|w| w == ['*', '*']) {
+                let abs_bold = i + 2 + close_bold;
+                let bold_content: String = chars[i + 2..abs_bold].iter().collect();
+                out.push_str(&format!("<strong>{}</strong>", xml_escape(&bold_content)));
+                i = abs_bold + 2;
+                continue;
+            }
+        }
+
+        // 5. Italic `*text*`
+        if chars[i] == '*' {
+            if let Some(close_italic) = chars[i + 1..].iter().position(|c| *c == '*') {
+                let abs_italic = i + 1 + close_italic;
+                let italic_content: String = chars[i + 1..abs_italic].iter().collect();
+                out.push_str(&format!("<em>{}</em>", xml_escape(&italic_content)));
+                i = abs_italic + 1;
+                continue;
+            }
+        }
+
+        // Escape HTML special characters
+        match chars[i] {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            c => out.push(c),
+        }
+        i += 1;
+    }
+
+    out
 }
 
 fn xml_escape(input: &str) -> String {

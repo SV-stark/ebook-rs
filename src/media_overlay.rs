@@ -87,6 +87,26 @@ pub struct MediaOverlaySequence {
     pub parallels: Vec<MediaOverlayParallel>,
 }
 
+/// A Web Audio API / Karaoke cue representation for real-time audio playback synchronization.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WebAudioCue {
+    pub id: String,
+    pub element_id: Option<String>,
+    pub text_src: String,
+    pub audio_src: String,
+    pub clip_begin: f64,
+    pub clip_end: f64,
+    pub duration: f64,
+}
+
+/// Complete synchronized karaoke cue sheet for Web Audio API players.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct KaraokeCueSheet {
+    pub smil_path: String,
+    pub total_duration: f64,
+    pub cues: Vec<WebAudioCue>,
+}
+
 /// Parsed SMIL 3.0 Media Overlay Package for an EPUB section.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct MediaOverlayPackage {
@@ -186,6 +206,84 @@ impl MediaOverlayPackage {
             smil_path: smil_path.to_string(),
             sequences,
         })
+    }
+
+    /// Convert SMIL sequences into a flat vector of `WebAudioCue` entries for Web Audio API players.
+    pub fn to_karaoke_cues(&self) -> Vec<WebAudioCue> {
+        let mut cues = Vec::new();
+        let mut cue_idx = 0;
+
+        for seq in &self.sequences {
+            for par in &seq.parallels {
+                if let (Some(text), Some(audio)) = (&par.text, &par.audio) {
+                    let id = par.id.clone().unwrap_or_else(|| format!("cue_{}", cue_idx));
+                    let duration = (audio.clip_end - audio.clip_begin).max(0.0);
+                    cues.push(WebAudioCue {
+                        id,
+                        element_id: text.element_id.clone(),
+                        text_src: text.src.clone(),
+                        audio_src: audio.full_path.clone(),
+                        clip_begin: audio.clip_begin,
+                        clip_end: audio.clip_end,
+                        duration,
+                    });
+                    cue_idx += 1;
+                }
+            }
+        }
+
+        cues
+    }
+
+    /// Build a complete `KaraokeCueSheet` ready for Web Audio API audio player dispatch.
+    pub fn to_karaoke_cue_sheet(&self) -> KaraokeCueSheet {
+        let cues = self.to_karaoke_cues();
+        let total_duration = cues
+            .iter()
+            .map(|c| c.clip_end)
+            .fold(0.0f64, |acc, val| acc.max(val));
+
+        KaraokeCueSheet {
+            smil_path: self.smil_path.clone(),
+            total_duration,
+            cues,
+        }
+    }
+
+    /// Annotate raw HTML with Web Audio API karaoke attributes (`data-audio-src`, `data-clip-begin`, `data-clip-end`, `data-overlay-active`).
+    pub fn annotate_html_with_media_overlays(&self, html: &str) -> String {
+        let cues = self.to_karaoke_cues();
+        if cues.is_empty() {
+            return html.to_string();
+        }
+
+        let mut output = html.to_string();
+        for cue in cues {
+            if let Some(ref elem_id) = cue.element_id {
+                let target_pattern_1 = format!("id=\"{}\"", elem_id);
+                let target_pattern_2 = format!("id='{}'", elem_id);
+
+                let replacement = format!(
+                    "id=\"{}\" data-audio-src=\"{}\" data-clip-begin=\"{:.3}\" data-clip-end=\"{:.3}\" class=\"media-overlay-active-target\"",
+                    elem_id, cue.audio_src, cue.clip_begin, cue.clip_end
+                );
+
+                if output.contains(&target_pattern_1) {
+                    output = output.replace(&target_pattern_1, &replacement);
+                } else if output.contains(&target_pattern_2) {
+                    output = output.replace(&target_pattern_2, &replacement);
+                }
+            }
+        }
+
+        output
+    }
+
+    /// Generate JSON manifest for Web Audio API playback synchronization.
+    pub fn generate_web_audio_manifest(&self) -> Result<String, String> {
+        let cue_sheet = self.to_karaoke_cue_sheet();
+        serde_json::to_string_pretty(&cue_sheet)
+            .map_err(|e| format!("Failed to serialize Web Audio karaoke cue sheet: {}", e))
     }
 
     /// Lookup audio clip timing for a specific text target href or element ID.

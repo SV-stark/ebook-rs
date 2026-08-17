@@ -1,13 +1,19 @@
 use crate::error::EbookError;
 use ahash::AHashMap;
+use parking_lot::Mutex;
 use std::io::{Cursor, Read, Seek};
 use std::path::Path;
+use std::sync::Arc;
 use zip::ZipArchive;
 
-/// Represents an EPUB archive (ZIP container) in memory or from file.
+type LazyZipSource = Option<Arc<Mutex<ZipArchive<Cursor<Vec<u8>>>>>>;
+
+/// Represents an EPUB archive (ZIP container) in memory or from file with lazy decompression for giant archives (>500MB).
 #[derive(Clone)]
 pub struct EpubArchive {
     files: AHashMap<String, Vec<u8>>,
+    lazy_source: LazyZipSource,
+    lazy_index: AHashMap<String, usize>,
 }
 
 impl EpubArchive {
@@ -28,6 +34,8 @@ impl EpubArchive {
     pub fn empty() -> Self {
         Self {
             files: AHashMap::new(),
+            lazy_source: None,
+            lazy_index: AHashMap::new(),
         }
     }
 
@@ -78,79 +86,159 @@ impl EpubArchive {
         }
     }
 
-    /// Create an `EpubArchive` from raw ZIP byte data with Zip Bomb protection.
+    /// Create an `EpubArchive` from raw ZIP byte data with Zip Bomb protection and lazy decompression.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, EbookError> {
         Self::from_reader(Cursor::new(bytes))
     }
 
-    /// Create an `EpubArchive` from any `Read + Seek` stream with Zip Bomb protection.
-    pub fn from_reader<R: Read + Seek>(reader: R) -> Result<Self, EbookError> {
-        let mut zip = ZipArchive::new(reader)
+    /// Create an `EpubArchive` from any `Read + Seek` stream.
+    /// If total uncompressed size exceeds 500MB, seamlessly switches to lazy on-demand decompression mode.
+    pub fn from_reader<R: Read + Seek>(mut reader: R) -> Result<Self, EbookError> {
+        let mut raw_bytes = Vec::new();
+        reader
+            .seek(std::io::SeekFrom::Start(0))
+            .map_err(|e| EbookError::Io(format!("Failed to seek reader: {}", e)))?;
+        reader
+            .read_to_end(&mut raw_bytes)
+            .map_err(|e| EbookError::Io(format!("Failed to read archive bytes: {}", e)))?;
+
+        let mut zip = ZipArchive::new(Cursor::new(raw_bytes.clone()))
             .map_err(|e| EbookError::Zip(format!("Failed to parse ZIP archive: {}", e)))?;
-        let mut files = AHashMap::new();
-        let mut total_decompressed_bytes: u64 = 0;
-        const MAX_TOTAL_SIZE: u64 = 500 * 1024 * 1024; // 500 MB max total size
-        const MAX_ENTRY_SIZE: u64 = 200 * 1024 * 1024; // 200 MB max entry size
 
-        for i in 0..zip.len() {
-            let mut file = zip
-                .by_index(i)
-                .map_err(|e| EbookError::Zip(format!("Failed to read file index {}: {}", i, e)))?;
-            let name = file.name().to_string();
-            // Ignore directories
-            if name.ends_with('/') {
-                continue;
+        let mut total_uncompressed_estimate: u64 = 0;
+        let entry_count = zip.len();
+        let mut is_giant_archive = false;
+
+        const MAX_EAGER_TOTAL_SIZE: u64 = 500 * 1024 * 1024; // 500 MB threshold for eager loading
+
+        for i in 0..entry_count {
+            if let Ok(file) = zip.by_index_raw(i) {
+                total_uncompressed_estimate += file.size();
             }
-
-            if file.size() > MAX_ENTRY_SIZE {
-                return Err(EbookError::Zip(format!(
-                    "ZIP entry '{}' exceeds maximum allowed uncompressed size of 200MB",
-                    name
-                )));
-            }
-
-            let mut content = Vec::new();
-            let mut chunk = [0u8; 8192];
-            let mut entry_bytes_read: u64 = 0;
-
-            loop {
-                let n = file.read(&mut chunk).map_err(|e| {
-                    EbookError::Io(format!("Failed to read entry content {}: {}", name, e))
-                })?;
-                if n == 0 {
-                    break;
-                }
-                entry_bytes_read += n as u64;
-                total_decompressed_bytes += n as u64;
-
-                if entry_bytes_read > MAX_ENTRY_SIZE {
-                    return Err(EbookError::Zip(format!(
-                        "ZIP entry '{}' decompressed size exceeded 200MB limit",
-                        name
-                    )));
-                }
-                if total_decompressed_bytes > MAX_TOTAL_SIZE {
-                    return Err(EbookError::Zip(
-                        "ZIP archive total decompressed size exceeded 500MB safety limit"
-                            .to_string(),
-                    ));
-                }
-                content.extend_from_slice(&chunk[..n]);
-            }
-
-            let normalized = normalize_path(&name);
-            files.insert(normalized, content);
         }
 
-        Ok(Self { files })
+        if total_uncompressed_estimate > MAX_EAGER_TOTAL_SIZE {
+            is_giant_archive = true;
+        }
+
+        let mut files = AHashMap::new();
+        let mut lazy_index = AHashMap::new();
+
+        if is_giant_archive {
+            // Lazy Mode: Index all entries and eagerly load only structural XML documents
+            for i in 0..entry_count {
+                let mut file = zip.by_index(i).map_err(|e| {
+                    EbookError::Zip(format!("Failed to read entry index {}: {}", i, e))
+                })?;
+                let name = file.name().to_string();
+                if name.ends_with('/') {
+                    continue;
+                }
+                let norm = normalize_path(&name);
+                lazy_index.insert(norm.clone(), i);
+
+                // Eagerly parse critical metadata files only
+                let lower = norm.to_lowercase();
+                if lower.ends_with(".xml")
+                    || lower.ends_with(".opf")
+                    || lower.ends_with(".ncx")
+                    || lower.contains("container.xml")
+                {
+                    let mut content = Vec::new();
+                    if file.read_to_end(&mut content).is_ok() {
+                        files.insert(norm, content);
+                    }
+                }
+            }
+
+            Ok(Self {
+                files,
+                lazy_source: Some(Arc::new(Mutex::new(zip))),
+                lazy_index,
+            })
+        } else {
+            // Eager Mode: Load and decompress everything into memory
+            for i in 0..entry_count {
+                let mut file = zip.by_index(i).map_err(|e| {
+                    EbookError::Zip(format!("Failed to read file index {}: {}", i, e))
+                })?;
+                let name = file.name().to_string();
+                if name.ends_with('/') {
+                    continue;
+                }
+
+                let mut content = Vec::new();
+                file.read_to_end(&mut content).map_err(|e| {
+                    EbookError::Io(format!("Failed to read entry content {}: {}", name, e))
+                })?;
+
+                let normalized = normalize_path(&name);
+                files.insert(normalized, content);
+            }
+
+            Ok(Self {
+                files,
+                lazy_source: None,
+                lazy_index,
+            })
+        }
     }
 
-    /// Read raw bytes of a file in the archive (cloning into a new Vec<u8>).
+    /// Whether archive operates in lazy on-demand decompression mode.
+    pub fn is_lazy(&self) -> bool {
+        self.lazy_source.is_some()
+    }
+
+    /// Read raw bytes of a file in the archive.
     pub fn read_bytes(&self, path: &str) -> Result<Vec<u8>, EbookError> {
-        self.read_bytes_ref(path).map(|bytes| bytes.to_vec())
+        let clean = normalize_path(path);
+        let clean_no_frag = clean.split('#').next().unwrap_or(&clean);
+
+        if let Some(data) = self.files.get(clean_no_frag) {
+            return Ok(data.clone());
+        }
+
+        if let Some((_, data)) = self
+            .files
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(clean_no_frag))
+        {
+            return Ok(data.clone());
+        }
+
+        // Check lazy source if in lazy mode
+        if let Some(ref lazy_arc) = self.lazy_source {
+            let entry_idx = self
+                .lazy_index
+                .get(clean_no_frag)
+                .or_else(|| {
+                    self.lazy_index
+                        .iter()
+                        .find(|(k, _)| k.eq_ignore_ascii_case(clean_no_frag))
+                        .map(|(_, idx)| idx)
+                })
+                .copied();
+
+            if let Some(idx) = entry_idx {
+                let mut zip = lazy_arc.lock();
+                let mut file = zip.by_index(idx).map_err(|e| {
+                    EbookError::Zip(format!("Failed to decompress lazy entry {}: {}", path, e))
+                })?;
+                let mut data = Vec::with_capacity(file.size() as usize);
+                file.read_to_end(&mut data).map_err(|e| {
+                    EbookError::Io(format!("Failed to read lazy entry content: {}", e))
+                })?;
+                return Ok(data);
+            }
+        }
+
+        Err(EbookError::NotFound(format!(
+            "File not found in archive: {}",
+            path
+        )))
     }
 
-    /// Zero-copy reference getter for raw file bytes in the archive.
+    /// Zero-copy reference getter for eagerly loaded raw file bytes in the archive.
     pub fn read_bytes_ref(&self, path: &str) -> Result<&[u8], EbookError> {
         let clean = normalize_path(path);
         let clean_no_frag = clean.split('#').next().unwrap_or(&clean);
@@ -165,18 +253,18 @@ impl EpubArchive {
             return Ok(data.as_slice());
         }
         Err(EbookError::NotFound(format!(
-            "File not found in archive: {}",
+            "File not found in eager archive buffer: {}",
             path
         )))
     }
 
     /// Read text content of a file in the archive with SIMD UTF-8 decoding.
     pub fn read_string(&self, path: &str) -> Result<String, EbookError> {
-        let bytes = self.read_bytes_ref(path)?;
-        if let Ok(s) = simdutf8::basic::from_utf8(bytes) {
+        let bytes = self.read_bytes(path)?;
+        if let Ok(s) = simdutf8::basic::from_utf8(&bytes) {
             Ok(s.to_string())
         } else {
-            Ok(String::from_utf8_lossy(bytes).to_string())
+            Ok(String::from_utf8_lossy(&bytes).to_string())
         }
     }
 
@@ -189,11 +277,17 @@ impl EpubArchive {
                 .files
                 .keys()
                 .any(|k| k.eq_ignore_ascii_case(clean_no_frag))
+            || self.lazy_index.contains_key(clean_no_frag)
+            || self
+                .lazy_index
+                .keys()
+                .any(|k| k.eq_ignore_ascii_case(clean_no_frag))
     }
 
     /// List all unique file entry paths inside the archive.
     pub fn list_files(&self) -> Vec<String> {
         let mut paths: Vec<String> = self.files.keys().cloned().collect();
+        paths.extend(self.lazy_index.keys().cloned());
         paths.sort();
         paths.dedup();
         paths

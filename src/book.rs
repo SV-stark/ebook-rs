@@ -33,6 +33,26 @@ pub struct Book {
     pub render_cache: parking_lot::Mutex<AHashMap<usize, String>>,
 }
 
+impl Clone for Book {
+    fn clone(&self) -> Self {
+        Self {
+            archive: self.archive.clone(),
+            opf: self.opf.clone(),
+            toc: self.toc.clone(),
+            landmarks: self.landmarks.clone(),
+            page_list: self.page_list.clone(),
+            sections: self.sections.clone(),
+            locations: self.locations.clone(),
+            annotations: self.annotations.clone(),
+            layout: self.layout.clone(),
+            font_deobfuscator: self.font_deobfuscator.clone(),
+            before_display_hooks: self.before_display_hooks.clone(),
+            media_overlays: self.media_overlays.clone(),
+            render_cache: parking_lot::Mutex::new(self.render_cache.lock().clone()),
+        }
+    }
+}
+
 impl Book {
     /// Load an EPUB, KEPUB, MOBI, AZW3, FB2, LIT, CBZ, or CBR book from a file path.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, EbookError> {
@@ -69,6 +89,10 @@ impl Book {
                     if let Ok(book) = Self::from_archive(archive.clone()) {
                         return Ok(book);
                     }
+                } else if archive.contains("word/document.xml") {
+                    if let Ok(docx) = crate::docx::DocxBook::parse(bytes, title_fallback) {
+                        return Ok(docx);
+                    }
                 } else if archive.contains("content.xml") || archive.contains("meta.xml") {
                     if let Ok(odt) = crate::odt::OdtBook::parse(bytes, title_fallback) {
                         return Ok(odt);
@@ -76,6 +100,9 @@ impl Book {
                 }
                 return crate::cbz::CbzBook::from_archive(archive, title_fallback);
             }
+        }
+        if bytes.starts_with(b"{\\rtf") || bytes.starts_with(b"{\\rtf1") {
+            return crate::rtf::RtfBook::parse(bytes, title_fallback);
         }
         if crate::kfx::KfxBook::is_kfx(bytes) {
             return crate::kfx::KfxBook::parse(bytes);
@@ -906,6 +933,16 @@ impl Book {
         }
 
         Ok(zip_buf)
+    }
+
+    /// Export loaded eBook as a minified, asset-deduplicated, and CSS-purged EPUB 3 archive.
+    pub fn export_optimized_epub3_bytes(
+        &self,
+        options: &crate::optimizer::EpubOptimizerOptions,
+    ) -> Result<Vec<u8>, String> {
+        let mut cloned = self.clone();
+        crate::optimizer::EpubOptimizer::optimize(&mut cloned, options);
+        cloned.export_epub3_bytes()
     }
 }
 

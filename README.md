@@ -12,7 +12,7 @@
 [![Rust Edition](https://img.shields.io/badge/rust-2024%20%7C%201.85%2B-informational?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/crates/l/ebook-rs.svg?style=flat-square&color=green)](LICENSE)
 
-*Pure Rust multi-format eBook engine (**EPUB 2/3, MOBI, AZW3, KFX, FB2, CBZ, PDF, ODT, TXT & MD**) featuring Readium CFI locators, TTS word sync, academic PDF reflow, EPUB3 exporter, zero-copy search, Python/WASM/FFI bindings, and native MCP AI server support.*
+*Pure Rust multi-format eBook engine (**EPUB 2/3, MOBI, AZW3, KFX, FB2, CBZ, PDF, ODT, DOCX, RTF, TXT & MD**) featuring Readium CFI locators, TTS word sync, academic PDF reflow, EPUB3 exporter, zero-copy search, Python/WASM/FFI bindings, and native MCP AI server support.*
 
 </div>
 
@@ -38,7 +38,7 @@
 
 ### 📂 Format Support
 
-| Feature | 🚀 `ebook-rs` (v0.15.5) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.16.0) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **EPUB 2 & 3 Support** | ✅ Full OPF + NCX/NAV | ✅ Yes | ✅ Yes | ✅ Yes |
 | **EPUB 3 Fixed-Layout (FXL)** | ✅ 2-page spread renderer | ✅ Yes | ✅ Yes | ❌ No |
@@ -49,13 +49,15 @@
 | **LIT (Microsoft Reader) Support** | ✅ Native | ❌ No | ✅ Yes | ❌ No |
 | **CBZ (Comic Book ZIP) Support** | ✅ Native ZIP Images | ❌ No | ✅ Yes | ❌ No |
 | **PDF Support & Academic 2-Column Reflow** | ✅ `pdf_oxide` spatial reflow | ❌ No | ❌ No | ❌ No |
-| **ODT (OpenDocument Text)** | ✅ `office_oxide` | ❌ No | ❌ No | ❌ No |
+| **ODT (OpenDocument Text)** | ✅ Native XML + `content.xml` | ❌ No | ❌ No | ❌ No |
+| **DOCX (Microsoft Word)** | ✅ Native WordML + `rdocx` | ❌ No | ❌ No | ❌ No |
+| **RTF (Rich Text Format)** | ✅ Native Control Words + Unicode | ❌ No | ❌ No | ❌ No |
 | **TXT / Markdown Support** | ✅ Auto-reflow sections | ❌ No | ❌ No | ❌ No |
 | **Auto Format Detection** | ✅ Magic-byte detection | ❌ No | ❌ No | ❌ No |
 
 ### 🧭 Navigation, Rendering & Security
 
-| Feature | 🚀 `ebook-rs` (v0.15.5) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.16.0) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **IDPF CFI Engine** | ✅ Parse / format / compare / range | ✅ Yes | ✅ Yes | ✅ Yes |
 | **CFI DOM Resolver** | ✅ `cfi.resolve_dom_path(html)` | ✅ Yes | ✅ Yes | ❌ No |
@@ -72,7 +74,7 @@
 
 ### 🔍 Search, Analytics & AI RAG
 
-| Feature | 🚀 `ebook-rs` (v0.15.5) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.16.0) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **Model Context Protocol (MCP 2024-11-05)** | ✅ Built-in Stdio & HTTP Server | ❌ No | ❌ No | ❌ No |
 | **Okapi BM25 Relevance Scoring** | ✅ `rank_chunks_bm25()` TF-IDF | ❌ No | ❌ No | ❌ No |
@@ -86,7 +88,7 @@
 
 ### 🌐 Interoperability, Exporters & Performance
 
-| Feature | 🚀 `ebook-rs` (v0.15.5) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.16.0) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **Universal EPUB 3 & KFX Exporters** | ✅ `export_epub3` & `export_kfx` | ❌ No | ❌ No | ❌ No |
 | **Sub-5ms Lazy Resource Hydration** | ✅ On-demand asset inlining | ❌ No | ❌ No | ❌ No |
@@ -103,7 +105,7 @@
 
 Empirically measured conversion benchmark converting eBook formats to **EPUB 3** on identical test hardware:
 
-| Input Format | 🚀 `ebook-rs` (v0.15.5) | 🐍 Calibre `ebook-convert` | Speedup | Image Assets Extracted | Chapter Sections | Output Parity |
+| Input Format | 🚀 `ebook-rs` (v0.16.0) | 🐍 Calibre `ebook-convert` | Speedup | Image Assets Extracted | Chapter Sections | Output Parity |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
 | **MOBI → EPUB** | **0.98s** ⚡ | 4.64s | **4.8× Faster** | 38 / 37 (100% Parity) ✅ | 17 chapters | Matched |
 | **AZW3 (KF8) → EPUB** | **0.34s** ⚡ | 3.29s | **9.7× Faster** | 38 / 37 (100% Parity) ✅ | 14 chapters | Matched |
@@ -119,7 +121,7 @@ Add `ebook-rs` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ebook-rs = "0.15.5"
+ebook-rs = "0.16.0"
 ```
 
 Or install via `cargo`:

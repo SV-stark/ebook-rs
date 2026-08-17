@@ -1,9 +1,9 @@
 [package]
 name = "ebook-rs"
-version = "0.15.5"
+version = "0.16.0"
 edition = "2024"
 authors = ["SV-Stark"]
-description = "Pure Rust multi-format eBook engine (EPUB2/3, MOBI, AZW3, FB2, LIT, CBZ, PDF, ODT, TXT, MD) with SpeechSynthesis TTS Word Synchronizer, Legacy Charset Decoding, Auto Language Detection, Zstd State Caching, Universal EPUB3 Exporter, Zero-Copy mmap, and Readium LCP/Locator APIs."
+description = "Pure Rust multi-format eBook engine (EPUB2/3, MOBI, AZW3, FB2, LIT, CBZ, PDF, ODT, DOCX, RTF, TXT, MD) with SpeechSynthesis TTS Word Synchronizer, Legacy Charset Decoding, Auto Language Detection, Zstd State Caching, Universal EPUB3 Exporter, Zero-Copy mmap, and Readium LCP/Locator APIs."
 license = "MIT"
 repository = "https://github.com/SV-stark/ebook-rs"
 homepage = "https://github.com/SV-stark/ebook-rs"
@@ -41,9 +41,11 @@ mmap = ["dep:memmap2"]
 async = ["dep:tokio"]
 mimalloc = ["dep:mimalloc"]
 serde = ["dep:serde", "dep:serde_json"]
+uniffi = ["dep:uniffi", "serde"]
 zstd = ["dep:zstd"]
 
 [dependencies]
+uniffi = { version = "0.28", optional = true }
 getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
 pyo3 = { version = "0.24", features = ["extension-module", "abi3-py38"], optional = true }
 mimalloc = { version = "0.1", optional = true, default-features = false }
@@ -76,6 +78,7 @@ cbc = { version = "0.2", features = ["alloc"] }
 cipher = "0.5"
 ion-rs = "1.0.0-rc.11"
 sha1_smol = "1.0"
+rdocx = { version = "0.7", default-features = false }
 
 
 [profile.release]

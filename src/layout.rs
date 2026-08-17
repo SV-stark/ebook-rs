@@ -66,9 +66,10 @@ pub enum AssetDeliveryStrategy {
     ResourceStream,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum WritingMode {
+    #[default]
     HorizontalLtr,
     HorizontalRtl,
     VerticalRl,

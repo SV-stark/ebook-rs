@@ -2,8 +2,6 @@ use crate::book::Book;
 use crate::error::EbookError;
 
 #[cfg(feature = "pdf")]
-use ahash::AHashMap;
-#[cfg(feature = "pdf")]
 use crate::{
     archive::EpubArchive,
     deobfuscate::FontDeobfuscator,
@@ -13,6 +11,8 @@ use crate::{
     opf::OpfPackage,
     section::{Section, extract_plain_text},
 };
+#[cfg(feature = "pdf")]
+use ahash::AHashMap;
 
 /// PDF Document Parser using pre-extracted text / markdown via `pdf_oxide`.
 pub struct PdfBook;

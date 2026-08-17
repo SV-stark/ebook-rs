@@ -636,56 +636,64 @@ pub fn sanitize_html_scripts(html: &str) -> String {
     let len = html.len();
     let mut i = 0;
 
-    // Phase 1: Strip <script>...</script>, <iframe>, <object>, <embed> without swallowing unclosed tags
+    // Phase 1: Strip <script>...</script>, <iframe>, <object>, <embed> with fast memchr tag scanning
+    let bytes = html.as_bytes();
     while i < len {
-        if !html.is_char_boundary(i) {
-            i += 1;
-            continue;
-        }
-        let slice = &html[i..];
-        if starts_with_ignore_case(slice, "<script")
-            || starts_with_ignore_case(slice, "<iframe")
-            || starts_with_ignore_case(slice, "<object")
-            || starts_with_ignore_case(slice, "<embed")
-        {
-            if let Some(close_tag_pos) = find_tag_end(html, i) {
-                let tag_str = &html[i..=close_tag_pos];
-                let is_self_closing = tag_str.ends_with("/>");
-                if is_self_closing {
-                    i = close_tag_pos + 1;
+        if let Some(tag_offset) = memchr::memchr(b'<', &bytes[i..]) {
+            let abs_tag = i + tag_offset;
+            if abs_tag > i {
+                output.push_str(&html[i..abs_tag]);
+            }
+            i = abs_tag;
+
+            let slice = &html[i..];
+            if starts_with_ignore_case(slice, "<script")
+                || starts_with_ignore_case(slice, "<iframe")
+                || starts_with_ignore_case(slice, "<object")
+                || starts_with_ignore_case(slice, "<embed")
+            {
+                if let Some(close_tag_pos) = find_tag_end(html, i) {
+                    let tag_str = &html[i..=close_tag_pos];
+                    let is_self_closing = tag_str.ends_with("/>");
+                    if is_self_closing {
+                        i = close_tag_pos + 1;
+                        continue;
+                    }
+
+                    let tag_name = if starts_with_ignore_case(slice, "<script") {
+                        "</script>"
+                    } else if starts_with_ignore_case(slice, "<iframe") {
+                        "</iframe>"
+                    } else if starts_with_ignore_case(slice, "<object") {
+                        "</object>"
+                    } else {
+                        "</embed>"
+                    };
+
+                    if let Some(end_idx) = find_ignore_case(&html[close_tag_pos + 1..], tag_name) {
+                        let end_pos = close_tag_pos + 1 + end_idx + tag_name.len();
+                        i = end_pos;
+                        continue;
+                    } else {
+                        // Unclosed tag: strip just opening tag element
+                        i = close_tag_pos + 1;
+                        continue;
+                    }
+                } else {
+                    i += 1;
                     continue;
                 }
+            }
 
-                let tag_name = if starts_with_ignore_case(slice, "<script") {
-                    "</script>"
-                } else if starts_with_ignore_case(slice, "<iframe") {
-                    "</iframe>"
-                } else if starts_with_ignore_case(slice, "<object") {
-                    "</object>"
-                } else {
-                    "</embed>"
-                };
-
-                if let Some(end_idx) = find_ignore_case(&html[close_tag_pos + 1..], tag_name) {
-                    let end_pos = close_tag_pos + 1 + end_idx + tag_name.len();
-                    i = end_pos;
-                    continue;
-                } else {
-                    // Unclosed tag: strip just opening tag element
-                    i = close_tag_pos + 1;
-                    continue;
-                }
+            if let Some(ch) = slice.chars().next() {
+                output.push(ch);
+                i += ch.len_utf8();
             } else {
                 i += 1;
-                continue;
             }
-        }
-
-        if let Some(ch) = slice.chars().next() {
-            output.push(ch);
-            i += ch.len_utf8();
         } else {
-            i += 1;
+            output.push_str(&html[i..]);
+            break;
         }
     }
 

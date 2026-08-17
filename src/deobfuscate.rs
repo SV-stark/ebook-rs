@@ -1,6 +1,7 @@
 use ahash::AHashMap;
 
 /// IDPF & Adobe Font De-obfuscation Engine.
+#[derive(Debug, Clone)]
 pub struct FontDeobfuscator {
     encrypted_fonts: AHashMap<String, String>, // path -> algorithm URI
 }

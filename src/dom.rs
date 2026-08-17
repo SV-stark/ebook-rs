@@ -298,34 +298,38 @@ fn render_node(node: &DomNode, out: &mut String) {
     }
 }
 
-/// Lenient XML / HTML recovery sanitizer that repairs unescaped ampersands (`&`), unclosed tags, and invalid entities.
+/// Fast SIMD/memchr accelerated XML / HTML recovery sanitizer that repairs unescaped ampersands (`&`), unclosed tags, and invalid entities.
 pub fn sanitize_and_repair_xml(xml: &str) -> String {
+    let bytes = xml.as_bytes();
     let mut out = String::with_capacity(xml.len() + 32);
-    let mut i = 0;
+    let mut search_idx = 0;
 
-    while i < xml.len() {
-        if xml.as_bytes()[i] == b'&' {
-            let rest = &xml[i..];
+    while search_idx < bytes.len() {
+        if let Some(amp_pos) = memchr::memchr(b'&', &bytes[search_idx..]) {
+            let abs_amp = search_idx + amp_pos;
+            if abs_amp > search_idx {
+                out.push_str(&xml[search_idx..abs_amp]);
+            }
+
+            let rest = &xml[abs_amp..];
             if let Some(entity) = ["&amp;", "&lt;", "&gt;", "&quot;", "&apos;"]
                 .iter()
                 .find(|e| rest.starts_with(*e))
             {
                 out.push_str(entity);
-                i += entity.len();
+                search_idx = abs_amp + entity.len();
             } else if rest.starts_with("&#") && rest.find(';').map(|pos| pos < 12).unwrap_or(false)
             {
                 let semi_pos = rest.find(';').unwrap();
                 out.push_str(&rest[..=semi_pos]);
-                i += semi_pos + 1;
+                search_idx = abs_amp + semi_pos + 1;
             } else {
                 out.push_str("&amp;");
-                i += 1;
+                search_idx = abs_amp + 1;
             }
-        } else if let Some(ch) = xml[i..].chars().next() {
-            out.push(ch);
-            i += ch.len_utf8();
         } else {
-            i += 1;
+            out.push_str(&xml[search_idx..]);
+            break;
         }
     }
 

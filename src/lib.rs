@@ -8,6 +8,7 @@ pub mod cbz;
 pub mod cfi;
 pub mod citation;
 pub mod deobfuscate;
+pub mod docx;
 pub mod dom;
 pub mod error;
 pub mod fb2;
@@ -16,7 +17,6 @@ pub mod fingerprint;
 pub mod footnote;
 pub mod kfx;
 pub mod layout;
-
 pub mod lcp;
 pub mod lit;
 pub mod locations;
@@ -29,17 +29,20 @@ pub mod odt;
 #[cfg(feature = "opds")]
 pub mod opds;
 pub mod opf;
+pub mod optimizer;
 pub mod paginator;
 pub mod pdf;
 #[cfg(feature = "python")]
 pub mod python;
 pub mod rag;
+pub mod rtf;
 pub mod sample_builder;
 pub mod search;
 pub mod section;
 pub mod stream_zip;
 pub mod treesitter;
 pub mod txt;
+pub mod uniffi_api;
 pub mod validator;
 pub mod wasm;
 pub mod webpub;
@@ -59,6 +62,7 @@ pub use cbz::CbzBook;
 pub use cfi::{Cfi, CfiDomTarget, CfiOffset, CfiPath, CfiStep};
 pub use citation::{CitationExporter, CitationStyle};
 pub use deobfuscate::FontDeobfuscator;
+pub use docx::DocxBook;
 pub use dom::{DomNode, EbookDomTree, decode_bytes_with_encoding, sanitize_and_repair_xml};
 pub use error::EbookError;
 pub use fb2::Fb2Book;
@@ -84,15 +88,18 @@ pub use nav::{Landmark, NavPoint, NavPointFlat, PageListItem, TocSearchResult};
 pub use odt::OdtBook;
 #[cfg(feature = "opds")]
 pub use opds::{OpdsEntry, OpdsFeed, OpdsLink};
+pub use optimizer::{EpubOptimizer, EpubOptimizerOptions, OptimizationReport};
 pub use paginator::{PageRange, ReflowPaginator, SectionPageMap};
 pub use pdf::PdfBook;
 pub use rag::{RagChunk, RagChunkConfig, RagChunker};
+pub use rtf::RtfBook;
 pub use sample_builder::generate_sample_epub;
 pub use search::{SearchEngine, SearchResult};
 pub use section::{Section, TtsWordToken};
 pub use stream_zip::{ZipEntryLocation, ZipHeaderReader};
 pub use treesitter::{ExtractedCodeBlock, SyntaxNodeInfo, TreeSitterEngine};
 pub use txt::TxtBook;
+pub use uniffi_api::{UniBook, UniSearchResult, UniSectionSummary};
 pub use validator::{
     EpubValidator, UniversalEpub3Exporter, ValidationError, ValidationReport, ValidationSeverity,
 };
@@ -103,3 +110,6 @@ pub use server::ReaderServer;
 
 #[cfg(feature = "wasm")]
 pub use wasm::WasmBook;
+
+#[cfg(feature = "uniffi")]
+uniffi::setup_scaffolding!();
