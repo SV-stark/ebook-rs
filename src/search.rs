@@ -16,18 +16,26 @@ pub struct SearchEngine;
 
 impl SearchEngine {
     /// Perform full-text search over a slice of sections.
-    /// P4 Fix: Reuses pre-computed section.plain_text_lower for zero-allocation searching.
+    /// Uses SIMD memmem search over pre-lowered section text for high-throughput, allocation-light scanning.
     pub fn search(sections: &[Section], query: &str, case_sensitive: bool) -> Vec<SearchResult> {
         if query.trim().is_empty() {
             return Vec::new();
         }
+
+        let query_pattern = if case_sensitive {
+            query.to_string()
+        } else {
+            query.to_lowercase()
+        };
 
         #[cfg(feature = "parallel")]
         {
             use rayon::prelude::*;
             sections
                 .par_iter()
-                .flat_map(|section| Self::search_section(section, query, case_sensitive))
+                .flat_map(|section| {
+                    Self::search_section_prepared(section, &query_pattern, case_sensitive)
+                })
                 .collect()
         }
 
@@ -35,7 +43,11 @@ impl SearchEngine {
         {
             let mut results = Vec::new();
             for section in sections {
-                results.extend(Self::search_section(section, query, case_sensitive));
+                results.extend(Self::search_section_prepared(
+                    section,
+                    &query_pattern,
+                    case_sensitive,
+                ));
             }
             results
         }
@@ -47,58 +59,107 @@ impl SearchEngine {
         query: &str,
         case_sensitive: bool,
     ) -> Vec<SearchResult> {
+        let query_pattern = if case_sensitive {
+            query.to_string()
+        } else {
+            query.to_lowercase()
+        };
+        Self::search_section_prepared(section, &query_pattern, case_sensitive)
+    }
+
+    fn search_section_prepared(
+        section: &Section,
+        query: &str,
+        case_sensitive: bool,
+    ) -> Vec<SearchResult> {
         let mut results = Vec::new();
         if query.trim().is_empty() || section.plain_text.is_empty() {
             return results;
         }
 
-        let query_lower = if case_sensitive {
-            query.to_string()
-        } else {
-            query.to_lowercase()
-        };
+        let is_pure_ascii = section.plain_text.is_ascii() && query.is_ascii();
 
-        let target_text = if case_sensitive {
-            &section.plain_text
-        } else {
-            &section.plain_text_lower
-        };
-
-        let finder = memchr::memmem::Finder::new(query_lower.as_bytes());
-        let is_ascii = target_text.is_ascii();
-
-        for match_byte_idx in finder.find_iter(target_text.as_bytes()) {
-            let char_offset = if is_ascii {
-                match_byte_idx
+        if case_sensitive || is_pure_ascii {
+            let target_text = if case_sensitive {
+                &section.plain_text
             } else {
-                target_text[..match_byte_idx].chars().count()
+                &section.plain_text_lower
+            };
+            let query_low = if case_sensitive {
+                query.to_string()
+            } else {
+                query.to_ascii_lowercase()
             };
 
-            let match_len = query_lower.len();
+            let finder = memchr::memmem::Finder::new(query_low.as_bytes());
 
-            let (before, matched, after, has_prefix, has_suffix) =
-                extract_zero_alloc_snippet(&section.plain_text, match_byte_idx, match_len);
+            for match_byte_idx in finder.find_iter(target_text.as_bytes()) {
+                let char_offset = if is_pure_ascii {
+                    match_byte_idx
+                } else {
+                    target_text[..match_byte_idx].chars().count()
+                };
 
-            let prefix = if has_prefix { "..." } else { "" };
-            let suffix = if has_suffix { "..." } else { "" };
+                let match_len = query_low.len();
 
-            let snippet = format!(
-                "{}{}<mark>{}</mark>{}{}",
-                prefix,
-                html_escape(before),
-                html_escape(matched),
-                html_escape(after),
-                suffix
-            );
+                let (before, matched, after, has_prefix, has_suffix) =
+                    extract_zero_alloc_snippet(&section.plain_text, match_byte_idx, match_len);
 
-            let cfi = Cfi::from_spine_index(section.index, None, char_offset).to_string();
+                let prefix = if has_prefix { "..." } else { "" };
+                let suffix = if has_suffix { "..." } else { "" };
 
-            results.push(SearchResult {
-                spine_index: section.index,
-                snippet,
-                cfi,
-                char_offset,
-            });
+                let snippet = format!(
+                    "{}{}<mark>{}</mark>{}{}",
+                    prefix,
+                    html_escape(before),
+                    html_escape(matched),
+                    html_escape(after),
+                    suffix
+                );
+
+                let cfi = Cfi::from_spine_index(section.index, None, char_offset).to_string();
+
+                results.push(SearchResult {
+                    spine_index: section.index,
+                    snippet,
+                    cfi,
+                    char_offset,
+                });
+            }
+        } else {
+            // Non-ASCII case-insensitive matching: match directly on section.plain_text
+            let pattern = format!("(?i){}", regex::escape(query));
+            if let Ok(re) = regex::Regex::new(&pattern) {
+                for m in re.find_iter(&section.plain_text) {
+                    let start_b = m.start();
+                    let match_len = m.len();
+                    let char_offset = section.plain_text[..start_b].chars().count();
+
+                    let (before, matched, after, has_prefix, has_suffix) =
+                        extract_zero_alloc_snippet(&section.plain_text, start_b, match_len);
+
+                    let prefix = if has_prefix { "..." } else { "" };
+                    let suffix = if has_suffix { "..." } else { "" };
+
+                    let snippet = format!(
+                        "{}{}<mark>{}</mark>{}{}",
+                        prefix,
+                        html_escape(before),
+                        html_escape(matched),
+                        html_escape(after),
+                        suffix
+                    );
+
+                    let cfi = Cfi::from_spine_index(section.index, None, char_offset).to_string();
+
+                    results.push(SearchResult {
+                        spine_index: section.index,
+                        snippet,
+                        cfi,
+                        char_offset,
+                    });
+                }
+            }
         }
 
         results
@@ -275,5 +336,26 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].spine_index, 0);
         assert!(results[0].snippet.contains("Rust"));
+    }
+
+    #[test]
+    fn test_search_unicode_boundary_safety() {
+        let sec = Section {
+            index: 0,
+            idref: "ch1".to_string(),
+            href: "ch1.xhtml".to_string(),
+            full_path: "OEBPS/ch1.xhtml".to_string(),
+            raw_html: "<p>ẞfoo bar</p>".to_string(),
+            processed_html: "<p>ẞfoo bar</p>".to_string(),
+            plain_text: "ẞfoo bar".to_string(),
+            plain_text_lower: "ssfoo bar".to_string(),
+            char_count: 8,
+            viewport_width: None,
+            viewport_height: None,
+        };
+
+        let results = SearchEngine::search(&[sec], "foo", false);
+        assert_eq!(results.len(), 1);
+        assert!(results[0].snippet.contains("foo"));
     }
 }

@@ -4,6 +4,16 @@ use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr;
+use std::sync::Arc;
+
+use ahash::{AHashMap, AHashSet};
+use parking_lot::Mutex;
+use std::sync::LazyLock;
+
+static LIVE_BOOKS: LazyLock<Mutex<AHashMap<usize, Arc<Book>>>> =
+    LazyLock::new(|| Mutex::new(AHashMap::new()));
+static LIVE_STRINGS: LazyLock<Mutex<AHashSet<usize>>> =
+    LazyLock::new(|| Mutex::new(AHashSet::new()));
 
 /// C-compatible opaque handle to a `Book` instance.
 pub type CBookHandle = *mut Book;
@@ -14,6 +24,7 @@ pub type CBookHandle = *mut Book;
 ///
 /// # Safety
 /// The caller must ensure `bytes_ptr` points to a valid buffer of `bytes_len` length.
+/// Returned handles are thread-safe for concurrent read access across multiple threads.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ebook_rs_book_from_bytes(
     bytes_ptr: *const u8,
@@ -25,7 +36,12 @@ pub unsafe extern "C" fn ebook_rs_book_from_bytes(
     let res = catch_unwind(AssertUnwindSafe(|| unsafe {
         let slice = std::slice::from_raw_parts(bytes_ptr, bytes_len);
         match Book::from_bytes(slice) {
-            Ok(book) => Box::into_raw(Box::new(book)),
+            Ok(book) => {
+                let arc = Arc::new(book);
+                let raw = Arc::into_raw(arc.clone()) as *mut Book;
+                LIVE_BOOKS.lock().insert(raw as usize, arc);
+                raw
+            }
             Err(_) => ptr::null_mut(),
         }
     }));
@@ -33,35 +49,57 @@ pub unsafe extern "C" fn ebook_rs_book_from_bytes(
 }
 
 /// Free a `Book` instance created by `ebook_rs_book_from_bytes`.
+/// Safely handles NULL and repeated calls (no-op on double-free).
 ///
 /// # Safety
-/// The caller must pass a valid handle returned by this library.
+/// The caller must pass a handle returned by this library.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ebook_rs_book_free(handle: CBookHandle) {
-    if !handle.is_null() {
+    if handle.is_null() {
+        return;
+    }
+    let removed = LIVE_BOOKS.lock().remove(&(handle as usize));
+    if let Some(_book_arc) = removed {
         let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
-            drop(Box::from_raw(handle));
+            drop(Arc::from_raw(handle));
         }));
     }
+}
+
+/// Helper to allocate a C-string tracked in LIVE_STRINGS
+fn alloc_c_string(s: String) -> *mut c_char {
+    match CString::new(s) {
+        Ok(c_str) => {
+            let raw = c_str.into_raw();
+            LIVE_STRINGS.lock().insert(raw as usize);
+            raw
+        }
+        Err(_) => ptr::null_mut(),
+    }
+}
+
+/// Helper to safely acquire an Arc<Book> handle reference without TOCTOU race
+fn get_live_book(handle: CBookHandle) -> Option<Arc<Book>> {
+    if handle.is_null() {
+        return None;
+    }
+    LIVE_BOOKS.lock().get(&(handle as usize)).cloned()
 }
 
 /// Get publication metadata formatted as a C JSON string.
 /// Caller must free returned string using `ebook_rs_string_free`.
 ///
 /// # Safety
-/// Handle must be valid.
+/// Handle must be a valid handle created by `ebook_rs_book_from_bytes`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ebook_rs_get_metadata_json(handle: CBookHandle) -> *mut c_char {
-    if handle.is_null() {
-        return ptr::null_mut();
-    }
-    let res = catch_unwind(AssertUnwindSafe(|| unsafe {
-        let book = &*handle;
+    let book = match get_live_book(handle) {
+        Some(b) => b,
+        None => return ptr::null_mut(),
+    };
+    let res = catch_unwind(AssertUnwindSafe(|| {
         match serde_json::to_string(book.metadata()) {
-            Ok(json) => match CString::new(json) {
-                Ok(c_str) => c_str.into_raw(),
-                Err(_) => ptr::null_mut(),
-            },
+            Ok(json) => alloc_c_string(json),
             Err(_) => ptr::null_mut(),
         }
     }));
@@ -72,19 +110,16 @@ pub unsafe extern "C" fn ebook_rs_get_metadata_json(handle: CBookHandle) -> *mut
 /// Caller must free returned string using `ebook_rs_string_free`.
 ///
 /// # Safety
-/// Handle must be valid.
+/// Handle must be a valid handle.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ebook_rs_get_toc_json(handle: CBookHandle) -> *mut c_char {
-    if handle.is_null() {
-        return ptr::null_mut();
-    }
-    let res = catch_unwind(AssertUnwindSafe(|| unsafe {
-        let book = &*handle;
+    let book = match get_live_book(handle) {
+        Some(b) => b,
+        None => return ptr::null_mut(),
+    };
+    let res = catch_unwind(AssertUnwindSafe(|| {
         match serde_json::to_string(book.toc()) {
-            Ok(json) => match CString::new(json) {
-                Ok(c_str) => c_str.into_raw(),
-                Err(_) => ptr::null_mut(),
-            },
+            Ok(json) => alloc_c_string(json),
             Err(_) => ptr::null_mut(),
         }
     }));
@@ -95,24 +130,19 @@ pub unsafe extern "C" fn ebook_rs_get_toc_json(handle: CBookHandle) -> *mut c_ch
 /// Caller must free returned string using `ebook_rs_string_free`.
 ///
 /// # Safety
-/// Handle must be valid.
+/// Handle must be a valid handle.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ebook_rs_get_section_html(
     handle: CBookHandle,
     index: usize,
 ) -> *mut c_char {
-    if handle.is_null() {
-        return ptr::null_mut();
-    }
-    let res = catch_unwind(AssertUnwindSafe(|| unsafe {
-        let book = &*handle;
-        match book.get_section(index) {
-            Ok(sec) => match CString::new(sec.processed_html.as_str()) {
-                Ok(c_str) => c_str.into_raw(),
-                Err(_) => ptr::null_mut(),
-            },
-            Err(_) => ptr::null_mut(),
-        }
+    let book = match get_live_book(handle) {
+        Some(b) => b,
+        None => return ptr::null_mut(),
+    };
+    let res = catch_unwind(AssertUnwindSafe(|| match book.get_section(index) {
+        Ok(sec) => alloc_c_string(sec.processed_html),
+        Err(_) => ptr::null_mut(),
     }));
     res.unwrap_or(ptr::null_mut())
 }
@@ -127,21 +157,21 @@ pub unsafe extern "C" fn ebook_rs_search_json(
     handle: CBookHandle,
     query_ptr: *const c_char,
 ) -> *mut c_char {
-    if handle.is_null() || query_ptr.is_null() {
+    if query_ptr.is_null() {
         return ptr::null_mut();
     }
+    let book = match get_live_book(handle) {
+        Some(b) => b,
+        None => return ptr::null_mut(),
+    };
     let res = catch_unwind(AssertUnwindSafe(|| unsafe {
-        let book = &*handle;
         let query = match CStr::from_ptr(query_ptr).to_str() {
             Ok(q) => q,
             Err(_) => return ptr::null_mut(),
         };
         let results = book.search(query);
         match serde_json::to_string(&results) {
-            Ok(json) => match CString::new(json) {
-                Ok(c_str) => c_str.into_raw(),
-                Err(_) => ptr::null_mut(),
-            },
+            Ok(json) => alloc_c_string(json),
             Err(_) => ptr::null_mut(),
         }
     }));
@@ -152,27 +182,24 @@ pub unsafe extern "C" fn ebook_rs_search_json(
 /// Caller must free returned string using `ebook_rs_string_free`.
 ///
 /// # Safety
-/// Handle must be valid.
+/// Handle must be a valid handle.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ebook_rs_to_rag_chunks_json(
     handle: CBookHandle,
     max_tokens: usize,
 ) -> *mut c_char {
-    if handle.is_null() {
-        return ptr::null_mut();
-    }
-    let res = catch_unwind(AssertUnwindSafe(|| unsafe {
-        let book = &*handle;
+    let book = match get_live_book(handle) {
+        Some(b) => b,
+        None => return ptr::null_mut(),
+    };
+    let res = catch_unwind(AssertUnwindSafe(|| {
         let config = RagChunkConfig {
             max_tokens: if max_tokens == 0 { 512 } else { max_tokens },
             ..Default::default()
         };
         let chunks = book.to_rag_chunks(&config);
         match serde_json::to_string(&chunks) {
-            Ok(json) => match CString::new(json) {
-                Ok(c_str) => c_str.into_raw(),
-                Err(_) => ptr::null_mut(),
-            },
+            Ok(json) => alloc_c_string(json),
             Err(_) => ptr::null_mut(),
         }
     }));
@@ -180,16 +207,22 @@ pub unsafe extern "C" fn ebook_rs_to_rag_chunks_json(
 }
 
 /// Free C string allocated by `ebook-rs` C FFI functions.
+/// Safely handles NULL and repeated calls (no-op on double-free).
 ///
 /// # Safety
 /// Pointer must have been allocated by this library or NULL.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ebook_rs_string_free(ptr: *mut c_char) {
-    if !ptr.is_null() {
-        let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
-            drop(CString::from_raw(ptr));
-        }));
+    if ptr.is_null() {
+        return;
     }
+    let is_live = LIVE_STRINGS.lock().remove(&(ptr as usize));
+    if !is_live {
+        return; // Guard against double-free UB
+    }
+    let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
+        drop(CString::from_raw(ptr));
+    }));
 }
 
 #[cfg(test)]

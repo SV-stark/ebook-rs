@@ -110,6 +110,45 @@ impl ZipHeaderReader {
                 tail_bytes[pos + 45],
             ]) as u64;
 
+            let mut final_comp_size = comp_size;
+            let mut final_uncomp_size = uncomp_size;
+            let mut final_offset = offset;
+
+            if extra_len >= 4 {
+                let extra_start = pos + 46 + name_len;
+                let extra_end = (extra_start + extra_len).min(tail_bytes.len());
+                let mut e_pos = extra_start;
+                while e_pos + 4 <= extra_end {
+                    let header_id = u16::from_le_bytes([tail_bytes[e_pos], tail_bytes[e_pos + 1]]);
+                    let data_size =
+                        u16::from_le_bytes([tail_bytes[e_pos + 2], tail_bytes[e_pos + 3]]) as usize;
+                    let data_start = e_pos + 4;
+                    let data_end = (data_start + data_size).min(extra_end);
+                    if header_id == 0x0001 {
+                        let mut d_pos = data_start;
+                        if final_uncomp_size == 0xFFFFFFFF && d_pos + 8 <= data_end {
+                            final_uncomp_size = u64::from_le_bytes(
+                                tail_bytes[d_pos..d_pos + 8].try_into().unwrap_or([0; 8]),
+                            );
+                            d_pos += 8;
+                        }
+                        if final_comp_size == 0xFFFFFFFF && d_pos + 8 <= data_end {
+                            final_comp_size = u64::from_le_bytes(
+                                tail_bytes[d_pos..d_pos + 8].try_into().unwrap_or([0; 8]),
+                            );
+                            d_pos += 8;
+                        }
+                        if final_offset == 0xFFFFFFFF && d_pos + 8 <= data_end {
+                            final_offset = u64::from_le_bytes(
+                                tail_bytes[d_pos..d_pos + 8].try_into().unwrap_or([0; 8]),
+                            );
+                        }
+                        break;
+                    }
+                    e_pos += 4 + data_size;
+                }
+            }
+
             let name_start = pos + 46;
             if name_start + name_len <= tail_bytes.len() {
                 let file_name =
@@ -117,9 +156,9 @@ impl ZipHeaderReader {
                         .to_string();
                 entries.push(ZipEntryLocation {
                     file_name,
-                    local_header_offset: offset,
-                    compressed_size: comp_size,
-                    uncompressed_size: uncomp_size,
+                    local_header_offset: final_offset,
+                    compressed_size: final_comp_size,
+                    uncompressed_size: final_uncomp_size,
                     extra_field_len: extra_len as u64,
                 });
             }

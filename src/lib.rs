@@ -97,7 +97,7 @@ pub use sample_builder::generate_sample_epub;
 pub use search::{SearchEngine, SearchResult};
 pub use section::{Section, TtsWordToken};
 pub use stream_zip::{ZipEntryLocation, ZipHeaderReader};
-pub use treesitter::{ExtractedCodeBlock, SyntaxNodeInfo, TreeSitterEngine};
+pub use treesitter::{ExtractedCodeBlock, SyntaxHighlightEngine, SyntaxNodeInfo, TreeSitterEngine};
 pub use txt::TxtBook;
 pub use uniffi_api::{UniBook, UniSearchResult, UniSectionSummary};
 pub use validator::{

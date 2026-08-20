@@ -105,27 +105,46 @@ impl EpubArchive {
         let mut zip = ZipArchive::new(Cursor::new(raw_bytes.clone()))
             .map_err(|e| EbookError::Zip(format!("Failed to parse ZIP archive: {}", e)))?;
 
-        let mut total_uncompressed_estimate: u64 = 0;
         let entry_count = zip.len();
-        let mut is_giant_archive = false;
+        const MAX_ZIP_ENTRIES: usize = 50_000;
+        if entry_count > MAX_ZIP_ENTRIES {
+            return Err(EbookError::InvalidFormat(format!(
+                "ZIP archive exceeds maximum entry limit ({} > {})",
+                entry_count, MAX_ZIP_ENTRIES
+            )));
+        }
 
-        const MAX_EAGER_TOTAL_SIZE: u64 = 500 * 1024 * 1024; // 500 MB threshold for eager loading
-
+        let mut total_uncompressed_estimate: u64 = 0;
         for i in 0..entry_count {
             if let Ok(file) = zip.by_index_raw(i) {
-                total_uncompressed_estimate += file.size();
+                total_uncompressed_estimate =
+                    total_uncompressed_estimate.saturating_add(file.size());
             }
         }
 
-        if total_uncompressed_estimate > MAX_EAGER_TOTAL_SIZE {
-            is_giant_archive = true;
+        // Decompression ratio protection (e.g. 100:1 ratio check against zip-bombs)
+        const MAX_DECOMPRESSION_RATIO: u64 = 100;
+        let compressed_len = raw_bytes.len() as u64;
+        if compressed_len > 0 && total_uncompressed_estimate > 20 * 1024 * 1024 {
+            if total_uncompressed_estimate / compressed_len > MAX_DECOMPRESSION_RATIO {
+                return Err(EbookError::InvalidFormat(
+                    "Zip bomb detected: uncompressed ratio exceeds 100:1 safety limit".to_string(),
+                ));
+            }
         }
+
+        const MAX_EAGER_TOTAL_SIZE: u64 = 256 * 1024 * 1024; // 256 MB threshold for eager loading
+        let is_giant_archive = total_uncompressed_estimate > MAX_EAGER_TOTAL_SIZE;
 
         let mut files = AHashMap::new();
         let mut lazy_index = AHashMap::new();
 
         if is_giant_archive {
-            // Lazy Mode: Index all entries and eagerly load only structural XML documents
+            // Lazy Mode: Index all entries and eagerly load only structural XML documents with strict cumulative safety cap
+            let mut cumulative_metadata_size: usize = 0;
+            const MAX_LAZY_METADATA_BUDGET: usize = 64 * 1024 * 1024; // 64 MB total across all metadata XMLs
+            const MAX_SINGLE_XML_ENTRY: u64 = 16 * 1024 * 1024; // 16 MB max per metadata file
+
             for i in 0..entry_count {
                 let mut file = zip.by_index(i).map_err(|e| {
                     EbookError::Zip(format!("Failed to read entry index {}: {}", i, e))
@@ -145,7 +164,19 @@ impl EpubArchive {
                     || lower.contains("container.xml")
                 {
                     let mut content = Vec::new();
-                    if file.read_to_end(&mut content).is_ok() {
+                    if file
+                        .by_ref()
+                        .take(MAX_SINGLE_XML_ENTRY)
+                        .read_to_end(&mut content)
+                        .is_ok()
+                    {
+                        cumulative_metadata_size =
+                            cumulative_metadata_size.saturating_add(content.len());
+                        if cumulative_metadata_size > MAX_LAZY_METADATA_BUDGET {
+                            return Err(EbookError::InvalidFormat(
+                                "Archive metadata exceeds aggregate safety budget (possible decompression bomb)".to_string(),
+                            ));
+                        }
                         files.insert(norm, content);
                     }
                 }
@@ -157,7 +188,11 @@ impl EpubArchive {
                 lazy_index,
             })
         } else {
-            // Eager Mode: Load and decompress everything into memory
+            // Eager Mode: Load and decompress everything into memory with safe budget
+            let mut total_decompressed: usize = 0;
+            const MAX_EAGER_BUDGET: usize = 300 * 1024 * 1024;
+            const MAX_SINGLE_FILE_SIZE: u64 = 64 * 1024 * 1024;
+
             for i in 0..entry_count {
                 let mut file = zip.by_index(i).map_err(|e| {
                     EbookError::Zip(format!("Failed to read file index {}: {}", i, e))
@@ -168,9 +203,20 @@ impl EpubArchive {
                 }
 
                 let mut content = Vec::new();
-                file.read_to_end(&mut content).map_err(|e| {
-                    EbookError::Io(format!("Failed to read entry content {}: {}", name, e))
-                })?;
+                file.by_ref()
+                    .take(MAX_SINGLE_FILE_SIZE)
+                    .read_to_end(&mut content)
+                    .map_err(|e| {
+                        EbookError::Io(format!("Failed to read entry content {}: {}", name, e))
+                    })?;
+
+                total_decompressed = total_decompressed.saturating_add(content.len());
+                if total_decompressed > MAX_EAGER_BUDGET {
+                    return Err(EbookError::InvalidFormat(
+                        "Cumulative uncompressed archive size exceeds memory safety limit"
+                            .to_string(),
+                    ));
+                }
 
                 let normalized = normalize_path(&name);
                 files.insert(normalized, content);
@@ -224,10 +270,15 @@ impl EpubArchive {
                 let mut file = zip.by_index(idx).map_err(|e| {
                     EbookError::Zip(format!("Failed to decompress lazy entry {}: {}", path, e))
                 })?;
-                let mut data = Vec::with_capacity(file.size() as usize);
-                file.read_to_end(&mut data).map_err(|e| {
-                    EbookError::Io(format!("Failed to read lazy entry content: {}", e))
-                })?;
+                const MAX_LAZY_ENTRY_SIZE: u64 = 256 * 1024 * 1024; // 256 MB per entry limit
+                let alloc_capacity = (file.size() as usize).min(32 * 1024 * 1024);
+                let mut data = Vec::with_capacity(alloc_capacity);
+                file.by_ref()
+                    .take(MAX_LAZY_ENTRY_SIZE)
+                    .read_to_end(&mut data)
+                    .map_err(|e| {
+                        EbookError::Io(format!("Failed to read lazy entry content: {}", e))
+                    })?;
                 return Ok(data);
             }
         }

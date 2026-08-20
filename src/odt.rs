@@ -22,8 +22,11 @@ impl OdtBook {
             .map_err(|e| EbookError::Zip(format!("Failed to open ODT ZIP archive: {}", e)))?;
 
         let mut content_xml = String::new();
+        const MAX_ODT_XML_SIZE: u64 = 64 * 1024 * 1024;
         if let Ok(mut file) = archive.by_name("content.xml") {
-            file.read_to_string(&mut content_xml)
+            file.by_ref()
+                .take(MAX_ODT_XML_SIZE)
+                .read_to_string(&mut content_xml)
                 .map_err(|e| EbookError::Io(format!("Failed to read content.xml in ODT: {}", e)))?;
         } else {
             return Err(EbookError::InvalidFormat(
@@ -34,9 +37,32 @@ impl OdtBook {
         let mut title = title_fallback.to_string();
         let mut creator = String::new();
 
+        let mut epub_archive = EpubArchive::empty();
+        for i in 0..archive.len() {
+            if let Ok(mut file) = archive.by_index(i) {
+                let name = file.name().to_string();
+                if name.starts_with("Pictures/") && !name.ends_with('/') {
+                    let mut img_data = Vec::new();
+                    if file
+                        .by_ref()
+                        .take(64 * 1024 * 1024)
+                        .read_to_end(&mut img_data)
+                        .is_ok()
+                    {
+                        epub_archive.insert(&name, img_data);
+                    }
+                }
+            }
+        }
+
         if let Ok(mut file) = archive.by_name("meta.xml") {
             let mut meta_xml = String::new();
-            if file.read_to_string(&mut meta_xml).is_ok() {
+            if file
+                .by_ref()
+                .take(MAX_ODT_XML_SIZE)
+                .read_to_string(&mut meta_xml)
+                .is_ok()
+            {
                 if let Ok(doc) = Document::parse(&meta_xml) {
                     for node in doc.descendants() {
                         if node.is_element() {
@@ -162,6 +188,36 @@ impl OdtBook {
                         current_text.push_str(p_text);
                         current_text.push('\n');
                     }
+                    // Extract any embedded images inside this paragraph
+                    for desc in node.descendants() {
+                        if desc.tag_name().name() == "image" {
+                            for attr in desc.attributes() {
+                                if attr.name() == "href" || attr.name().ends_with(":href") {
+                                    let href_val = attr.value();
+                                    current_html.push_str(&format!(
+                                        "<div class=\"odt-image\"><img src=\"{}\" alt=\"Embedded Image\" /></div>\n",
+                                        xml_escape(href_val)
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                } else if tag_name == "image" {
+                    // Standalone image outside paragraph or heading
+                    let in_p_or_h = node
+                        .ancestors()
+                        .any(|a| a.tag_name().name() == "p" || a.tag_name().name() == "h");
+                    if !in_p_or_h {
+                        for attr in node.attributes() {
+                            if attr.name() == "href" || attr.name().ends_with(":href") {
+                                let href_val = attr.value();
+                                current_html.push_str(&format!(
+                                    "<div class=\"odt-image\"><img src=\"{}\" alt=\"Embedded Image\" /></div>\n",
+                                    xml_escape(href_val)
+                                ));
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -233,7 +289,7 @@ impl OdtBook {
         };
 
         let mut book = Book {
-            archive: EpubArchive::empty(),
+            archive: epub_archive,
             opf,
             layout: RenditionLayout::default(),
             toc,

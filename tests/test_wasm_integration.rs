@@ -9,13 +9,12 @@ mod wasm_tests {
     use wasm_bindgen_test::*;
     wasm_bindgen_test_configure!(run_in_node_experimental);
 
-    /// Verify WasmBook::from_bytes handles invalid bytes gracefully.
+    /// Verify WasmBook::new handles invalid bytes gracefully by returning Err.
     #[wasm_bindgen_test]
     fn test_wasm_book_from_invalid_bytes() {
         use ebook_rs::wasm::WasmBook;
-        let result = WasmBook::from_bytes(vec![0xFF, 0xFE, 0x00, 0x01]);
-        // Must not panic — returns None/error for unsupported formats
-        assert!(result.is_none() || result.is_some());
+        let result = WasmBook::new(&[0xFF, 0xFE, 0x00, 0x01]);
+        assert!(result.is_err());
     }
 
     /// Verify CFI parsing works correctly in wasm context.

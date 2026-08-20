@@ -49,8 +49,12 @@ impl KfxContainer {
         let index_offset =
             u32::from_le_bytes([bytes[10], bytes[11], bytes[12], bytes[13]]) as usize;
         let index_count = u32::from_le_bytes([bytes[14], bytes[15], bytes[16], bytes[17]]) as usize;
-
-        let mut index_entries = Vec::with_capacity(index_count);
+        let max_possible_entries = if bytes.len() > KFX_HEADER_LEN {
+            (bytes.len() - KFX_HEADER_LEN) / 24
+        } else {
+            0
+        };
+        let mut index_entries = Vec::with_capacity(index_count.min(max_possible_entries));
         let mut curr_offset = if index_offset > 0 {
             index_offset
         } else {

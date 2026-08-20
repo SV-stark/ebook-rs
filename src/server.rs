@@ -67,30 +67,132 @@ impl ReaderServer {
                         );
                     }
                     "/api/mcp" => {
-                        let mut body = String::new();
-                        let _ = request.as_reader().read_to_string(&mut body);
-                        if let Ok(mcp_req) =
-                            serde_json::from_str::<crate::mcp::JsonRpcRequest>(&body)
-                        {
-                            if let Some(resp_val) = crate::mcp::process_mcp_request(&mcp_req) {
-                                let json_resp =
-                                    serde_json::to_string(&resp_val).unwrap_or_default();
-                                let header = Header::from_bytes(
-                                    &b"Content-Type"[..],
-                                    &b"application/json"[..],
-                                )
+                        let header =
+                            Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
                                 .unwrap();
+                        if request.method() != &tiny_http::Method::Post {
+                            send_response(
+                                request,
+                                Response::from_string("{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Method not allowed: use POST\"},\"id\":null}")
+                                    .with_status_code(StatusCode(405))
+                                    .with_header(header),
+                            );
+                            return;
+                        }
+
+                        // Validate Content-Type: application/json
+                        let content_type = request
+                            .headers()
+                            .iter()
+                            .find(|h| h.field.equiv("Content-Type"))
+                            .map(|h| h.value.as_str());
+                        let is_json =
+                            content_type.is_some_and(|ct| ct.starts_with("application/json"));
+                        if !is_json {
+                            send_response(
+                                request,
+                                Response::from_string("{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Unsupported Media Type: Content-Type must be application/json\"},\"id\":null}")
+                                    .with_status_code(StatusCode(415))
+                                    .with_header(header),
+                            );
+                            return;
+                        }
+
+                        // Anti-CSRF Protection: Reject requests with non-local Origin or Referer
+                        let origin = request
+                            .headers()
+                            .iter()
+                            .find(|h| h.field.equiv("Origin"))
+                            .map(|h| h.value.as_str());
+                        let referer = request
+                            .headers()
+                            .iter()
+                            .find(|h| h.field.equiv("Referer"))
+                            .map(|h| h.value.as_str());
+
+                        let is_safe_host = |val: &str| -> bool {
+                            val == "http://localhost"
+                                || val.starts_with("http://localhost:")
+                                || val.starts_with("http://localhost/")
+                                || val == "https://localhost"
+                                || val.starts_with("https://localhost:")
+                                || val.starts_with("https://localhost/")
+                                || val == "http://127.0.0.1"
+                                || val.starts_with("http://127.0.0.1:")
+                                || val.starts_with("http://127.0.0.1/")
+                                || val == "https://127.0.0.1"
+                                || val.starts_with("https://127.0.0.1:")
+                                || val.starts_with("https://127.0.0.1/")
+                                || val == "http://[::1]"
+                                || val.starts_with("http://[::1]:")
+                                || val.starts_with("http://[::1]/")
+                        };
+
+                        if let Some(orig) = origin {
+                            if !is_safe_host(orig) {
                                 send_response(
                                     request,
-                                    Response::from_string(json_resp).with_header(header),
+                                    Response::from_string("{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32000,\"message\":\"CSRF protection: cross-origin request rejected\"},\"id\":null}")
+                                        .with_status_code(StatusCode(403))
+                                        .with_header(header),
                                 );
                                 return;
                             }
                         }
-                        let header =
-                            Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
-                                .unwrap();
-                        send_response(request, Response::from_string("{}").with_header(header));
+                        if let Some(ref_val) = referer {
+                            if !is_safe_host(ref_val) {
+                                send_response(
+                                    request,
+                                    Response::from_string("{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32000,\"message\":\"CSRF protection: cross-origin referer rejected\"},\"id\":null}")
+                                        .with_status_code(StatusCode(403))
+                                        .with_header(header),
+                                );
+                                return;
+                            }
+                        }
+
+                        let mut body = String::new();
+                        use std::io::Read;
+                        let _ = request
+                            .as_reader()
+                            .take(4 * 1024 * 1024)
+                            .read_to_string(&mut body);
+                        match serde_json::from_str::<crate::mcp::JsonRpcRequest>(&body) {
+                            Ok(mcp_req) => {
+                                if let Some(resp_val) = crate::mcp::process_mcp_request(&mcp_req) {
+                                    let json_resp =
+                                        serde_json::to_string(&resp_val).unwrap_or_default();
+                                    send_response(
+                                        request,
+                                        Response::from_string(json_resp).with_header(header),
+                                    );
+                                    return;
+                                }
+                                send_response(
+                                    request,
+                                    Response::from_string(
+                                        "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":null}",
+                                    )
+                                    .with_header(header),
+                                );
+                            }
+                            Err(e) => {
+                                let err_resp = serde_json::json!({
+                                    "jsonrpc": "2.0",
+                                    "error": {
+                                        "code": -32700,
+                                        "message": format!("Parse error: {}", e)
+                                    },
+                                    "id": serde_json::Value::Null
+                                });
+                                send_response(
+                                    request,
+                                    Response::from_string(err_resp.to_string())
+                                        .with_status_code(StatusCode(400))
+                                        .with_header(header),
+                                );
+                            }
+                        }
                     }
                     "/api/book/metadata" => {
                         let book = book_arc.read().unwrap_or_else(|e| e.into_inner());
@@ -118,7 +220,17 @@ impl ReaderServer {
                     }
                     _ if path.starts_with("/api/book/section/") => {
                         let idx_str = path.trim_start_matches("/api/book/section/");
-                        let idx: usize = idx_str.parse().unwrap_or(0);
+                        let idx = match idx_str.parse::<usize>() {
+                            Ok(i) => i,
+                            Err(_) => {
+                                send_response(
+                                    request,
+                                    Response::from_string("Invalid section index")
+                                        .with_status_code(StatusCode(404)),
+                                );
+                                return;
+                            }
+                        };
                         let book = book_arc.read().unwrap_or_else(|e| e.into_inner());
 
                         match book.get_section(idx) {
@@ -210,13 +322,39 @@ impl ReaderServer {
                     }
                     "/api/annotations" => {
                         if request.method() == &tiny_http::Method::Post {
+                            if !is_valid_origin(&request) {
+                                send_response(
+                                    request,
+                                    Response::from_string(
+                                        "Forbidden (Cross-Origin Request Blocked)",
+                                    )
+                                    .with_status_code(StatusCode(403)),
+                                );
+                                return;
+                            }
                             let mut body_str = String::new();
                             use std::io::Read;
                             let _ = request
                                 .as_reader()
                                 .take(2 * 1024 * 1024)
                                 .read_to_string(&mut body_str);
-                            if let Ok(ann) = serde_json::from_str::<Annotation>(&body_str) {
+                            if let Ok(mut ann) = serde_json::from_str::<Annotation>(&body_str) {
+                                // Assign server-managed ID to prevent client ID collisions or injection
+                                if ann.id.is_empty()
+                                    || ann.id.len() > 64
+                                    || !ann.id.chars().all(|c| c.is_alphanumeric() || c == '-')
+                                {
+                                    static ANN_COUNTER: std::sync::atomic::AtomicU64 =
+                                        std::sync::atomic::AtomicU64::new(1);
+                                    let c = ANN_COUNTER
+                                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                    let now = std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .map(|d| d.as_nanos())
+                                        .unwrap_or(0);
+                                    ann.id = format!("ann-{:x}-{:x}", now, c);
+                                }
+                                let ann_id = ann.id.clone();
                                 let mut book = book_arc.write().unwrap_or_else(|e| e.into_inner());
                                 book.annotations.add(ann);
                                 let header = Header::from_bytes(
@@ -224,10 +362,11 @@ impl ReaderServer {
                                     &b"application/json"[..],
                                 )
                                 .unwrap();
+                                let resp_json =
+                                    format!("{{\"status\":\"ok\",\"id\":\"{}\"}}", ann_id);
                                 send_response(
                                     request,
-                                    Response::from_string("{\"status\":\"ok\"}")
-                                        .with_header(header),
+                                    Response::from_string(resp_json).with_header(header),
                                 );
                             } else {
                                 send_response(
@@ -281,4 +420,50 @@ impl Drop for ThreadGuard {
     fn drop(&mut self) {
         self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
     }
+}
+
+fn is_valid_origin(request: &tiny_http::Request) -> bool {
+    let origin = request
+        .headers()
+        .iter()
+        .find(|h| h.field.equiv("Origin"))
+        .map(|h| h.value.as_str());
+    let referer = request
+        .headers()
+        .iter()
+        .find(|h| h.field.equiv("Referer"))
+        .map(|h| h.value.as_str());
+
+    let is_safe_host = |val: &str| -> bool {
+        val == "http://localhost"
+            || val.starts_with("http://localhost:")
+            || val.starts_with("http://localhost/")
+            || val == "https://localhost"
+            || val.starts_with("https://localhost:")
+            || val.starts_with("https://localhost/")
+            || val == "http://127.0.0.1"
+            || val.starts_with("http://127.0.0.1:")
+            || val.starts_with("http://127.0.0.1/")
+            || val == "https://127.0.0.1"
+            || val.starts_with("https://127.0.0.1:")
+            || val.starts_with("https://127.0.0.1/")
+            || val == "http://[::1]"
+            || val.starts_with("http://[::1]:")
+            || val.starts_with("http://[::1]/")
+            || val == "https://[::1]"
+            || val.starts_with("https://[::1]:")
+            || val.starts_with("https://[::1]/")
+    };
+
+    if let Some(orig) = origin {
+        if !is_safe_host(orig) {
+            return false;
+        }
+    }
+    if let Some(ref_val) = referer {
+        if !is_safe_host(ref_val) {
+            return false;
+        }
+    }
+    true
 }

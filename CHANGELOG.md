@@ -5,6 +5,77 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.2] - 2026-08-20
+
+### Fixed & Security
+
+- **Release Profile & Panic Safety (`Cargo.toml`)**:
+  - Removed `panic = "abort"` from release profile so stack unwinding operates correctly across C FFI boundaries (`catch_unwind`) and PyO3 Python exceptions without aborting host processes.
+  - Enabled release `overflow-checks = true` to guard against integer wrapping on untrusted inputs.
+  - Added `rust-version = "1.85"` MSRV declaration.
+- **PyO3 0.29 Upgrade (`Cargo.toml`, `src/python.rs`)**:
+  - Upgraded PyO3 dependency to `0.29.2`, modernizing thread detachment with `py.detach(|| ...)` and adding `#[pyclass(name = "Section", skip_from_py_object)]`.
+- **Search Unicode Offset Panic Safety (`src/search.rs`)**:
+  - Fixed Unicode case-insensitive search to prevent panics when characters change byte length under case mapping (such as `ß`/`ẞ`, `İ`, `Ω`). Byte offsets and char boundaries now directly index the original text without cross-string indexing.
+  - Added regression test `test_search_unicode_boundary_safety`.
+- **Footnote Cross-String Offset Slicing (`src/footnote.rs`)**:
+  - Replaced lowercased HTML searching with `find_ignore_case` operating directly over original HTML byte slices, preventing panic on non-ASCII text before footnote anchors.
+- **Zip-Bomb & Memory Exhaustion Hardening (`src/archive.rs`, `src/kfx/container.rs`, `src/docx.rs`, `src/odt.rs`)**:
+  - Enforced `MAX_LAZY_METADATA_BUDGET = 64MB` cumulative cap across all metadata entries in lazy archive mode.
+  - Capped maximum ZIP entry count (`50,000` max) and enforced 100:1 maximum decompression-ratio safety limit against zip-bombs.
+  - Extracted `Pictures/*` image entries in ODT archives and removed the 1,000-entry cap in DOCX archive media scanning.
+- **C FFI Thread-Safety & TOCTOU-Free Handle Registry (`src/ffi.rs`)**:
+  - Replaced raw box pointers with `Arc<Book>` in a thread-safe registry (`LIVE_BOOKS: Mutex<AHashMap<usize, Arc<Book>>>`), eliminating TOCTOU race conditions and dangling pointer undefined behavior when handles are accessed concurrently during freeing.
+  - Added double-free guards for both book handles and allocated C strings (`LIVE_STRINGS`).
+- **CSRF & Origin Protection on MCP Endpoint (`src/server.rs`, `src/mcp.rs`)**:
+  - Enforced `Content-Type: application/json` on `/api/mcp` (returning `415 Unsupported Media Type` otherwise).
+  - Added strict anti-CSRF Origin and Referer validation (`is_valid_origin`) enforcing exact host/port boundaries for `localhost`, `127.0.0.1`, and `[::1]`, rejecting spoofed subdomain requests (`403 Forbidden`).
+  - Added origin validation to `/api/annotations` and returned HTTP 404 for invalid section indices.
+  - Wired in-memory book caching (`MCP_BOOK_CACHE`) across MCP tool queries, standard protocol negotiation, and genuine spine CFIs.
+- **Markdown Frontmatter Delimiter Parsing (`src/txt.rs`)**:
+  - Required frontmatter opening and closing delimiters (`---` / `+++`) to be at standalone line boundaries, preventing horizontal rules in markdown bodies from stripping text content.
+- **Universal EPUB3 Exporter XHTML Double-Wrapping (`src/validator.rs`)**:
+  - Added full-document detection (`<html` or `<body`) before wrapping sections in XHTML envelopes, eliminating double `<html>` document nesting.
+- **Lazy Section Hydration & Cache Invalidation (`src/book.rs`)**:
+  - Hydrated sections on-demand before checking render caches, ensuring `plain_text`, `char_count`, and viewport dimensions are correctly populated.
+  - Added cache invalidation on `archive_mut()`.
+- **Optimizer Nested At-Rules & Whitespace (`src/optimizer.rs`)**:
+  - Implemented brace-depth CSS nesting parser in `purge_css` so `@media` and `@supports` blocks are preserved intact.
+  - Preserved whitespace in `<script>`, `<style>`, `<textarea>`, `<pre>`, and `<code>` blocks during HTML minification.
+- **Font Deobfuscation Wire-Up (`src/section.rs`)**:
+  - Wired `FontDeobfuscator::deobfuscate` when inlining encrypted/obfuscated font resources from `META-INF/encryption.xml`.
+- **FB2 Structural Tag Support (`src/fb2.rs`)**:
+  - Added recursive element handling for `<section>`, `<subtitle>`, `<v>`, `<empty-line>`, `<poem>`, `<stanza>`, `<epigraph>`, and `<cite>`.
+- **PDF Stored XSS Prevention (`src/pdf.rs`)**:
+  - Escaped all lines in `markdown_to_html` to prevent raw `<...>` tags from passing unescaped into rendered book HTML.
+- **RTF Unicode Fallback & PalmDOC Literal Preservation (`src/rtf.rs`, `src/mobi.rs`)**:
+  - Consumed `\'hh` hex escapes in RTF unicode fallback loops and pushed literal bytes for PalmDOC lone trailing bytes.
+  - Removed fabricated author fallbacks in KFX parser.
+- **Web UI & Annotation Hardening (`src/web_ui.rs`, `src/server.rs`, `src/layout.rs`)**:
+  - Implemented LRU-bounded `sectionCache` (max 24 sections) in `web_ui.rs` to prevent memory leaks during long reading sessions.
+  - Replaced hardcoded CFI templates with genuine DOM hierarchy traversal for accurate EPUB CFI generation.
+  - Assigned server-managed unique annotation IDs on `POST /api/annotations` to prevent client collisions.
+  - Added CSS font injection sanitization in `layout.rs` (`set_custom_font`).
+- **Lazy-Mode Bulk APIs Hydration (`src/book.rs`, `src/validator.rs`, `src/fingerprint.rs`)**:
+  - Added `hydrate_all_sections()` and `get_all_sections_hydrated()` ensuring `search()`, `search_regex()`, `generate_locations()`, `detect_language()`, `fingerprint()`, `validate()`, and `export_epub3_bytes()` transparently hydrate placeholder sections on demand instead of silently producing empty results in lazy streaming mode.
+- **ODT Embedded Image Extraction & Rendering (`src/odt.rs`)**:
+  - Parsed `<draw:image xlink:href="...">` and `<draw:frame>` nodes in document content, emitting genuine `<img>` elements and populating the underlying archive with extracted picture assets.
+- **URI Neutralization Precision (`src/section.rs`)**:
+  - Fixed scheme-length advancement in HTML sanitizer so `vbscript:` (9 chars) and `data:text/html` (14 chars) advance by their exact matched scheme lengths.
+- **Syntax Highlighting Stack Delimiter Validation (`src/treesitter.rs`)**:
+  - Replaced scalar character counting with stack-based delimiter validation (`(`, `[`, `{`), correctly identifying net-balanced delimiter mismatches (such as `( { ) }`).
+- **CFI Range Parsing with IDs Containing Commas (`src/cfi.rs`)**:
+  - Implemented bracket-aware and escape-aware range splitting (`split_cfi_range`), ensuring element assertions containing commas (e.g. `[chap01,heading]`) parse accurately.
+- **ZIP64 Extended Information Extra Field Support (`src/stream_zip.rs`)**:
+  - Parsed ZIP64 header ID `0x0001` in Central Directory entries when `uncompressed_size`, `compressed_size`, or `local_header_offset` exceed 32-bit limits (`0xFFFFFFFF`).
+- **WASM CI Integration (`.github/workflows/ci.yml`)**:
+  - Added `wasm-pack test --node` and wasm32 compilation verification steps to GitHub Actions CI workflow.
+- **Documentation & Transports (`docs/MCP_SERVER.md`, `README.md`, `docs/API.md`, `API.md`)**:
+  - Synchronized and sequentially numbered all 36 sections and TOC in `API.md` and `docs/API.md`.
+  - Harmonized benchmark conversion tables with realistic sample corpora.
+
+---
+
 ## [0.16.1] - 2026-08-17
 
 ### Added & Improved

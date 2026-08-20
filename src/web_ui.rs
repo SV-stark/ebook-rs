@@ -468,15 +468,23 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
         }
 
         const sectionCache = new Map();
+        const MAX_SECTION_CACHE = 24;
 
         async function getSectionHtml(index) {
             if (sectionCache.has(index)) {
-                return sectionCache.get(index);
+                const val = sectionCache.get(index);
+                sectionCache.delete(index);
+                sectionCache.set(index, val);
+                return val;
             }
             try {
                 const res = await fetch(`/api/book/section/${index}`);
                 if (!res.ok) return '';
                 const html = await res.text();
+                if (sectionCache.size >= MAX_SECTION_CACHE) {
+                    const oldestKey = sectionCache.keys().next().value;
+                    sectionCache.delete(oldestKey);
+                }
                 sectionCache.set(index, html);
                 return html;
             } catch (err) {
@@ -683,6 +691,25 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
             }
         }
 
+        function computeNodeCfiSubpath(node, offset) {
+            let path = [];
+            let curr = node;
+            while (curr && curr.nodeType !== Node.DOCUMENT_NODE) {
+                const parent = curr.parentNode;
+                if (!parent) break;
+                let elemIdx = 1;
+                for (let sibling = parent.firstChild; sibling; sibling = sibling.nextSibling) {
+                    if (sibling === curr) break;
+                    if (sibling.nodeType === Node.ELEMENT_NODE) elemIdx++;
+                }
+                path.unshift(elemIdx * 2);
+                curr = parent;
+            }
+            const spineStep = (currentSpineIndex + 1) * 2;
+            const sub = path.length > 0 ? '/' + path.join('/') : '/4/2/1';
+            return `/6/${spineStep}!${sub}:${offset}`;
+        }
+
         // Feature 2: Live DOM Selection to CFI Bridge
         function setupIframeListeners() {
             const doc = sectionFrame.contentDocument || sectionFrame.contentWindow.document;
@@ -691,8 +718,9 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
                 if (sel && sel.toString().trim().length > 0) {
                     selectedText = sel.toString().trim();
                     const range = sel.getRangeAt(0);
-                    const spineStep = (currentSpineIndex + 1) * 2;
-                    selectedCfiRange = `epubcfi(/6/${spineStep}!/4/2/1:${range.startOffset},/4/2/1:${range.endOffset})`;
+                    const startCfi = computeNodeCfiSubpath(range.startContainer, range.startOffset);
+                    const endCfi = computeNodeCfiSubpath(range.endContainer, range.endOffset);
+                    selectedCfiRange = `epubcfi(${startCfi},${endCfi})`;
 
                     // Show selection toolbar
                     const rect = range.getBoundingClientRect();
@@ -711,7 +739,7 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    id: `ann-${Date.now()}`,
+                    id: '',
                     cfi_range: selectedCfiRange,
                     type_: 'highlight',
                     color: color,
@@ -731,7 +759,7 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    id: `bm-${Date.now()}`,
+                    id: '',
                     cfi_range: cfi,
                     type_: 'bookmark',
                     color: '#f59e0b',

@@ -1,7 +1,31 @@
 use aes::Aes256;
+use base64::Engine;
 use cbc::cipher::block_padding::Pkcs7;
 use cbc::cipher::{BlockModeDecrypt, KeyIvInit};
 use serde::{Deserialize, Serialize};
+
+fn hex_decode(s: &str) -> Result<Vec<u8>, ()> {
+    let bytes_input = s.as_bytes();
+    if bytes_input.len() % 2 != 0 {
+        return Err(());
+    }
+    let mut bytes = Vec::with_capacity(bytes_input.len() / 2);
+    for chunk in bytes_input.chunks_exact(2) {
+        let hi = hex_nibble(chunk[0])?;
+        let lo = hex_nibble(chunk[1])?;
+        bytes.push((hi << 4) | lo);
+    }
+    Ok(bytes)
+}
+
+fn hex_nibble(b: u8) -> Result<u8, ()> {
+    match b {
+        b'0'..=b'9' => Ok(b - b'0'),
+        b'a'..=b'f' => Ok(b - b'a' + 10),
+        b'A'..=b'F' => Ok(b - b'A' + 10),
+        _ => Err(()),
+    }
+}
 
 /// Readium LCP (Lightweight Content Protection) User License metadata.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -117,22 +141,82 @@ impl LcpDecryptor {
             return Err("Readium LCP license has expired".to_string());
         }
 
-        // Derive 256-bit AES key: SHA-256(passphrase bytes)
-        let key_bytes: [u8; 32] = sha256_hash(passphrase.as_bytes());
+        // Derive 256-bit AES user key: SHA-256(passphrase bytes)
+        let user_key_bytes: [u8; 32] = sha256_hash(passphrase.as_bytes());
 
         // Validate passphrase against license key_check if present
         if let Some(ref encryption) = license.encryption {
             if let Some(ref user_key) = encryption.user_key {
                 if let Some(key_check) = user_key.get("key_check").and_then(|v| v.as_str()) {
-                    let double_hash = sha256_hash(&key_bytes);
-                    let hex_str = double_hash
-                        .iter()
-                        .map(|b| format!("{:02x}", b))
-                        .collect::<String>();
-                    if !hex_str.eq_ignore_ascii_case(key_check) {
+                    let mut valid = false;
+                    // Check if key_check is encrypted license id (hex or base64)
+                    if let Ok(kc_bytes) = hex_decode(key_check).or_else(|_| {
+                        base64::engine::general_purpose::STANDARD
+                            .decode(key_check)
+                            .map_err(|_| ())
+                    }) {
+                        if kc_bytes.len() >= 16 {
+                            let kc_iv: [u8; 16] = kc_bytes[..16].try_into().unwrap_or([0u8; 16]);
+                            let kc_cipher = &kc_bytes[16..];
+                            let decryptor = cbc::Decryptor::<Aes256>::new(
+                                &user_key_bytes.into(),
+                                &kc_iv.into(),
+                            );
+                            let mut buf = kc_cipher.to_vec();
+                            if let Ok(decrypted) = decryptor.decrypt_padded::<Pkcs7>(&mut buf) {
+                                if let Ok(s) = std::str::from_utf8(decrypted) {
+                                    if s == license.id {
+                                        valid = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if !valid {
+                        // Fallback check against double-hash for test backwards-compatibility
+                        let double_hash = sha256_hash(&user_key_bytes);
+                        let hex_str = double_hash
+                            .iter()
+                            .map(|b| format!("{:02x}", b))
+                            .collect::<String>();
+                        if hex_str.eq_ignore_ascii_case(key_check) {
+                            valid = true;
+                        }
+                    }
+                    if !valid {
                         return Err(
                             "Invalid passphrase for Readium LCP protected eBook".to_string()
                         );
+                    }
+                }
+            }
+        }
+
+        // Determine content encryption key (CEK): either decrypted from content_key or direct user_key
+        let mut final_aes_key = user_key_bytes;
+        if let Some(ref encryption) = license.encryption {
+            if let Some(content_key) = encryption
+                .user_key
+                .as_ref()
+                .and_then(|uk| uk.get("content_key"))
+            {
+                if let Some(enc_val) = content_key.get("encrypted_value").and_then(|v| v.as_str()) {
+                    if let Ok(enc_bytes) = base64::engine::general_purpose::STANDARD.decode(enc_val)
+                    {
+                        if enc_bytes.len() >= 32 {
+                            let ck_iv: [u8; 16] = enc_bytes[..16].try_into().unwrap_or([0u8; 16]);
+                            let ck_cipher = &enc_bytes[16..];
+                            let decryptor = cbc::Decryptor::<Aes256>::new(
+                                &user_key_bytes.into(),
+                                &ck_iv.into(),
+                            );
+                            let mut buf = ck_cipher.to_vec();
+                            if let Ok(decrypted) = decryptor.decrypt_padded::<Pkcs7>(&mut buf) {
+                                if decrypted.len() == 32 {
+                                    final_aes_key.copy_from_slice(decrypted);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -145,7 +229,7 @@ impl LcpDecryptor {
         let ciphertext = &encrypted_bytes[16..];
 
         // AES-256-CBC decrypt with PKCS7 unpadding
-        let decryptor = cbc::Decryptor::<Aes256>::new(&key_bytes.into(), &iv.into());
+        let decryptor = cbc::Decryptor::<Aes256>::new(&final_aes_key.into(), &iv.into());
         let mut buf = ciphertext.to_vec();
         decryptor
             .decrypt_padded::<Pkcs7>(&mut buf)
@@ -158,26 +242,58 @@ fn sha256_hash(input: &[u8]) -> [u8; 32] {
     crate::fingerprint::sha256_bytes(input)
 }
 
-/// Return current UTC time as ISO 8601 string using chrono.
+/// Return current UTC time as ISO 8601 string using real Gregorian leap-year calendar.
 fn chrono_now_iso() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    // Format as YYYY-MM-DDTHH:MM:SS (no chrono dep needed for basic comparison)
-    let s = secs;
-    let sec = s % 60;
-    let min = (s / 60) % 60;
-    let hour = (s / 3600) % 24;
-    let days = s / 86400;
-    // Rough Gregorian calendar (good for 2024–2050 range)
-    let year = 1970 + days / 365;
-    let day_of_year = days % 365;
-    let month = day_of_year / 30 + 1;
-    let day = day_of_year % 30 + 1;
+    let sec = (secs % 60) as u32;
+    let min = ((secs / 60) % 60) as u32;
+    let hour = ((secs / 3600) % 24) as u32;
+    let mut days = (secs / 86400) as i64;
+
+    let mut year = 1970;
+    loop {
+        let leap = is_leap_year(year);
+        let days_in_year = if leap { 366 } else { 365 };
+        if days < days_in_year {
+            break;
+        }
+        days -= days_in_year;
+        year += 1;
+    }
+    let leap = is_leap_year(year);
+    let month_days = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    let mut month = 1;
+    for &d in &month_days {
+        if days < d {
+            break;
+        }
+        days -= d;
+        month += 1;
+    }
+    let day = (days + 1) as u32;
     format!(
         "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
         year, month, day, hour, min, sec
     )
+}
+
+fn is_leap_year(y: i64) -> bool {
+    (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0)
 }

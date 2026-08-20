@@ -65,9 +65,14 @@ impl CbzBook {
             let idref = format!("page_{}", idx);
             let href = format!("page_{}.html", idx);
 
+            let escaped_img = img_path
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;")
+                .replace('"', "&quot;");
             let raw_html = format!(
                 "<div style=\"text-align:center;\"><img src=\"{}\" style=\"max-width:100%;height:auto;\"/></div>",
-                img_path
+                escaped_img
             );
             let processed_html = raw_html.clone();
 
@@ -109,7 +114,7 @@ impl CbzBook {
 
         let metadata = Metadata {
             title: title_fallback.to_string(),
-            creators: vec!["Comic Author".to_string()],
+            creators: Vec::new(),
             publishers: Vec::new(),
             languages: vec!["en".to_string()],
             rights: None,
@@ -207,48 +212,6 @@ fn extract_img_src_from_html(html: &str) -> Option<String> {
         }
     }
     None
-}
-
-#[allow(dead_code)]
-fn base64_encode(data: &[u8]) -> String {
-    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
-    let mut i = 0;
-
-    while i < data.len() {
-        let b0 = data[i] as u32;
-        let b1 = if i + 1 < data.len() {
-            data[i + 1] as u32
-        } else {
-            0
-        };
-        let b2 = if i + 2 < data.len() {
-            data[i + 2] as u32
-        } else {
-            0
-        };
-
-        let triple = (b0 << 16) | (b1 << 8) | b2;
-
-        out.push(CHARS[((triple >> 18) & 0x3F) as usize] as char);
-        out.push(CHARS[((triple >> 12) & 0x3F) as usize] as char);
-
-        if i + 1 < data.len() {
-            out.push(CHARS[((triple >> 6) & 0x3F) as usize] as char);
-        } else {
-            out.push('=');
-        }
-
-        if i + 2 < data.len() {
-            out.push(CHARS[(triple & 0x3F) as usize] as char);
-        } else {
-            out.push('=');
-        }
-
-        i += 3;
-    }
-
-    out
 }
 
 fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {

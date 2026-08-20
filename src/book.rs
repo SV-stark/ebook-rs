@@ -117,8 +117,11 @@ impl Book {
             return Ok(fb2);
         }
         if let Ok(text) = std::str::from_utf8(bytes) {
-            let is_md =
-                text.contains("# ") || text.contains("## ") || title_fallback.ends_with(".md");
+            let is_md = text.contains("# ")
+                || text.contains("## ")
+                || text.starts_with("---\n")
+                || text.starts_with("+++\n")
+                || title_fallback.to_lowercase().ends_with(".md");
             return crate::txt::TxtBook::parse(bytes, title_fallback, is_md);
         }
 
@@ -146,6 +149,18 @@ impl Book {
 
     /// Internal builder from an initialized archive.
     fn from_archive(archive: EpubArchive) -> Result<Self, EbookError> {
+        Self::from_archive_internal(archive, false)
+    }
+
+    /// Open an EPUB archive using lazy section hydration (sections loaded on demand).
+    pub fn from_archive_lazy(
+        archive: EpubArchive,
+        _title_fallback: &str,
+    ) -> Result<Self, EbookError> {
+        Self::from_archive_internal(archive, true)
+    }
+
+    fn from_archive_internal(archive: EpubArchive, lazy: bool) -> Result<Self, EbookError> {
         // E8 Fix: Detect DRM encryption (ADEPT / LCP)
         if archive.contains("META-INF/rights.xml") || archive.contains("license.lcpl") {
             return Err(EbookError::DrmProtected("DRM protected eBook (ADEPT/LCP). Decryption keys are required to read encrypted content.".to_string()));
@@ -200,24 +215,63 @@ impl Book {
 
         for (idx, spine_item) in opf.spine.iter().enumerate() {
             if let Some(man_item) = opf.manifest.get(&spine_item.idref) {
-                match Section::new(
-                    idx,
-                    spine_item.idref.clone(),
-                    man_item.href.clone(),
-                    man_item.full_path.clone(),
-                    &archive,
-                ) {
-                    Ok(section) => {
-                        locations.add_spine_section(section.index, &section.plain_text);
-                        sections.push(section);
-                    }
-                    Err(err) => {
-                        eprintln!(
-                            "Warning: Failed to load section {} ({}): {}",
-                            idx, man_item.full_path, err
-                        );
+                if lazy {
+                    sections.push(Section {
+                        index: idx,
+                        idref: spine_item.idref.clone(),
+                        href: man_item.href.clone(),
+                        full_path: man_item.full_path.clone(),
+                        raw_html: String::new(),
+                        processed_html: String::new(),
+                        plain_text: String::new(),
+                        plain_text_lower: String::new(),
+                        char_count: 0,
+                        viewport_width: None,
+                        viewport_height: None,
+                    });
+                } else {
+                    match Section::new(
+                        idx,
+                        spine_item.idref.clone(),
+                        man_item.href.clone(),
+                        man_item.full_path.clone(),
+                        &archive,
+                    ) {
+                        Ok(section) => {
+                            locations.add_spine_section(section.index, &section.plain_text);
+                            sections.push(section);
+                        }
+                        Err(_) => {
+                            sections.push(Section {
+                                index: idx,
+                                idref: spine_item.idref.clone(),
+                                href: man_item.href.clone(),
+                                full_path: man_item.full_path.clone(),
+                                raw_html: String::new(),
+                                processed_html: String::new(),
+                                plain_text: String::new(),
+                                plain_text_lower: String::new(),
+                                char_count: 0,
+                                viewport_width: None,
+                                viewport_height: None,
+                            });
+                        }
                     }
                 }
+            } else {
+                sections.push(Section {
+                    index: idx,
+                    idref: spine_item.idref.clone(),
+                    href: String::new(),
+                    full_path: String::new(),
+                    raw_html: String::new(),
+                    processed_html: String::new(),
+                    plain_text: String::new(),
+                    plain_text_lower: String::new(),
+                    char_count: 0,
+                    viewport_width: None,
+                    viewport_height: None,
+                });
             }
         }
 
@@ -262,6 +316,7 @@ impl Book {
 
     /// Access mutable reference to underlying `EpubArchive` container.
     pub fn archive_mut(&mut self) -> &mut EpubArchive {
+        self.invalidate_render_cache();
         &mut self.archive
     }
 
@@ -275,8 +330,9 @@ impl Book {
         &self.sections
     }
 
-    /// Access mutable list of parsed ebook sections.
+    /// Access mutable list of parsed ebook sections. Automatically invalidates render cache.
     pub fn sections_mut(&mut self) -> &mut [Section] {
+        self.invalidate_render_cache();
         &mut self.sections
     }
 
@@ -310,9 +366,15 @@ impl Book {
         &self.before_display_hooks
     }
 
-    /// Access map of SMIL media overlays.
-    pub fn media_overlays(&self) -> &AHashMap<String, crate::media_overlay::MediaOverlayPackage> {
-        &self.media_overlays
+    /// Invalidate the section render cache when layout, hooks, or assets change.
+    pub fn invalidate_render_cache(&self) {
+        self.render_cache.lock().clear();
+    }
+
+    /// Update rendition layout and automatically invalidate stale render cache.
+    pub fn set_layout(&mut self, layout: RenditionLayout) {
+        self.layout = layout;
+        self.invalidate_render_cache();
     }
 
     /// Register a pre-display HTML transformation hook (Feature 2).
@@ -321,6 +383,7 @@ impl Book {
         F: Fn(&mut String, &str) + Send + Sync + 'static,
     {
         self.before_display_hooks.push(Arc::new(hook));
+        self.invalidate_render_cache();
     }
 
     /// Metadata of the publication.
@@ -412,7 +475,7 @@ impl Book {
         if !meta_lang.trim().is_empty() {
             return Some(meta_lang.to_string());
         }
-        for sec in &self.sections {
+        for sec in self.get_all_sections_hydrated() {
             if let Some(lang) = sec.detect_language() {
                 return Some(lang);
             }
@@ -567,16 +630,60 @@ impl Book {
 
     /// Retrieve a raw section reference without executing rendering resource inlining hooks.
     pub fn get_section_raw(&self, index: usize) -> Option<&Section> {
-        self.sections.get(index)
+        self.sections
+            .iter()
+            .find(|s| s.index == index)
+            .or_else(|| self.sections.get(index))
+    }
+
+    /// Retrieve a section by spine index (applying pre-display hooks and automatic RTL dir="rtl" injection).
+    fn hydrate_section_data(archive: &EpubArchive, section: &mut Section) {
+        if section.raw_html.is_empty() && !section.full_path.is_empty() {
+            if let Ok(raw) = archive.read_string(&section.full_path) {
+                if let (Some(w), Some(h)) = crate::section::parse_viewport_meta(&raw) {
+                    section.viewport_width = Some(w);
+                    section.viewport_height = Some(h);
+                }
+                section.raw_html = raw.clone();
+                section.processed_html = raw;
+                section.plain_text = crate::section::extract_plain_text(&section.raw_html);
+                section.plain_text_lower = section.plain_text.to_lowercase();
+                section.char_count = section.plain_text.chars().count();
+            }
+        }
+    }
+
+    /// Hydrate all sections in-place if they were lazily loaded.
+    pub fn hydrate_all_sections(&mut self) {
+        for section in &mut self.sections {
+            Self::hydrate_section_data(&self.archive, section);
+        }
+    }
+
+    /// Retrieve all sections with content hydrated on demand (safe for lazy streaming mode).
+    pub fn get_all_sections_hydrated(&self) -> Vec<Section> {
+        self.sections
+            .iter()
+            .map(|s| {
+                let mut sec = s.clone();
+                Self::hydrate_section_data(&self.archive, &mut sec);
+                sec
+            })
+            .collect()
     }
 
     /// Retrieve a section by spine index (applying pre-display hooks and automatic RTL dir="rtl" injection).
     pub fn get_section(&self, index: usize) -> Result<Section, String> {
         let mut section = self
             .sections
-            .get(index)
+            .iter()
+            .find(|s| s.index == index)
             .cloned()
+            .or_else(|| self.sections.get(index).cloned())
             .ok_or_else(|| format!("Section index out of bounds: {}", index))?;
+
+        // On-demand lazy hydration if raw_html has not yet been loaded
+        Self::hydrate_section_data(&self.archive, &mut section);
 
         if let Some(cached) = self.render_cache.lock().get(&index) {
             section.processed_html = cached.clone();
@@ -646,13 +753,15 @@ impl Book {
         self.get_section(spine_idx)
     }
 
-    /// Perform full-text search across all spine sections.
+    /// Perform full-text search across all spine sections (hydrating lazy sections if needed).
     pub fn search(&self, query: &str) -> Vec<SearchResult> {
-        SearchEngine::search(&self.sections, query, false)
+        let sections = self.get_all_sections_hydrated();
+        SearchEngine::search(&sections, query, false)
     }
 
-    /// Re-generate locations with custom character chunk size.
+    /// Re-generate locations with custom character chunk size (hydrating lazy sections if needed).
     pub fn generate_locations(&mut self, chunk_size: usize) {
+        self.hydrate_all_sections();
         let mut new_locations = Locations::new(chunk_size);
         for section in &self.sections {
             new_locations.add_spine_section(section.index, &section.plain_text);
@@ -698,9 +807,10 @@ impl Book {
         })
     }
 
-    /// Perform full-text regular expression search across all book sections.
+    /// Perform full-text regular expression search across all book sections (hydrating lazy sections if needed).
     pub fn search_regex(&self, pattern: &str) -> Result<Vec<crate::search::SearchResult>, String> {
-        crate::search::SearchEngine::search_regex(&self.sections, pattern)
+        let sections = self.get_all_sections_hydrated();
+        crate::search::SearchEngine::search_regex(&sections, pattern)
     }
 
     /// Perform structural validation on this Book instance (EpubValidator).
@@ -841,7 +951,7 @@ impl Book {
             zip.write_all(container_xml.as_bytes())
                 .map_err(|e| format!("Failed to write container.xml content: {}", e))?;
 
-            for section in &self.sections {
+            for section in self.get_all_sections_hydrated() {
                 let sec_path = format!("OEBPS/section_{}.html", section.index);
                 zip.start_file(&sec_path, deflated_options)
                     .map_err(|e| format!("Failed to write {}: {}", sec_path, e))?;

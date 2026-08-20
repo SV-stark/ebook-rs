@@ -44,12 +44,8 @@ impl KfxBook {
                 .or_else(|| extract_tag_or_kv(&full_scan, "title"))
             {
                 metadata.title = found_t;
-            } else if full_scan.contains("Alice in KFX Wonderland") {
-                metadata.title = "Alice in KFX Wonderland".to_string();
-            } else if full_scan.contains("Alice in Wonderland") {
-                metadata.title = "Alice in Wonderland".to_string();
             } else {
-                metadata.title = "Amazon KFX Book".to_string();
+                metadata.title = "Amazon KFX Publication".to_string();
             }
         }
 
@@ -58,8 +54,6 @@ impl KfxBook {
                 .or_else(|| extract_tag_or_kv(&full_scan, "author"))
             {
                 metadata.creators.push(found_a);
-            } else if full_scan.contains("Lewis Carroll") {
-                metadata.creators.push("Lewis Carroll".to_string());
             } else {
                 metadata.creators.push("Unknown Author".to_string());
             }

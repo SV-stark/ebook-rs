@@ -85,7 +85,8 @@ impl EpubValidator {
             });
         }
 
-        if book.sections.is_empty() {
+        let hydrated_sections = book.get_all_sections_hydrated();
+        if hydrated_sections.is_empty() {
             errors.push(ValidationError {
                 severity: ValidationSeverity::Error,
                 code: "RSC-002".to_string(),
@@ -94,7 +95,7 @@ impl EpubValidator {
             });
         }
 
-        for (idx, section) in book.sections.iter().enumerate() {
+        for (idx, section) in hydrated_sections.iter().enumerate() {
             if section.href.trim().is_empty() {
                 errors.push(ValidationError {
                     severity: ValidationSeverity::Error,
@@ -279,23 +280,34 @@ impl UniversalEpub3Exporter {
             let mut entries = Vec::new();
 
             // Collect section HTML documents
-            for (idx, _) in book.spine().iter().enumerate() {
-                if let Some(sec) = book.get_section_raw(idx) {
-                    let html_body = if !sec.raw_html.is_empty() {
-                        &sec.raw_html
+            let hydrated_sections = book.get_all_sections_hydrated();
+            for (idx, sec) in hydrated_sections.iter().enumerate() {
+                let html_body = if !sec.raw_html.is_empty() {
+                    &sec.raw_html
+                } else {
+                    &sec.processed_html
+                };
+                let trimmed = html_body.trim();
+                let doc_xhtml = if trimmed.contains("<html") || trimmed.contains("<body") {
+                    if trimmed.starts_with("<?xml") {
+                        trimmed.to_string()
                     } else {
-                        &sec.processed_html
-                    };
-                    let doc_xhtml = format!(
+                        format!(
+                            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html>\n{}",
+                            trimmed
+                        )
+                    }
+                } else {
+                    format!(
                         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html>\n<html xmlns=\"http://www.w3.org/1999/xhtml\">\n<head><title>Section {}</title></head>\n<body>{}</body>\n</html>",
                         idx + 1,
-                        html_body
-                    );
-                    entries.push(ZipEntry {
-                        path: format!("OEBPS/sec_{}.xhtml", idx),
-                        bytes: doc_xhtml.into_bytes(),
-                    });
-                }
+                        trimmed
+                    )
+                };
+                entries.push(ZipEntry {
+                    path: format!("OEBPS/sec_{}.xhtml", idx),
+                    bytes: doc_xhtml.into_bytes(),
+                });
             }
 
             // Collect asset files (images, CSS, fonts) from book.archive

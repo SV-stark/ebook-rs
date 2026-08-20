@@ -53,8 +53,54 @@ fn test_blackbox_c_ffi_bindings() {
         assert!(!sec_str.is_empty());
         ebook_rs_string_free(sec_html_ptr);
 
+        // Double-free guard verification
+        ebook_rs_book_free(handle);
+        ebook_rs_book_free(handle); // safe no-op
+
+        // Accessing freed handle returns NULL without crashing
+        let freed_meta = ebook_rs_get_metadata_json(handle);
+        assert!(freed_meta.is_null());
+
+        // Null string free is safe
+        ebook_rs_string_free(std::ptr::null_mut());
+    }
+}
+
+#[test]
+fn test_blackbox_c_ffi_concurrent_access() {
+    use ebook_rs::ffi::*;
+
+    unsafe {
+        let bytes = generate_sample_epub().expect("Failed to build sample epub");
+        let handle = ebook_rs_book_from_bytes(bytes.as_ptr(), bytes.len());
+        assert!(!handle.is_null());
+
+        let handle_val = handle as usize;
+        let mut handles = Vec::new();
+
+        for _ in 0..8 {
+            let h = std::thread::spawn(move || {
+                let h_ptr = h_val_as_ptr(handle_val);
+                let meta = ebook_rs_get_metadata_json(h_ptr);
+                if !meta.is_null() {
+                    let s = CStr::from_ptr(meta).to_str().unwrap();
+                    assert!(s.contains("The Rustonomicon"));
+                    ebook_rs_string_free(meta);
+                }
+            });
+            handles.push(h);
+        }
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
         ebook_rs_book_free(handle);
     }
+}
+
+fn h_val_as_ptr(val: usize) -> ebook_rs::ffi::CBookHandle {
+    val as ebook_rs::ffi::CBookHandle
 }
 
 #[test]

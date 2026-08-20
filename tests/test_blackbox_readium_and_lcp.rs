@@ -71,3 +71,44 @@ fn test_blackbox_readium_lcp_expiration_date_comparison() {
     // On 2027-01-01, license MUST be expired
     assert!(license.is_expired("2027-01-01T00:00:00Z"));
 }
+
+#[test]
+fn test_blackbox_font_deobfuscation() {
+    use ebook_rs::deobfuscate::FontDeobfuscator;
+
+    let enc_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <EncryptedData>
+    <EncryptionMethod Algorithm="http://www.idpf.org/2008/embedding"/>
+    <CipherData>
+      <CipherReference URI="fonts/font1.otf"/>
+    </CipherData>
+  </EncryptedData>
+  <EncryptedData>
+    <EncryptionMethod Algorithm="http://ns.adobe.com/pdf/enc#RC"/>
+    <CipherData>
+      <CipherReference URI="fonts/font2.otf"/>
+    </CipherData>
+  </EncryptedData>
+</encryption>"#;
+
+    let deobfuscator = FontDeobfuscator::parse_encryption_xml(enc_xml);
+    assert!(deobfuscator.is_encrypted("fonts/font1.otf"));
+    assert!(deobfuscator.is_encrypted("fonts/font2.otf"));
+
+    let mut font1_bytes = vec![0xAB; 2048];
+    let orig1 = font1_bytes.clone();
+    let key = "urn:uuid:12345678-1234-5678-1234-567812345678";
+
+    // 1. IDPF algorithm in-place deobfuscation
+    deobfuscator.deobfuscate("fonts/font1.otf", &mut font1_bytes, key);
+    assert_ne!(&font1_bytes[..1040], &orig1[..1040]);
+    assert_eq!(&font1_bytes[1040..], &orig1[1040..]);
+
+    // 2. Adobe algorithm in-place deobfuscation
+    let mut font2_bytes = vec![0xCD; 2048];
+    let orig2 = font2_bytes.clone();
+    deobfuscator.deobfuscate("fonts/font2.otf", &mut font2_bytes, key);
+    assert_ne!(&font2_bytes[..1024], &orig2[..1024]);
+    assert_eq!(&font2_bytes[1024..], &orig2[1024..]);
+}

@@ -104,7 +104,8 @@ impl Fb2Book {
 
                     if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(&b64_clean)
                     {
-                        archive.insert(full_archive_path, bytes);
+                        archive.insert(full_archive_path, bytes.clone());
+                        archive.insert(rel_path.clone(), bytes);
                         binary_map.insert(clean_id, rel_path);
                     }
                 }
@@ -272,8 +273,17 @@ fn convert_fb2_section_to_html(
     binary_map: &AHashMap<String, String>,
 ) -> String {
     let mut html = String::from("<div>");
+    convert_fb2_children_to_html(sec, binary_map, &mut html);
+    html.push_str("</div>");
+    html
+}
 
-    for node in sec.children() {
+fn convert_fb2_children_to_html(
+    parent: &roxmltree::Node,
+    binary_map: &AHashMap<String, String>,
+    html: &mut String,
+) {
+    for node in parent.children() {
         if !node.is_element() {
             continue;
         }
@@ -285,12 +295,49 @@ fn convert_fb2_section_to_html(
                     html.push_str(&format!("<h2>{}</h2>", xml_escape(trimmed)));
                 }
             }
+            "subtitle" => {
+                let text = collect_descendant_text(&node);
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    html.push_str(&format!("<h3>{}</h3>", xml_escape(trimmed)));
+                }
+            }
             "p" => {
                 let text = collect_descendant_text(&node);
                 let trimmed = text.trim();
                 if !trimmed.is_empty() {
                     html.push_str(&format!("<p>{}</p>", xml_escape(trimmed)));
                 }
+            }
+            "v" => {
+                let text = collect_descendant_text(&node);
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    html.push_str(&format!("<p class=\"verse\">{}</p>", xml_escape(trimmed)));
+                }
+            }
+            "empty-line" => {
+                html.push_str("<br/>");
+            }
+            "section" => {
+                html.push_str("<section>");
+                convert_fb2_children_to_html(&node, binary_map, html);
+                html.push_str("</section>");
+            }
+            "poem" => {
+                html.push_str("<div class=\"poem\">");
+                convert_fb2_children_to_html(&node, binary_map, html);
+                html.push_str("</div>");
+            }
+            "stanza" => {
+                html.push_str("<div class=\"stanza\">");
+                convert_fb2_children_to_html(&node, binary_map, html);
+                html.push_str("</div>");
+            }
+            "epigraph" | "cite" => {
+                html.push_str("<blockquote>");
+                convert_fb2_children_to_html(&node, binary_map, html);
+                html.push_str("</blockquote>");
             }
             "image" => {
                 let href_opt = node
@@ -306,16 +353,21 @@ fn convert_fb2_section_to_html(
                         .or_else(|| binary_map.get(&format!("#{}", key)))
                         .or_else(|| binary_map.get(href));
                     if let Some(uri) = data_uri {
-                        html.push_str(&format!("<img src=\"{}\"/>", uri));
+                        let escaped_uri = uri
+                            .replace('&', "&amp;")
+                            .replace('<', "&lt;")
+                            .replace('>', "&gt;")
+                            .replace('"', "&quot;");
+                        html.push_str(&format!("<img src=\"{}\"/>", escaped_uri));
                     }
                 }
             }
-            _ => {}
+            _ => {
+                // Fallback: render any child elements or descendant text so content is never lost
+                convert_fb2_children_to_html(&node, binary_map, html);
+            }
         }
     }
-
-    html.push_str("</div>");
-    html
 }
 
 fn xml_escape(input: &str) -> String {

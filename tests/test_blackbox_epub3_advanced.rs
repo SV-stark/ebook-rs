@@ -17,5 +17,6 @@ fn test_blackbox_epub_structural_validator() {
     let book = TxtBook::parse(md.as_bytes(), "Valid Book", true).unwrap();
 
     let report = EpubValidator::validate(&book);
-    assert!(!report.errors.is_empty() || report.is_valid || !report.is_valid);
+    assert!(report.is_valid);
+    assert_eq!(report.errors_count, 0);
 }

@@ -23,10 +23,15 @@ impl DocxBook {
 
         // 1. Read word/document.xml
         let mut document_xml = String::new();
+        const MAX_DOCX_XML_SIZE: u64 = 64 * 1024 * 1024; // 64 MB limit for document.xml
+        const MAX_DOCX_MEDIA_SIZE: u64 = 64 * 1024 * 1024; // 64 MB limit per media file
         if let Ok(mut file) = archive.by_name("word/document.xml") {
-            file.read_to_string(&mut document_xml).map_err(|e| {
-                EbookError::Io(format!("Failed to read word/document.xml in DOCX: {}", e))
-            })?;
+            file.by_ref()
+                .take(MAX_DOCX_XML_SIZE)
+                .read_to_string(&mut document_xml)
+                .map_err(|e| {
+                    EbookError::Io(format!("Failed to read word/document.xml in DOCX: {}", e))
+                })?;
         } else {
             return Err(EbookError::InvalidFormat(
                 "DOCX archive missing word/document.xml".to_string(),
@@ -41,7 +46,12 @@ impl DocxBook {
                 let name = file.name().to_string();
                 if name.starts_with("word/media/") && !name.ends_with('/') {
                     let mut img_data = Vec::new();
-                    if file.read_to_end(&mut img_data).is_ok() {
+                    if file
+                        .by_ref()
+                        .take(MAX_DOCX_MEDIA_SIZE)
+                        .read_to_end(&mut img_data)
+                        .is_ok()
+                    {
                         let relative_name = name.strip_prefix("word/").unwrap_or(&name);
                         epub_archive.insert(relative_name, img_data);
                     }

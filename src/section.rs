@@ -560,7 +560,18 @@ fn process_css_resources(css: &str, css_path: &str, archive: &EpubArchive) -> St
 
             if !raw_url.starts_with("data:") && !raw_url.starts_with("http") {
                 let res_path = resolve_relative_path(css_dir, raw_url);
-                if let Ok(bytes) = archive.read_bytes(&res_path) {
+                if let Ok(mut bytes) = archive.read_bytes(&res_path) {
+                    if let Ok(enc_xml) = archive.read_string("META-INF/encryption.xml") {
+                        let deobf =
+                            crate::deobfuscate::FontDeobfuscator::parse_encryption_xml(&enc_xml);
+                        if deobf.is_encrypted(&res_path) {
+                            let identifier = archive
+                                .read_string("OEBPS/content.opf")
+                                .or_else(|_| archive.read_string("content.opf"))
+                                .unwrap_or_default();
+                            deobf.deobfuscate(&res_path, &mut bytes, &identifier);
+                        }
+                    }
                     let mime = EpubArchive::get_mime_type(&res_path);
                     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
                     output.push_str(&format!("url(\"data:{};base64,{}\")", mime, b64));
@@ -796,15 +807,29 @@ pub fn sanitize_html_scripts(html: &str) -> String {
         }
         let slice = &sanitized[cur_idx..];
         let decoded_slice = decode_html_entities_for_uri(slice);
-        if starts_with_ignore_case(&decoded_slice, "javascript:")
-            || starts_with_ignore_case(slice, "javascript:")
+
+        let match_info = if starts_with_ignore_case(slice, "javascript:") {
+            Some("javascript:".len())
+        } else if starts_with_ignore_case(slice, "vbscript:") {
+            Some("vbscript:".len())
+        } else if starts_with_ignore_case(slice, "data:text/html") {
+            Some("data:text/html".len())
+        } else if starts_with_ignore_case(&decoded_slice, "javascript:")
             || starts_with_ignore_case(&decoded_slice, "vbscript:")
-            || starts_with_ignore_case(slice, "vbscript:")
             || starts_with_ignore_case(&decoded_slice, "data:text/html")
-            || starts_with_ignore_case(slice, "data:text/html")
         {
+            if let Some(colon_pos) = slice.find(':') {
+                Some(colon_pos + 1)
+            } else {
+                Some(slice.len().min(15))
+            }
+        } else {
+            None
+        };
+
+        if let Some(advance_len) = match_info {
             final_sanitized.push_str("#disabled_uri:");
-            cur_idx += "javascript:".len().min(slice.len());
+            cur_idx += advance_len.min(slice.len());
         } else if let Some(ch) = slice.chars().next() {
             final_sanitized.push(ch);
             cur_idx += ch.len_utf8();

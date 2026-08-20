@@ -19,21 +19,14 @@ pub fn decompress_palmdoc(data: &[u8]) -> Vec<u8> {
         i += 1;
 
         match byte {
-            0x00 => {
-                // Ignore NUL control bytes inside PalmDOC stream to prevent garbled '\0' symbols
+            0x00 | 0x09..=0x7F => {
+                out.push(byte);
             }
             0x01..=0x08 => {
                 let count = byte as usize;
                 let end = (i + count).min(data.len());
-                for &b in &data[i..end] {
-                    if b >= 0x20 || b == b'\n' || b == b'\r' || b == b'\t' {
-                        out.push(b);
-                    }
-                }
+                out.extend_from_slice(&data[i..end]);
                 i += count;
-            }
-            0x09..=0x7F => {
-                out.push(byte);
             }
             0x80..=0xBF => {
                 if i < data.len() {
@@ -50,7 +43,12 @@ pub fn decompress_palmdoc(data: &[u8]) -> Vec<u8> {
                             let val = out[start + (j % distance)];
                             out.push(val);
                         }
+                    } else {
+                        out.push(byte);
+                        out.push(next);
                     }
+                } else {
+                    out.push(byte);
                 }
             }
             0xC0..=0xFF => {
@@ -278,7 +276,14 @@ impl MobiBook {
             }
         }
 
-        let mut full_html = String::from_utf8_lossy(&raw_html_bytes).to_string();
+        let full_html_raw = match std::str::from_utf8(&raw_html_bytes) {
+            Ok(s) => s.to_string(),
+            Err(_) => {
+                let (cow, _, _) = encoding_rs::WINDOWS_1252.decode(&raw_html_bytes);
+                cow.into_owned()
+            }
+        };
+        let mut full_html = full_html_raw;
         if full_html.trim().is_empty() || extract_plain_text(&full_html).trim().is_empty() {
             full_html = extract_fallback_mobi_text(bytes);
         }
@@ -553,6 +558,7 @@ fn extract_mobi_images_and_populate_archive(
                 let rel_path = format!("images/img_{:04}.{}", img_num, ext);
                 let full_archive_path = format!("OEBPS/{}", rel_path);
                 archive.insert(full_archive_path, img_bytes.to_vec());
+                archive.insert(rel_path.clone(), img_bytes.to_vec());
                 image_map.insert(img_num, rel_path);
             }
         }

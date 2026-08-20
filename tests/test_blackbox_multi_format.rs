@@ -5,14 +5,19 @@ use zip::write::SimpleFileOptions;
 #[test]
 fn test_blackbox_pdf_parsing() {
     let pdf_bytes = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
-    match PdfBook::parse(pdf_bytes, "Test PDF") {
-        Ok(pdf_book) => {
-            assert_eq!(pdf_book.metadata().title, "Test PDF");
-            assert_eq!(pdf_book.sections.len(), 1);
-        }
-        Err(err) => {
-            assert!(err.to_string().to_lowercase().contains("pdf"));
-        }
+    #[cfg(feature = "pdf")]
+    {
+        let pdf_book = PdfBook::parse(pdf_bytes, "Test PDF")
+            .expect("PDF parser should successfully parse stream");
+        assert_eq!(pdf_book.metadata().title, "Test PDF");
+        assert_eq!(pdf_book.sections.len(), 1);
+    }
+    #[cfg(not(feature = "pdf"))]
+    {
+        let res = PdfBook::parse(pdf_bytes, "Test PDF");
+        assert!(
+            matches!(res, Err(ebook_rs::EbookError::InvalidFormat(msg)) if msg.contains("requires the 'pdf' feature"))
+        );
     }
 }
 

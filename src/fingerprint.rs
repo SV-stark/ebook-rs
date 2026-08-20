@@ -68,7 +68,8 @@ impl FingerprintGenerator {
         let mut text_buf = String::new();
         let mut total_characters = 0;
 
-        for section in &book.sections {
+        let hydrated = book.get_all_sections_hydrated();
+        for section in &hydrated {
             let norm_text: String = section
                 .plain_text
                 .chars()

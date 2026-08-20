@@ -15,11 +15,10 @@ pub struct Footnote {
 /// Extract footnotes and endnotes from section HTML content.
 pub fn parse_footnotes_from_html(html: &str) -> Vec<Footnote> {
     let mut list = Vec::new();
-    let lower = html.to_lowercase();
     let mut search_idx = 0;
 
     // 1. Scan for footnote reference links (<a href="#..." epub:type="noteref"> or class="footnote">)
-    while let Some(a_idx) = lower[search_idx..].find("<a ") {
+    while let Some(a_idx) = find_ignore_case(&html[search_idx..], "<a ") {
         let abs_a = search_idx + a_idx;
         if let Some(close_idx) = html[abs_a..].find('>') {
             let tag = &html[abs_a..=abs_a + close_idx];
@@ -32,8 +31,17 @@ pub fn parse_footnotes_from_html(html: &str) -> Vec<Footnote> {
             if is_noteref {
                 if let Some((_, href_val)) = extract_attr(tag, "href") {
                     if let Some(target_id) = href_val.split('#').nth(1) {
-                        let label = if let Some(end_a) = lower[abs_a..].find("</a>") {
-                            extract_plain_text(&html[abs_a + close_idx + 1..abs_a + end_a])
+                        let label = if let Some(end_a) = find_ignore_case(&html[abs_a..], "</a>") {
+                            let label_start = abs_a + close_idx + 1;
+                            let label_end = abs_a + end_a;
+                            if label_start <= label_end
+                                && html.is_char_boundary(label_start)
+                                && html.is_char_boundary(label_end)
+                            {
+                                extract_plain_text(&html[label_start..label_end])
+                            } else {
+                                target_id.to_string()
+                            }
                         } else {
                             target_id.to_string()
                         };
@@ -65,7 +73,7 @@ pub fn parse_footnotes_from_html(html: &str) -> Vec<Footnote> {
 
     // 2. Fallback: Scan for standalone <aside epub:type="footnote" id="..."> elements
     search_idx = 0;
-    while let Some(aside_idx) = lower[search_idx..].find("<aside") {
+    while let Some(aside_idx) = find_ignore_case(&html[search_idx..], "<aside") {
         let abs_aside = search_idx + aside_idx;
         if let Some(close_idx) = html[abs_aside..].find('>') {
             let tag = &html[abs_aside..=abs_aside + close_idx];

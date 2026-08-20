@@ -150,24 +150,28 @@ impl PdfBook {
 #[cfg(feature = "pdf")]
 fn markdown_to_html(md: &str, page_num: usize) -> String {
     let mut html = format!("<div class=\"pdf-page\" data-page=\"{}\">\n", page_num);
+    fn escape_html(s: &str) -> String {
+        s.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+    }
+
     for line in md.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
         }
         if let Some(h1) = trimmed.strip_prefix("# ") {
-            html.push_str(&format!("<h1>{}</h1>\n", h1.trim()));
+            html.push_str(&format!("<h1>{}</h1>\n", escape_html(h1.trim())));
         } else if let Some(h2) = trimmed.strip_prefix("## ") {
-            html.push_str(&format!("<h2>{}</h2>\n", h2.trim()));
+            html.push_str(&format!("<h2>{}</h2>\n", escape_html(h2.trim())));
         } else if let Some(h3) = trimmed.strip_prefix("### ") {
-            html.push_str(&format!("<h3>{}</h3>\n", h3.trim()));
+            html.push_str(&format!("<h3>{}</h3>\n", escape_html(h3.trim())));
         } else if let Some(bullet) = trimmed.strip_prefix("- ") {
-            html.push_str(&format!("<li>{}</li>\n", bullet.trim()));
-        } else if trimmed.starts_with('<') && trimmed.ends_with('>') {
-            html.push_str(trimmed);
-            html.push('\n');
+            html.push_str(&format!("<li>{}</li>\n", escape_html(bullet.trim())));
         } else {
-            html.push_str(&format!("<p>{}</p>\n", trimmed));
+            html.push_str(&format!("<p>{}</p>\n", escape_html(trimmed)));
         }
     }
     html.push_str("</div>");
@@ -189,27 +193,28 @@ pub fn reflow_two_column_markdown(md: &str) -> String {
 
     for line in lines {
         let trimmed = line.trim();
-        let is_column_line = (trimmed.contains("   |   ") || trimmed.contains("   "))
+        let is_column_line = (trimmed.contains("   |   ")
+            || (trimmed.contains("      ")
+                && !trimmed.starts_with("```")
+                && !line.starts_with("    ")))
             && !trimmed.starts_with('#')
             && !trimmed.is_empty();
 
         if is_column_line {
-            in_two_column_zone = true;
             let parts: Vec<&str> = if trimmed.contains("   |   ") {
                 trimmed.split("   |   ").collect()
             } else {
-                trimmed.splitn(2, "   ").collect()
+                trimmed.splitn(2, "      ").collect()
             };
             if parts.len() == 2 {
                 let left = parts[0].trim();
                 let right = parts[1].trim();
-                if !left.is_empty() {
+                if left.len() >= 5 && right.len() >= 5 {
+                    in_two_column_zone = true;
                     left_column.push(left.to_string());
-                }
-                if !right.is_empty() {
                     right_column.push(right.to_string());
+                    continue;
                 }
-                continue;
             }
         }
 

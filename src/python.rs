@@ -9,7 +9,7 @@ use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 
 /// Python representation of an eBook Chapter Section.
-#[pyclass(name = "Section")]
+#[pyclass(name = "Section", skip_from_py_object)]
 #[derive(Clone)]
 pub struct PySection {
     inner: Section,
@@ -35,13 +35,13 @@ impl PySection {
         self.inner.full_path.clone()
     }
 
-    /// Raw section HTML content before rendering asset inlining.
+    /// Original raw XHTML/HTML markup string.
     #[getter]
     pub fn raw_html(&self) -> String {
         self.inner.raw_html.clone()
     }
 
-    /// Rendered section HTML content with inlined images and styles.
+    /// Reader-ready processed HTML with asset inlining and layout rules applied.
     #[getter]
     pub fn processed_html(&self) -> String {
         self.inner.processed_html.clone()
@@ -66,16 +66,17 @@ impl PyBook {
     ///
     /// Supports EPUB 2/3, KFX, MOBI, AZW3, FB2, LIT, CBZ, PDF, ODT, TXT, MD.
     #[staticmethod]
-    pub fn open(path: &str) -> PyResult<Self> {
-        Book::from_file(path)
+    pub fn open(py: Python<'_>, path: &str) -> PyResult<Self> {
+        let p = path.to_string();
+        py.detach(|| Book::from_file(&p))
             .map(|book| PyBook { inner: book })
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     /// Load an eBook from an in-memory byte slice.
     #[staticmethod]
-    pub fn from_bytes(bytes: &[u8]) -> PyResult<Self> {
-        Book::from_bytes(bytes)
+    pub fn from_bytes(py: Python<'_>, bytes: &[u8]) -> PyResult<Self> {
+        py.detach(|| Book::from_bytes(bytes))
             .map(|book| PyBook { inner: book })
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
@@ -141,6 +142,7 @@ impl PyBook {
     #[pyo3(signature = (max_tokens=None, overlap_tokens=None))]
     pub fn to_rag_chunks_json(
         &self,
+        py: Python<'_>,
         max_tokens: Option<usize>,
         overlap_tokens: Option<usize>,
     ) -> PyResult<String> {
@@ -150,7 +152,7 @@ impl PyBook {
             preserve_headings: true,
             ..Default::default()
         };
-        let chunks = self.inner.to_rag_chunks(&config);
+        let chunks = py.detach(|| self.inner.to_rag_chunks(&config));
         serde_json::to_string(&chunks).map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
@@ -172,14 +174,14 @@ impl PyBook {
     }
 
     /// Export book as a W3C-valid EPUB 3 ZIP archive buffer.
-    pub fn export_epub3_bytes(&self) -> PyResult<Vec<u8>> {
-        UniversalEpub3Exporter::export(&self.inner)
+    pub fn export_epub3_bytes(&self, py: Python<'_>) -> PyResult<Vec<u8>> {
+        py.detach(|| UniversalEpub3Exporter::export(&self.inner))
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
     /// Export book as an Amazon KFX binary container buffer.
-    pub fn export_kfx_bytes(&self) -> PyResult<Vec<u8>> {
-        UniversalKfxExporter::export(&self.inner)
+    pub fn export_kfx_bytes(&self, py: Python<'_>) -> PyResult<Vec<u8>> {
+        py.detach(|| UniversalKfxExporter::export(&self.inner))
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
@@ -199,8 +201,9 @@ impl PyBook {
     }
 
     /// Search full-text content of the book for a query string.
-    pub fn search(&self, query: &str) -> PyResult<String> {
-        let results = self.inner.search(query);
+    pub fn search(&self, py: Python<'_>, query: &str) -> PyResult<String> {
+        let q = query.to_string();
+        let results = py.detach(|| self.inner.search(&q));
         serde_json::to_string(&results).map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 }

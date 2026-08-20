@@ -190,3 +190,53 @@ fn test_uniffi_unibook_wrapper() {
     let opt_epub = unibook.export_optimized_epub3().unwrap();
     assert!(!opt_epub.is_empty());
 }
+
+#[test]
+fn test_lazy_archive_bulk_apis() {
+    use ebook_rs::Book;
+    use ebook_rs::archive::EpubArchive;
+
+    let sample_bytes = ebook_rs::generate_sample_epub().expect("Generate sample epub failed");
+    let archive = EpubArchive::from_bytes(&sample_bytes).expect("Open archive failed");
+
+    let mut book =
+        Book::from_archive_lazy(archive, "Fallback").expect("Book from lazy archive failed");
+
+    // 1. Search works across lazily hydrated sections
+    let results = book.search("ebook-rs");
+    assert!(
+        !results.is_empty(),
+        "Search in lazy mode should return matches"
+    );
+    assert_eq!(results[0].spine_index, 0);
+
+    // 2. Generate locations populates locations accurately in lazy mode
+    book.generate_locations(100);
+    assert!(
+        book.locations.total_locations >= 1,
+        "Locations should be generated in lazy mode"
+    );
+
+    // 3. Fingerprinting computes content hash over hydrated sections
+    let fp = book.fingerprint();
+    assert!(!fp.content_hash.is_empty());
+    assert!(
+        fp.total_characters > 0,
+        "Fingerprint total_characters should be > 0 in lazy mode"
+    );
+
+    // 4. Validation passes on lazy book
+    let report = book.validate();
+    assert!(report.is_valid, "Validation should pass on lazy book");
+    assert_eq!(report.errors_count, 0);
+
+    // 5. Universal EPUB 3 export exports hydrated content
+    let exported_bytes = book
+        .export_epub3_bytes()
+        .expect("Export EPUB 3 from lazy book failed");
+    assert!(!exported_bytes.is_empty());
+
+    let exported_book = Book::from_bytes(&exported_bytes).expect("Parse exported EPUB 3 failed");
+    assert_eq!(exported_book.sections.len(), book.sections.len());
+    assert!(!exported_book.sections[0].plain_text.is_empty());
+}

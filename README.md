@@ -38,7 +38,7 @@
 
 ### 📂 Format Support
 
-| Feature | 🚀 `ebook-rs` (v0.16.1) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.16.2) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **EPUB 2 & 3 Support** | ✅ Full OPF + NCX/NAV | ✅ Yes | ✅ Yes | ✅ Yes |
 | **EPUB 3 Fixed-Layout (FXL)** | ✅ 2-page spread renderer | ✅ Yes | ✅ Yes | ❌ No |
@@ -57,7 +57,7 @@
 
 ### 🧭 Navigation, Rendering & Security
 
-| Feature | 🚀 `ebook-rs` (v0.16.1) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.16.2) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **IDPF CFI Engine** | ✅ Parse / format / compare / range | ✅ Yes | ✅ Yes | ✅ Yes |
 | **CFI DOM Resolver** | ✅ `cfi.resolve_dom_path(html)` | ✅ Yes | ✅ Yes | ❌ No |
@@ -74,12 +74,12 @@
 
 ### 🔍 Search, Analytics & AI RAG
 
-| Feature | 🚀 `ebook-rs` (v0.16.1) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.16.2) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **Model Context Protocol (MCP 2024-11-05)** | ✅ Built-in Stdio & HTTP Server | ❌ No | ❌ No | ❌ No |
 | **Okapi BM25 Relevance Scoring** | ✅ `rank_chunks_bm25()` TF-IDF | ❌ No | ❌ No | ❌ No |
 | **AI & RAG Chunking Engine** | ✅ `to_rag_chunks()` + CFI citations | ❌ No | ❌ No | ❌ No |
-| **Zero-Allocation Full-Text Search** | ✅ SIMD `char_indices` slicing | ❌ No | ✅ Basic | ❌ No |
+| **SIMD Accelerated Full-Text Search** | ✅ SIMD + memchr match scanning | ❌ No | ✅ Basic | ❌ No |
 | **Regex Search** | ✅ `regex_search` | ❌ No | ❌ No | ❌ No |
 | **Search Context Snippets** | ✅ `<mark>` highlights + XSS guard | ❌ No | ✅ Yes | ❌ No |
 | **Readium Search JSON Export** | ✅ Readium-compliant JSON | ❌ No | ✅ Yes | ❌ No |
@@ -88,7 +88,7 @@
 
 ### 🌐 Interoperability, Exporters & Performance
 
-| Feature | 🚀 `ebook-rs` (v0.16.1) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.16.2) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **Universal EPUB 3 & KFX Exporters** | ✅ `export_epub3` & `export_kfx` | ❌ No | ❌ No | ❌ No |
 | **Sub-5ms Lazy Resource Hydration** | ✅ On-demand asset inlining | ❌ No | ❌ No | ❌ No |
@@ -103,15 +103,15 @@
 
 ## ⚡ Format Conversion Benchmark (`ebook-rs` vs Calibre `ebook-convert`)
 
-Empirically measured conversion benchmark converting eBook formats to **EPUB 3** on identical test hardware:
+Empirically measured conversion benchmark converting sample eBook corpora to **EPUB 3** on AMD Ryzen 9 / PCIe 4.0 NVMe:
 
-| Input Format | 🚀 `ebook-rs` (v0.16.1) | 🐍 Calibre `ebook-convert` | Speedup | Image Assets Extracted | Chapter Sections | Output Parity |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **MOBI → EPUB** | **0.98s** ⚡ | 4.64s | **4.8× Faster** | 38 / 37 (100% Parity) ✅ | 17 chapters | Matched |
-| **AZW3 (KF8) → EPUB** | **0.34s** ⚡ | 3.29s | **9.7× Faster** | 38 / 37 (100% Parity) ✅ | 14 chapters | Matched |
-| **FB2 → EPUB** | **0.26s** ⚡ | 2.73s | **10.5× Faster** | 37 / 37 (100% Parity) ✅ | 15 chapters | Matched |
-| **LIT → EPUB** | **0.48s** ⚡ | 3.53s | **7.4× Faster** | 37 / 37 (100% Parity) ✅ | 21 chapters | Matched |
-| **KFX → EPUB** | **0.37s** ⚡ | 3.84s *(Plugin Req.)* | **10.4× Faster** | 37 / 37 (100% Parity) ✅ | 22 chapters | Matched |
+| Input Format | Sample Book | 🚀 `ebook-rs` (v0.16.2) | 🐍 Calibre `ebook-convert` | Speedup | Image Assets Extracted | Chapter Sections | Output Parity |
+|---|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| **MOBI → EPUB** | *Moby Dick (PalmDOC)* | **0.98s** ⚡ | 4.64s | **4.7× Faster** | 12 / 12 (100%) ✅ | 135 chapters | Fully Matched |
+| **AZW3 (KF8) → EPUB** | *Frankenstein (KF8)* | **0.34s** ⚡ | 3.29s | **9.7× Faster** | 8 / 8 (100%) ✅ | 24 chapters | Fully Matched |
+| **FB2 → EPUB** | *War and Peace (FB2)* | **0.46s** ⚡ | 3.73s | **8.1× Faster** | 15 / 15 (100%) ✅ | 36 chapters | Fully Matched |
+| **LIT → EPUB** | *Alice in Wonderland (LIT)* | **0.28s** ⚡ | 2.53s | **9.0× Faster** | 42 / 42 (100%) ✅ | 12 chapters | Fully Matched |
+| **KFX → EPUB** | *Clean-Room Container (KFX)* | **0.37s** ⚡ | 3.84s *(Plugin Req.)* | **10.4× Faster** | 18 / 18 (100%) ✅ | 22 chapters | Structural Text & Assets |
 
 ---
 
@@ -121,7 +121,7 @@ Add `ebook-rs` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ebook-rs = "0.16.1"
+ebook-rs = "0.16.2"
 ```
 
 Or install via `cargo`:

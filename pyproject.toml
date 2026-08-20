@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "ebook-rs"
-version = "0.16.1"
+version = "0.16.2"
 description = "Pure Rust multi-format eBook engine (EPUB 2/3, MOBI, AZW3, KFX, FB2, LIT, CBZ, PDF, ODT, DOCX, RTF, TXT, MD) featuring Mozilla UniFFI, Readium CFI/LCP, SpeechSynthesis TTS sync, AI RAG BM25 chunking, and Universal Exporter"
 readme = "README.md"
 requires-python = ">=3.8"

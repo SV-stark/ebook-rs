@@ -1,6 +1,6 @@
-# 📚 EBook-RS API Reference & Complete Documentation (v0.16.1)
+# 📚 EBook-RS API Reference & Complete Documentation (v0.16.2)
 
-`ebook-rs` (v0.16.1) is a multi-format pure Rust eBook engine supporting **EPUB 2**, **EPUB 3**, **Amazon KFX (Kindle Format 10)**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT (OpenDocument Text)**, **DOCX (Microsoft Word)**, **RTF (Rich Text Format)**, **Plain Text (.txt)**, and **Markdown (.md)** formats with **Mozilla UniFFI Mobile SDK (Swift/Kotlin)**, **Lossless EPUB 3 Optimizer & Minifier**, **CJK Vertical Writing & RTL Reflow Pagination**, **Web Audio API Karaoke Synchronization**, **Lazy Archive Streaming for Giant Files (>500MB)**, **Markdown Frontmatter, Wikilinks & Callouts**, **Model Context Protocol (MCP 2024-11-05) Server**, **Okapi BM25 RAG Relevance Scoring**, **Zero-Allocation Full-Text Search**, **Academic PDF Two-Column Spatial Reflow**, **Multi-Threaded Parallel ZIP Exporting**, **CBZ Comic Pre-fetching & Manga Spread Mode**, **Native PyO3 Python Wheel Bindings**, **100% Clean-Room Amazon KFX Subsystem**, **Native AI/RAG Document Chunking**, **C FFI ABI Bindings**, **WASM Web Component Renderer**, **RTL & Vertical CJK Modes**, **Hardened Sanitizer & Boundary Parsers**, **SpeechSynthesis TTS Word Synchronizer**, **Legacy Non-UTF-8 Charset Decoding**, **Automatic Language Detection**, **Zstd Compressed State Caching**, **Universal EPUB 3 Exporter**, **Zero-Copy mmap**, **Lightweight DOM AST Tree**, **Fuzzy XML Recovery**, **CFI**, and **Readium LCP/Locator** support.
+`ebook-rs` (v0.16.2) is a multi-format pure Rust eBook engine supporting **EPUB 2**, **EPUB 3**, **Amazon KFX (Kindle Format 10)**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT (OpenDocument Text)**, **DOCX (Microsoft Word)**, **RTF (Rich Text Format)**, **Plain Text (.txt)**, and **Markdown (.md)** formats with **Mozilla UniFFI Mobile SDK (Swift/Kotlin)**, **Lossless EPUB 3 Optimizer & Minifier**, **CJK Vertical Writing & RTL Reflow Pagination**, **Web Audio API Karaoke Synchronization**, **Lazy Archive Streaming for Giant Files (>500MB)**, **Markdown Frontmatter, Wikilinks & Callouts**, **Model Context Protocol (MCP 2024-11-05) Server**, **Okapi BM25 RAG Relevance Scoring**, **Zero-Allocation Full-Text Search**, **Academic PDF Two-Column Spatial Reflow**, **Multi-Threaded Parallel ZIP Exporting**, **CBZ Comic Pre-fetching & Manga Spread Mode**, **Native PyO3 Python Wheel Bindings**, **100% Clean-Room Amazon KFX Subsystem**, **Native AI/RAG Document Chunking**, **C FFI ABI Bindings**, **WASM Web Component Renderer**, **RTL & Vertical CJK Modes**, **Hardened Sanitizer & Boundary Parsers**, **SpeechSynthesis TTS Word Synchronizer**, **Legacy Non-UTF-8 Charset Decoding**, **Automatic Language Detection**, **Zstd Compressed State Caching**, **Universal EPUB 3 Exporter**, **Zero-Copy mmap**, **Lightweight DOM AST Tree**, **Fuzzy XML Recovery**, **CFI**, and **Readium LCP/Locator** support.
 
 ---
 
@@ -10,41 +10,37 @@
 3. [Format-Specific Parsers (`MobiBook`, `Fb2Book`, `LitBook`, `CbzBook`, `OdtBook`, `DocxBook`, `RtfBook`, `TxtBook`, `PdfBook`)](#3-format-specific-parsers)
 4. [EPUB 3 Accessibility Metadata (`AccessibilityMetadata`)](#4-epub-3-accessibility-metadata-accessibilitymetadata)
 5. [EPUB 3 Media Overlays (SMIL Audio Sync) (`MediaOverlayPackage`)](#5-epub-3-media-overlays-smil-audio-sync-mediaoverlaypackage)
-6. [Section Module (`ebook_rs::Section`)](#6-section-module-ebook_rssection)
-7. [EPUB CFI Engine (`ebook_rs::Cfi`)](#7-epub-cfi-engine-ebook_rscfi)
-8. [Locations Progress Engine (`ebook_rs::Locations`)](#8-locations-progress-engine-ebook_rslocations)
-9. [Annotations Manager (`ebook_rs::AnnotationManager`)](#9-annotations-manager-ebook_rsannotationmanager)
-10. [Full-Text & Regex Search Engine (`ebook_rs::SearchEngine`)](#10-full-text--regex-search-engine-ebook_rssearchengine)
-11. [Structural EPUB Validator (`ebook_rs::EpubValidator`)](#11-structural-epub-validator-ebook_rsepubvalidator)
-12. [Book Fingerprinting & Deduplication (`ebook_rs::BookFingerprint`)](#12-book-fingerprinting--deduplication-ebook_rsbookfingerprint)
-13. [Academic Citation Exporter (`ebook_rs::CitationExporter`)](#13-academic-citation-exporter-ebook_rscitationexporter)
-14. [Tree-sitter Concrete Syntax Tree Engine (`ebook_rs::TreeSitterEngine`)](#14-tree-sitter-concrete-syntax-tree-engine-ebook_rstreesitterengine)
-15. [Synthetic FXL 2-Page Spreads (`SyntheticSpread`)](#15-synthetic-fxl-2-page-spreads-syntheticspread)
-16. [Table of Contents Deep Search & Flattening (`NavPoint::search`, `NavPoint::flatten`)](#16-table-of-contents-deep-search--flattening-navpointsearch-navpointflatten)
-17. [SpeechSynthesis TTS Word Synchronizer (`TtsWordToken`, `get_tts_tokens`)](#17-speechsynthesis-tts-word-synchronizer-ttswordtoken-get_tts_tokens)
-18. [Universal EPUB 3 Exporter (`book.export_epub3_bytes()`)](#18-universal-epub-3-exporter-bookexport_epub3_bytes)
-19. [Zero-Copy Memory-Mapped I/O (`Book::from_mmap`)](#19-zero-copy-memory-mapped-io-bookfrom_mmap)
-20. [Lightweight DOM AST Tree (`EbookDomTree`, `DomNode`)](#20-lightweight-dom-ast-tree-ebookdomtree-domnode)
+6. [Readium LCP DRM (`ebook_rs::lcp`)](#6-readium-lcp-drm-ebook_rslcp)
+7. [Readium Unified Locator Model (`ReadiumLocator`)](#7-readium-unified-locator-model-readiumlocator)
+8. [Readium Search Web Service API](#8-readium-search-web-service-api)
+9. [Full-Text & Regex Search Engine (`ebook_rs::SearchEngine`)](#9-full-text--regex-search-engine-ebook_rssearchengine)
+10. [Structural EPUB Validator (`ebook_rs::EpubValidator`)](#10-structural-epub-validator-ebook_rsepubvalidator)
+11. [Book Fingerprinting & Deduplication (`ebook_rs::BookFingerprint`)](#11-book-fingerprinting--deduplication-ebook_rsbookfingerprint)
+12. [Academic Citation Exporter (`ebook_rs::CitationExporter`)](#12-academic-citation-exporter-ebook_rscitationexporter)
+13. [Code Block Syntax Highlighter & Extractor (`ebook_rs::SyntaxHighlightEngine`)](#13-code-block-syntax-highlighter--extractor-ebook_rssyntaxhighlightengine)
+14. [Synthetic FXL 2-Page Spreads (`SyntheticSpread`)](#14-synthetic-fxl-2-page-spreads-syntheticspread)
+15. [Table of Contents Deep Search & Flattening (`NavPoint::search`, `NavPoint::flatten`)](#15-table-of-contents-deep-search--flattening-navpointsearch-navpointflatten)
+16. [SpeechSynthesis TTS Word Synchronizer (`TtsWordToken`, `get_tts_tokens`)](#16-speechsynthesis-tts-word-synchronizer-ttswordtoken-get_tts_tokens)
+17. [Universal EPUB 3 Exporter (`book.export_epub3_bytes()`)](#17-universal-epub-3-exporter-bookexport_epub3_bytes)
+18. [Zero-Copy Memory-Mapped I/O (`Book::from_mmap`)](#18-zero-copy-memory-mapped-io-bookfrom_mmap)
+19. [Lightweight DOM AST Tree (`EbookDomTree`, `DomNode`)](#19-lightweight-dom-ast-tree-ebookdomtree-domnode)
+20. [Fuzzy XML / HTML Recovery Parser (`sanitize_and_repair_xml`)](#20-fuzzy-xml--html-recovery-parser-sanitize_and_repair_xml)
 21. [Legacy Non-UTF-8 Charset Decoding (`decode_bytes_with_encoding`)](#21-legacy-non-utf-8-charset-decoding-decode_bytes_with_encoding)
 22. [Automatic Language Detection (`book.detect_language()`)](#22-automatic-language-detection-bookdetect_language)
-23: [Zstd Compressed State Caching (`export_zstd_cache`, `from_zstd_cache`)](#23-zstd-compressed-state-caching-export_zstd_cache-from_zstd_cache)
-24. [Readium Webpub Manifest Export (`ebook_rs::webpub`)](#24-readium-webpub-manifest-export-ebook_rswebpub)
-25. [Readium LCP DRM (`ebook_rs::lcp`)](#25-readium-lcp-drm-ebook_rslcp)
-26. [Readium Unified Locator Model (`ReadiumLocator`)](#23-readium-unified-locator-model-readiumlocator)
-27. [OPDS Catalog Client & Feed Generator (`ebook_rs::opds`)](#24-opds-catalog-client--feed-generator-ebook_rsopds)
-28. [HTTP Reader Server & Web UI (`ebook_rs::server`)](#25-http-reader-server--web-ui-ebook_rsserver)
-29. [Performance Accelerators (`compact_str`, `ahash`, `simdutf8`, `zlib-rs`, `memchr`, `parking_lot`)](#26-performance-accelerators-compact_str-ahash-simdutf8-zlib-rs-memchr-parking_lot)
-30. [Manga / Comic Reader Engine (`CbzBook::parse_manga`, `enable_manga_mode`)](#30-manga--comic-reader-engine-cbzbookparse_manga-enable_manga_mode)
-31. [Native PyO3 Python Bindings (`pip install ebook-rs`)](#31-native-pyo3-python-bindings-pip-install-ebook-rs)
-32. [Academic PDF Two-Column Spatial Reflowing Engine (`reflow_two_column_markdown`)](#32-academic-pdf-two-column-spatial-reflowing-engine-reflow_two_column_markdown)
-33. [Mozilla UniFFI Mobile & Native Bindings (`UniBook`, `UniSearchResult`)](#33-mozilla-uniffi-mobile--native-bindings-unibook-unisearchresult)
-34. [Lossless EPUB 3 Optimizer & Minifier (`EpubOptimizer`, `EpubOptimizerOptions`)](#34-lossless-epub-3-optimizer--minifier-epuboptimizer-epuboptimizeroptions)
-35. [CJK Vertical Writing & RTL Reflow Pagination (`ReflowPaginator`, `WritingMode`)](#35-cjk-vertical-writing--rtl-reflow-pagination-reflowpaginator-writingmode)
-36. [Web Audio API & SMIL Karaoke Cue Sheets (`KaraokeCueSheet`, `WebAudioCue`)](#36-web-audio-api--smil-karaoke-cue-sheets-karaokecuesheet-webaudiocue)
-37. [Lazy Archive Decompression for Giant Files (>500MB)](#37-lazy-archive-decompression-for-giant-files-500mb)
-38. [Markdown Frontmatter, Obsidian Wikilinks & Callouts](#38-markdown-frontmatter-obsidian-wikilinks--callouts)
-39. [Microsoft Word (.docx) Parser (`DocxBook`)](#39-microsoft-word-docx-parser-docxbook)
-40. [Rich Text Format (.rtf) Parser (`RtfBook`)](#40-rich-text-format-rtf-parser-rtfbook)
+23. [Zstd Compressed State Caching (`export_zstd_cache`, `from_zstd_cache`)](#23-zstd-compressed-state-caching-export_zstd_cache-from_zstd_cache)
+24. [Performance Accelerators (`compact_str`, `ahash`, `simdutf8`, `zlib-rs`, `memchr`, `parking_lot`)](#24-performance-accelerators-compact_str-ahash-simdutf8-zlib-rs-memchr-parking_lot)
+25. [Multi-Threaded Parallel ZIP Exporter (`UniversalEpub3Exporter`)](#25-multi-threaded-parallel-zip-exporter-universalepub3exporter)
+26. [CBZ Comic Pre-fetching & 2-Page Manga Spread Mode (`CbzBook`)](#26-cbz-comic-pre-fetching--2-page-manga-spread-mode-cbzbook)
+27. [Native PyO3 Python Bindings (`pip install ebook-rs`)](#27-native-pyo3-python-bindings-pip-install-ebook-rs)
+28. [Academic PDF Two-Column Spatial Reflowing Engine (`reflow_two_column_markdown`)](#28-academic-pdf-two-column-spatial-reflowing-engine-reflow_two_column_markdown)
+29. [Mozilla UniFFI Mobile & Native Bindings (`UniBook`, `UniSearchResult`)](#29-mozilla-uniffi-mobile--native-bindings-unibook-unisearchresult)
+30. [Lossless EPUB 3 Optimizer & Minifier (`EpubOptimizer`, `EpubOptimizerOptions`)](#30-lossless-epub-3-optimizer--minifier-epuboptimizer-epuboptimizeroptions)
+31. [CJK Vertical Writing & RTL Reflow Pagination (`ReflowPaginator`, `WritingMode`)](#31-cjk-vertical-writing--rtl-reflow-pagination-reflowpaginator-writingmode)
+32. [Web Audio API & SMIL Karaoke Cue Sheets (`KaraokeCueSheet`, `WebAudioCue`)](#32-web-audio-api--smil-karaoke-cue-sheets-karaokecuesheet-webaudiocue)
+33. [Lazy Archive Decompression for Giant Files (>500MB)](#33-lazy-archive-decompression-for-giant-files-500mb)
+34. [Markdown Frontmatter, Obsidian Wikilinks & Callouts](#34-markdown-frontmatter-obsidian-wikilinks--callouts)
+35. [Microsoft Word (.docx) Parser (`DocxBook`)](#35-microsoft-word-docx-parser-docxbook)
+36. [Rich Text Format (.rtf) Parser (`RtfBook`)](#36-rich-text-format-rtf-parser-rtfbook)
 
 ---
 
@@ -147,7 +143,7 @@ for (smil_path, pkg) in &book.media_overlays {
 
 ---
 
-## 12. Readium LCP DRM (`ebook_rs::lcp`)
+## 6. Readium LCP DRM (`ebook_rs::lcp`)
 
 Parse and validate Readium **Lightweight Content Protection (LCP)** license files (`META-INF/license.lcpl`) and decrypt LCP-protected content:
 
@@ -173,7 +169,7 @@ let decrypted = LcpDecryptor::decrypt_bytes(&encrypted_bytes, "user_passphrase",
 
 ---
 
-## 13. Readium Unified Locator Model (`ReadiumLocator`)
+## 7. Readium Unified Locator Model (`ReadiumLocator`)
 
 Generate a W3C/Readium-standard `ReadiumLocator` JSON from any spine index and character offset for cross-platform reading position sync:
 
@@ -197,7 +193,7 @@ println!("{}", json);
 
 ---
 
-## 14. Readium Search Web Service API
+## 8. Readium Search Web Service API
 
 Format `SearchResult` from `book.search()` into the Readium standard `application/vnd.readium.search+json` HTTP response schema:
 
@@ -224,7 +220,7 @@ println!("{}", json);
 
 ---
 
-## 10. Full-Text & Regex Search Engine (`ebook_rs::SearchEngine`)
+## 9. Full-Text & Regex Search Engine (`ebook_rs::SearchEngine`)
 
 `ebook-rs` provides literal string search and regular expression pattern search with `<mark>` context highlighting:
 
@@ -248,7 +244,7 @@ for match_item in regex_results {
 
 ---
 
-## 11. Structural EPUB Validator (`ebook_rs::EpubValidator`)
+## 10. Structural EPUB Validator (`ebook_rs::EpubValidator`)
 
 Validate eBook package structure, OPF metadata, spine items, and navigation hierarchy:
 
@@ -275,7 +271,7 @@ if report.is_valid {
 
 ---
 
-## 12. Book Fingerprinting & Deduplication (`ebook_rs::BookFingerprint`)
+## 11. Book Fingerprinting & Deduplication (`ebook_rs::BookFingerprint`)
 
 Generate metadata-independent SHA-256 content hashes to calculate similarity scores and detect duplicate books across formats:
 
@@ -299,7 +295,7 @@ if fp1.is_duplicate_of(&fp2) {
 
 ---
 
-## 13. Academic Citation Exporter (`ebook_rs::CitationExporter`)
+## 12. Academic Citation Exporter (`ebook_rs::CitationExporter`)
 
 Export academic citations in standard scholarly formats (**BibTeX**, **APA**, **MLA**, **Chicago**):
 
@@ -323,32 +319,32 @@ println!("Chicago: {}", book.to_chicago());
 
 ---
 
-## 14. Tree-sitter Concrete Syntax Tree Engine (`ebook_rs::TreeSitterEngine`)
+## 13. Code Block Syntax Highlighter & Extractor (`ebook_rs::SyntaxHighlightEngine`)
 
-Tokenize, parse AST syntax nodes (`SyntaxNodeInfo`), and highlight embedded code blocks (`<pre><code>`) across technical eBooks and documentation:
+Extract code blocks (`<pre><code>`) and tokenize line-level syntax nodes (`SyntaxNodeInfo`) across technical eBooks and documentation:
 
 ```rust
-use ebook_rs::{Book, TreeSitterEngine};
+use ebook_rs::{Book, SyntaxHighlightEngine};
 
 let book = Book::from_file("rust_guide.md")?;
 
-// Extract all code blocks with AST syntax node trees
+// Extract all code blocks with tokenized syntax nodes
 let blocks = book.extract_code_blocks();
 for block in blocks {
     println!("Language: {}", block.language);
     println!("Code: {}", block.code);
     for node in block.ast_nodes {
-        println!("AST Node: {} [byte {}-{}]", node.kind, node.start_byte, node.end_byte);
+        println!("Syntax Node: {} [byte {}-{}]", node.kind, node.start_byte, node.end_byte);
     }
 }
 
 // Tokenize standalone code snippet
-let ast_nodes = TreeSitterEngine::parse_code("fn main() {}", "rust");
+let nodes = SyntaxHighlightEngine::parse_code("fn main() {}", "rust");
 ```
 
 ---
 
-## 15. Synthetic FXL 2-Page Spreads (`SyntheticSpread`)
+## 14. Synthetic FXL 2-Page Spreads (`SyntheticSpread`)
 
 Auto-synthesize responsive side-by-side two-page spread containers for EPUB 3 Fixed-Layout and comic books:
 
@@ -367,7 +363,7 @@ println!("Combined Spread HTML:\n{}", spread.combined_html);
 
 ---
 
-## 16. Table of Contents Deep Search & Flattening (`NavPoint::search`, `NavPoint::flatten`)
+## 15. Table of Contents Deep Search & Flattening (`NavPoint::search`, `NavPoint::flatten`)
 
 Search TOC nodes down to any depth level with parent breadcrumbs and flatten TOC trees into linear depth lists:
 
@@ -391,7 +387,7 @@ for node in flat_toc {
 
 ---
 
-## 17. SpeechSynthesis TTS Word Synchronizer (`TtsWordToken`, `get_tts_tokens`)
+## 16. SpeechSynthesis TTS Word Synchronizer (`TtsWordToken`, `get_tts_tokens`)
 
 Tokenize text into word tokens with character offsets and generate HTML annotated with `<span id="tts-w-{index}">` for live Web Speech API SpeechSynthesis word-by-word visual highlighting:
 
@@ -430,33 +426,26 @@ std::fs::write("converted_sample.epub", epub_bytes)?;
 
 ## 18. Zero-Copy Memory-Mapped I/O (`Book::from_mmap`)
 
-Open 500MB+ omnibus books or comic archives (`.cbz`) using zero-copy OS memory-mapped I/O (`memmap2` feature):
+Load multi-gigabyte eBook files with instantaneous startup using kernel memory paging:
 
 ```rust
 use ebook_rs::Book;
 
-// Zero-copy mmap loading
-let book = Book::from_mmap("huge_comic_omnibus.cbz")?;
-println!("Loaded {} sections with mmap", book.sections.len());
+let book = Book::from_mmap("huge_volume.epub")?;
+println!("Sections loaded: {}", book.sections.len());
 ```
 
 ---
 
 ## 19. Lightweight DOM AST Tree (`EbookDomTree`, `DomNode`)
 
-Zero-allocation HTML/XML DOM AST tree parser supporting fast node querying and element stripping:
+Zero-dependency DOM tree generator for structural manipulation and text extraction:
 
 ```rust
-use ebook_rs::EbookDomTree;
+use ebook_rs::dom::EbookDomTree;
 
-let html = "<div><h1>Title</h1><script>alert(1)</script><p>Text</p></div>";
-let mut tree = EbookDomTree::parse(html);
-
-// Find elements by tag
-let h1_nodes = tree.find_elements_by_tag("h1");
-
-// Strip forbidden script/style tags
-tree.strip_elements(&["script", "style"]);
+let html = "<div class='chapter'><h1>Title</h1><p>Hello world</p></div>";
+let tree = EbookDomTree::parse(html);
 let clean_html = tree.to_html();
 ```
 
@@ -471,6 +460,8 @@ use ebook_rs::sanitize_and_repair_xml;
 
 let broken_xml = "<package><title>AT&T & R&D Guide</title></package>";
 let repaired = sanitize_and_repair_xml(broken_xml);
+```
+
 ---
 
 ## 21. Legacy Non-UTF-8 Charset Decoding (`decode_bytes_with_encoding`)
@@ -520,7 +511,7 @@ let restored_book = Book::from_zstd_cache(&zstd_cache)?;
 
 ---
 
-## 26. Performance Accelerators (`compact_str`, `ahash`, `simdutf8`, `zlib-rs`, `memchr`, `parking_lot`)
+## 24. Performance Accelerators (`compact_str`, `ahash`, `simdutf8`, `zlib-rs`, `memchr`, `parking_lot`)
 
 `ebook-rs` v0.10.5 integrates 6 SIMD and stack-optimization performance crates:
 - **`compact_str`**: Small String Optimization (`CompactString`) storing strings <= 24 bytes directly on the stack to eliminate heap allocations.
@@ -532,7 +523,7 @@ let restored_book = Book::from_zstd_cache(&zstd_cache)?;
 
 ---
 
-## 30. Multi-Threaded Parallel ZIP Exporter (`UniversalEpub3Exporter`)
+## 25. Multi-Threaded Parallel ZIP Exporter (`UniversalEpub3Exporter`)
 
 Parallelizes HTML section document and image asset compression across Rayon worker threads when `parallel` feature is enabled (`entries.par_iter()`), significantly accelerating EPUB 3 export performance for 100MB+ image-heavy books:
 
@@ -546,7 +537,7 @@ let epub_bytes = UniversalEpub3Exporter::export(&book)?;
 
 ---
 
-## 31. CBZ Comic Pre-fetching & 2-Page Manga Spread Mode (`CbzBook`)
+## 26. CBZ Comic Pre-fetching & 2-Page Manga Spread Mode (`CbzBook`)
 
 Provides zero-latency image pre-fetching and 2-page Right-to-Left Manga spread view layout:
 
@@ -564,7 +555,7 @@ let prefetched_pages = CbzBook::prefetch_page_images(&book, 0, 3);
 
 ---
 
-## 32. Native PyO3 Python Bindings (`pip install ebook-rs`)
+## 27. Native PyO3 Python Bindings (`pip install ebook-rs`)
 
 Native Python extension bindings exposing `Book` and `Section` APIs directly to Python:
 
@@ -585,7 +576,7 @@ chunks_json = book.to_rag_chunks_json()
 
 ---
 
-## 32. Academic PDF Two-Column Spatial Reflowing Engine (`reflow_two_column_markdown`)
+## 28. Academic PDF Two-Column Spatial Reflowing Engine (`reflow_two_column_markdown`)
 
 Detects multi-column line patterns and spatial column dividers in IEEE, ArXiv, and ACM academic paper PDFs, sorting Left-Column paragraphs top-to-bottom followed by Right-Column paragraphs top-to-bottom into continuous single-column EPUB sections:
 
@@ -598,7 +589,7 @@ let single_column_md = reflow_two_column_markdown(raw_pdf_md);
 
 ---
 
-## 33. Mozilla UniFFI Mobile & Native Bindings (`UniBook`, `UniSearchResult`)
+## 29. Mozilla UniFFI Mobile & Native Bindings (`UniBook`, `UniSearchResult`)
 
 `ebook-rs` provides safe, high-level Mozilla UniFFI bindings allowing native iOS (Swift) and Android (Kotlin) reader applications to consume the engine directly:
 
@@ -618,7 +609,7 @@ let page_map_json = unibook.paginate_section(0, 16, 400, 600, true)?;
 
 ---
 
-## 34. Lossless EPUB 3 Optimizer & Minifier (`EpubOptimizer`, `EpubOptimizerOptions`)
+## 30. Lossless EPUB 3 Optimizer & Minifier (`EpubOptimizer`, `EpubOptimizerOptions`)
 
 Automated, non-destructive eBook minification engine that strips redundant HTML whitespace, purges unused CSS selectors across all section documents, and deduplicates identical image and font assets using SHA-1 fingerprints:
 
@@ -644,7 +635,7 @@ let optimized_bytes = book.export_optimized_epub3_bytes(&options)?;
 
 ---
 
-## 35. CJK Vertical Writing & RTL Reflow Pagination (`ReflowPaginator`, `WritingMode`)
+## 31. CJK Vertical Writing & RTL Reflow Pagination (`ReflowPaginator`, `WritingMode`)
 
 Deterministic, DOM-free Reflow Paginator with first-class support for Japanese/Chinese vertical text (`WritingMode::VerticalRl`, `WritingMode::VerticalLr`) and Arabic/Hebrew right-to-left layout (`WritingMode::HorizontalRtl`):
 
@@ -664,7 +655,7 @@ println!("CSS: {}", paginator.css_properties());
 
 ---
 
-## 36. Web Audio API & SMIL Karaoke Cue Sheets (`KaraokeCueSheet`, `WebAudioCue`)
+## 32. Web Audio API & SMIL Karaoke Cue Sheets (`KaraokeCueSheet`, `WebAudioCue`)
 
 SMIL 3.0 Media Overlay engine generating synchronized Web Audio API karaoke cue sheets and HTML annotation tags (`data-audio-src`, `data-clip-begin`, `data-clip-end`, `class="media-overlay-active-target"`):
 
@@ -683,7 +674,7 @@ let manifest_json = package.generate_web_audio_manifest()?;
 
 ---
 
-## 37. Lazy Archive Decompression for Giant Files (>500MB)
+## 33. Lazy Archive Decompression for Giant Files (>500MB)
 
 When total uncompressed size across ZIP entries exceeds 500MB, `EpubArchive` seamlessly activates **Lazy Mode**: only structural XML metadata is held in memory, while heavy chapter documents and high-resolution comic images are decompressed on-demand during reading:
 
@@ -701,7 +692,7 @@ let page_bytes = archive.read_bytes("images/page_001.jpg")?;
 
 ---
 
-## 38. Markdown Frontmatter, Obsidian Wikilinks & Callouts
+## 34. Markdown Frontmatter, Obsidian Wikilinks & Callouts
 
 Markdown parser supporting YAML (`---`) and TOML (`+++`) metadata frontmatter, Obsidian wikilinks (`[[Link]]`, `[[Link|Label]]`), and GFM callout blocks (`> [!NOTE]`, `> [!WARNING]`, `> [!TIP]`):
 
@@ -727,7 +718,7 @@ assert_eq!(book.metadata().title, "The Rust Odyssey");
 
 ---
 
-## 39. Microsoft Word (.docx) Parser (`DocxBook`)
+## 35. Microsoft Word (.docx) Parser (`DocxBook`)
 
 `DocxBook` parses Microsoft Word (.docx) Office Open XML ZIP packages into structured `Book` instances, extracting WordprocessingML headings, paragraphs, formatted text runs (`<strong>`, `<em>`, `<u>`, `<s>`), tables, embedded media images, and Dublin Core metadata:
 
@@ -751,7 +742,7 @@ let epub_bytes = book.export_epub3_bytes()?;
 
 ---
 
-## 40. Rich Text Format (.rtf) Parser (`RtfBook`)
+## 36. Rich Text Format (.rtf) Parser (`RtfBook`)
 
 `RtfBook` parses Microsoft Rich Text Format (.rtf) documents using a streaming control-word tokenizer, managing nested group formatting state stacks, code page charset conversions, Unicode character escapes (`\uN`), tables (`\trowd`/`\cell`/`\row`), and embedded pictures:
 

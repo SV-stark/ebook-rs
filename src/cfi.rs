@@ -50,12 +50,8 @@ impl Cfi {
             clean
         };
 
-        if payload.contains(',') {
+        if let Some(parts) = split_cfi_range(payload) {
             // Range CFI: /6/2!/4/2/1, :10, :45
-            let parts: Vec<&str> = payload.split(',').collect();
-            if parts.len() < 3 {
-                return Err("Invalid range CFI: expected 3 comma-separated components".to_string());
-            }
             let parent_str = parts[0];
             let start_str = parts[1];
             let end_str = parts[2];
@@ -275,7 +271,19 @@ fn parse_single_path(s: &str) -> Result<CfiPath, String> {
                 if let Some(&'[') = chars.peek() {
                     chars.next();
                     let mut id_str = String::new();
+                    let mut escaped = false;
                     while let Some(&c) = chars.peek() {
+                        if escaped {
+                            id_str.push(c);
+                            chars.next();
+                            escaped = false;
+                            continue;
+                        }
+                        if c == '^' {
+                            escaped = true;
+                            chars.next();
+                            continue;
+                        }
                         if c == ']' {
                             chars.next();
                             break;
@@ -322,6 +330,36 @@ fn parse_single_path(s: &str) -> Result<CfiPath, String> {
     Ok(CfiPath { steps, offset })
 }
 
+fn split_cfi_range(payload: &str) -> Option<Vec<&str>> {
+    let mut parts = Vec::new();
+    let mut in_bracket = false;
+    let mut escaped = false;
+    let mut last_idx = 0;
+
+    for (idx, c) in payload.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match c {
+            '^' => escaped = true,
+            '[' => in_bracket = true,
+            ']' => in_bracket = false,
+            ',' if !in_bracket => {
+                parts.push(&payload[last_idx..idx]);
+                last_idx = idx + 1;
+            }
+            _ => {}
+        }
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        parts.push(&payload[last_idx..]);
+        if parts.len() >= 3 { Some(parts) } else { None }
+    }
+}
+
 fn format_path(path: &CfiPath) -> String {
     let mut out = String::new();
     for step in &path.steps {
@@ -351,5 +389,14 @@ mod tests {
         assert_eq!(cfi.spine_index(), 1);
         assert_eq!(cfi.char_offset(), 42);
         assert_eq!(cfi.to_string(), cfi_str);
+    }
+
+    #[test]
+    fn test_cfi_with_comma_in_id() {
+        let cfi_str = "epubcfi(/6/4[chap01,heading]!/4/2:10)";
+        let cfi = Cfi::parse(cfi_str).expect("CFI with comma in ID should parse as single path");
+        assert_eq!(cfi.spine_index(), 1);
+        assert_eq!(cfi.char_offset(), 10);
+        assert!(cfi.range_start.is_none());
     }
 }

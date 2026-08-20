@@ -4,7 +4,6 @@ use crate::paginator::{ReflowPaginator, WritingMode};
 use parking_lot::RwLock;
 use std::sync::Arc;
 
-
 /// Search match record for UniFFI Swift/Kotlin clients.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]

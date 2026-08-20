@@ -128,11 +128,11 @@ impl ReflowPaginator {
     pub fn paginate_text(&self, text: &str) -> SectionPageMap {
         let usable_width = self
             .viewport_width_px
-            .saturating_sub(self.margin_px * 2)
+            .saturating_sub(self.margin_px.saturating_mul(2))
             .max(200) as f32;
         let usable_height = self
             .viewport_height_px
-            .saturating_sub(self.margin_px * 2)
+            .saturating_sub(self.margin_px.saturating_mul(2))
             .max(200) as f32;
 
         let total_chars = text.chars().count();

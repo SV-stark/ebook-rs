@@ -116,10 +116,26 @@ impl Default for RenditionLayout {
 }
 
 impl RenditionLayout {
-    /// Inject custom reader font family and font URL (F5 Fix).
+    /// Inject custom reader font family and font URL (F5 Fix) with CSS injection sanitization.
     pub fn set_custom_font(&mut self, font_family: &str, font_url_or_b64: &str) {
-        self.custom_font_family = Some(font_family.to_string());
-        self.custom_font_url = Some(font_url_or_b64.to_string());
+        // Sanitize font family name: allow alphanumeric, spaces, hyphens, and underscores only
+        let safe_family: String = font_family
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_')
+            .collect();
+
+        // Sanitize font URL/Base64: reject control chars, quotes, braces, semicolons, and javascript: URIs
+        let is_unsafe_url = font_url_or_b64
+            .contains(['\'', '"', ';', '{', '}', '<', '>', '\n', '\r'])
+            || font_url_or_b64
+                .trim()
+                .to_ascii_lowercase()
+                .starts_with("javascript:");
+
+        if !safe_family.is_empty() && !is_unsafe_url {
+            self.custom_font_family = Some(safe_family);
+            self.custom_font_url = Some(font_url_or_b64.trim().to_string());
+        }
     }
 
     /// Generate dynamic CSS rules to inject into section HTML.

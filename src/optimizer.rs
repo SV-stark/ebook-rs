@@ -106,6 +106,7 @@ impl EpubOptimizer {
             }
         }
 
+        book.invalidate_render_cache();
         report
     }
 
@@ -140,9 +141,19 @@ impl EpubOptimizer {
                 in_tag = true;
                 in_quote = None;
                 let rest = &html[i..];
-                if rest.starts_with("<pre") || rest.starts_with("<code") {
+                if rest.starts_with("<pre")
+                    || rest.starts_with("<code")
+                    || rest.starts_with("<script")
+                    || rest.starts_with("<style")
+                    || rest.starts_with("<textarea")
+                {
                     in_pre = true;
-                } else if rest.starts_with("</pre>") || rest.starts_with("</code>") {
+                } else if rest.starts_with("</pre>")
+                    || rest.starts_with("</code>")
+                    || rest.starts_with("</script>")
+                    || rest.starts_with("</style>")
+                    || rest.starts_with("</textarea>")
+                {
                     in_pre = false;
                 }
             } else if in_tag {
@@ -248,7 +259,44 @@ impl EpubOptimizer {
         let mut purged = String::with_capacity(css.len());
         let mut purged_count = 0;
 
-        for block in css.split('}') {
+        let mut i = 0;
+        let bytes = css.as_bytes();
+        let len = bytes.len();
+
+        while i < len {
+            // Skip leading whitespace
+            while i < len && bytes[i].is_ascii_whitespace() {
+                i += 1;
+            }
+            if i >= len {
+                break;
+            }
+
+            // Find matching statement/block with proper brace nesting
+            let start = i;
+            let mut brace_depth = 0;
+            let mut found_open = false;
+
+            while i < len {
+                if bytes[i] == b'{' {
+                    brace_depth += 1;
+                    found_open = true;
+                } else if bytes[i] == b'}' {
+                    if brace_depth > 0 {
+                        brace_depth -= 1;
+                    }
+                    if found_open && brace_depth == 0 {
+                        i += 1;
+                        break;
+                    }
+                } else if bytes[i] == b';' && !found_open {
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+
+            let block = &css[start..i];
             let trimmed = block.trim();
             if trimmed.is_empty() {
                 continue;
@@ -256,14 +304,19 @@ impl EpubOptimizer {
 
             if let Some(open_brace) = trimmed.find('{') {
                 let selector_part = trimmed[..open_brace].trim();
-                let body_part = &trimmed[open_brace + 1..].trim();
 
-                // At-rules (@media, @font-face, @keyframes, @import, @charset) are preserved
+                // At-rules (@media, @supports, @font-face, @keyframes, @import, @charset) are preserved intact
                 if selector_part.starts_with('@') {
                     purged.push_str(trimmed);
-                    purged.push_str("}\n");
+                    purged.push('\n');
                     continue;
                 }
+
+                let body_part = if trimmed.ends_with('}') {
+                    &trimmed[open_brace + 1..trimmed.len() - 1]
+                } else {
+                    &trimmed[open_brace + 1..]
+                };
 
                 // Check selector components
                 let mut is_used = false;
@@ -316,7 +369,7 @@ impl EpubOptimizer {
                 if is_used {
                     purged.push_str(selector_part);
                     purged.push('{');
-                    purged.push_str(body_part);
+                    purged.push_str(body_part.trim());
                     purged.push_str("}\n");
                 } else {
                     purged_count += 1;

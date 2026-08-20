@@ -1,7 +1,7 @@
 use crate::book::Book;
 use serde::{Deserialize, Serialize};
 
-/// AST node representation from Tree-sitter syntax tree parsing.
+/// Syntax node representation from code block parsing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SyntaxNodeInfo {
     pub kind: String,
@@ -22,19 +22,86 @@ pub struct ExtractedCodeBlock {
     pub ast_nodes: Vec<SyntaxNodeInfo>,
 }
 
-/// Pure-Rust code block line extractor & syntax node parser.
-pub struct TreeSitterEngine;
+/// Pure-Rust lightweight pattern-based code block syntax extractor & highlighter engine.
+pub struct SyntaxHighlightEngine;
 
-impl TreeSitterEngine {
-    /// Tokenize source code snippet into line-based syntax nodes.
+/// Backwards compatibility alias for `SyntaxHighlightEngine`.
+pub type TreeSitterEngine = SyntaxHighlightEngine;
+
+impl SyntaxHighlightEngine {
+    /// Tokenize source code snippet into line-based syntax nodes with basic structural error checking.
     pub fn parse_code(code: &str, _language: &str) -> Vec<SyntaxNodeInfo> {
         let mut nodes = Vec::new();
         let lines: Vec<&str> = code.lines().collect();
+
+        // Check for unbalanced or mismatched delimiters using stack validation
+        let has_syntax_mismatch = {
+            let mut stack = Vec::new();
+            let mut mismatch = false;
+            for c in code.chars() {
+                match c {
+                    '(' | '{' | '[' => stack.push(c),
+                    ')' => {
+                        if stack.pop() != Some('(') {
+                            mismatch = true;
+                            break;
+                        }
+                    }
+                    '}' => {
+                        if stack.pop() != Some('{') {
+                            mismatch = true;
+                            break;
+                        }
+                    }
+                    ']' => {
+                        if stack.pop() != Some('[') {
+                            mismatch = true;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            mismatch || !stack.is_empty()
+        };
 
         let mut byte_offset = 0;
         for (line_idx, line) in lines.iter().enumerate() {
             let line_len = line.len();
             let trimmed = line.trim();
+
+            let line_mismatch = {
+                let mut l_stack = Vec::new();
+                let mut l_err = false;
+                for c in line.chars() {
+                    match c {
+                        '(' | '{' | '[' => l_stack.push(c),
+                        ')' => {
+                            if l_stack.pop() != Some('(') {
+                                l_err = true;
+                                break;
+                            }
+                        }
+                        '}' => {
+                            if l_stack.pop() != Some('{') {
+                                l_err = true;
+                                break;
+                            }
+                        }
+                        ']' => {
+                            if l_stack.pop() != Some('[') {
+                                l_err = true;
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                l_err || (has_syntax_mismatch && !l_stack.is_empty())
+            };
+            let line_err = line_mismatch
+                || (has_syntax_mismatch
+                    && (trimmed.contains('(') || trimmed.contains('{') || trimmed.contains(')')));
 
             if trimmed.starts_with("fn ")
                 || trimmed.starts_with("def ")
@@ -48,7 +115,7 @@ impl TreeSitterEngine {
                     start_position: (line_idx, 0),
                     end_position: (line_idx, line_len),
                     is_named: true,
-                    has_error: false,
+                    has_error: line_err,
                 });
             } else if trimmed.starts_with("//")
                 || trimmed.starts_with('#')
@@ -90,7 +157,7 @@ impl TreeSitterEngine {
                 start_position: (0, 0),
                 end_position: (lines.len(), lines.last().map(|l| l.len()).unwrap_or(0)),
                 is_named: true,
-                has_error: false,
+                has_error: has_syntax_mismatch,
             });
         }
 
@@ -100,8 +167,9 @@ impl TreeSitterEngine {
     /// Extract all embedded code blocks (`<pre><code>` or ``` code ```) from a `Book` instance.
     pub fn extract_code_blocks(book: &Book) -> Vec<ExtractedCodeBlock> {
         let mut blocks = Vec::new();
+        let sections = book.get_all_sections_hydrated();
 
-        for section in &book.sections {
+        for section in &sections {
             let html = &section.raw_html;
             let mut search_idx = 0;
 

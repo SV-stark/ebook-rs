@@ -67,36 +67,16 @@ impl TxtBook {
         } else {
             // Legacy inline metadata sniffing for plain text files
             for line in raw_text.lines().take(15) {
-                let lower = line.to_lowercase();
-                if let Some(pos) = lower.find("title:") {
-                    let v = line[pos + 6..]
-                        .trim()
-                        .trim_matches('"')
-                        .trim_matches('\'')
-                        .trim();
+                if let Some((key, val)) = line.split_once(':') {
+                    let key_clean = key.trim().to_lowercase();
+                    let v = val.trim().trim_matches('"').trim_matches('\'').trim();
                     if !v.is_empty() {
-                        title = v.to_string();
-                        has_custom_title = true;
-                    }
-                } else if let Some(pos) = lower.find("author:").or_else(|| lower.find("creator:")) {
-                    if let Some(colon) = line[pos..].find(':') {
-                        let v = line[pos + colon + 1..]
-                            .trim()
-                            .trim_matches('"')
-                            .trim_matches('\'')
-                            .trim();
-                        if !v.is_empty() {
+                        if key_clean == "title" {
+                            title = v.to_string();
+                            has_custom_title = true;
+                        } else if key_clean == "author" || key_clean == "creator" {
                             creators.push(v.to_string());
-                        }
-                    }
-                } else if let Some(pos) = lower.find("language:").or_else(|| lower.find("lang:")) {
-                    if let Some(colon) = line[pos..].find(':') {
-                        let v = line[pos + colon + 1..]
-                            .trim()
-                            .trim_matches('"')
-                            .trim_matches('\'')
-                            .trim();
-                        if !v.is_empty() {
+                        } else if key_clean == "language" || key_clean == "lang" {
                             languages = vec![v.to_string()];
                         }
                     }
@@ -128,25 +108,15 @@ impl TxtBook {
                                  c_type: &str,
                                  c_title: &str,
                                  c_lines: &mut Vec<String>| {
-                if c_lines.is_empty() {
-                    return;
-                }
                 let icon = match c_type {
-                    "note" | "info" => "ℹ️",
                     "tip" => "💡",
-                    "warning" | "caution" => "⚠️",
-                    "important" | "danger" => "❗",
-                    "question" | "faq" => "❓",
-                    "example" => "📋",
-                    "quote" => "💬",
-                    _ => "📌",
+                    "important" => "❗",
+                    "warning" => "⚠️",
+                    "caution" => "🛑",
+                    _ => "ℹ️",
                 };
                 let display_title = if c_title.is_empty() {
-                    let mut chars = c_type.chars();
-                    match chars.next() {
-                        Some(f) => f.to_uppercase().collect::<String>() + chars.as_str(),
-                        None => "Note".to_string(),
-                    }
+                    c_type.to_uppercase()
                 } else {
                     c_title.to_string()
                 };
@@ -158,9 +128,13 @@ impl TxtBook {
                     plain_buf.push('\n');
                 }
 
+                let safe_c_type: String = c_type
+                    .chars()
+                    .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+                    .collect();
                 let callout_block = format!(
                     "<div class=\"callout callout-{}\">\n<div class=\"callout-title\"><span class=\"callout-icon\">{}</span> {}</div>\n<div class=\"callout-content\">\n{}</div>\n</div>\n",
-                    c_type,
+                    safe_c_type,
                     icon,
                     xml_escape(&display_title),
                     inner_html
@@ -487,21 +461,34 @@ struct FrontmatterMeta {
 /// Extract YAML (`--- ... ---`) or TOML (`+++ ... +++`) frontmatter from Markdown source.
 fn extract_frontmatter(text: &str) -> (FrontmatterMeta, String) {
     let mut meta = FrontmatterMeta::default();
-    let trimmed_start = text.trim_start();
-
-    let (delimiter, after_delim) = if let Some(stripped) = trimmed_start.strip_prefix("---") {
-        ("---", stripped)
-    } else if let Some(stripped) = trimmed_start.strip_prefix("+++") {
-        ("+++", stripped)
+    let (delimiter, rest) = if let Some(after) = text.strip_prefix("---\n") {
+        ("---", after)
+    } else if let Some(after) = text.strip_prefix("---\r\n") {
+        ("---", after)
+    } else if let Some(after) = text.strip_prefix("+++\n") {
+        ("+++", after)
+    } else if let Some(after) = text.strip_prefix("+++\r\n") {
+        ("+++", after)
     } else {
         return (meta, text.to_string());
     };
 
-    if let Some(closing_idx) = after_delim.find(delimiter) {
-        let frontmatter_content = &after_delim[..closing_idx];
-        let body = &after_delim[closing_idx + delimiter.len()..];
+    let mut frontmatter_content = None;
+    let mut body_content = None;
 
-        for line in frontmatter_content.lines() {
+    let mut current_offset = 0;
+    for line in rest.split_inclusive('\n') {
+        let trimmed_line = line.trim_end_matches(&['\r', '\n'][..]).trim();
+        if trimmed_line == delimiter {
+            frontmatter_content = Some(&rest[..current_offset]);
+            body_content = Some(&rest[current_offset + line.len()..]);
+            break;
+        }
+        current_offset += line.len();
+    }
+
+    if let (Some(fm_content), Some(body)) = (frontmatter_content, body_content) {
+        for line in fm_content.lines() {
             let line_trimmed = line.trim();
             if line_trimmed.is_empty() || line_trimmed.starts_with('#') {
                 continue;

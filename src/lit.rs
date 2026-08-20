@@ -201,17 +201,31 @@ fn extract_html_from_lit_bytes(bytes: &[u8]) -> String {
 }
 
 fn extract_tag_content(html: &str, tag_name: &str) -> Option<String> {
-    let open_tag = format!("<{}", tag_name);
-    let close_tag = format!("</{}>", tag_name);
-    let lower = html.to_lowercase();
+    let open_prefix = format!("<{}", tag_name.to_ascii_lowercase());
+    let close_tag = format!("</{}>", tag_name.to_ascii_lowercase());
 
-    if let Some(start_idx) = lower.find(&open_tag) {
-        if let Some(tag_end) = lower[start_idx..].find('>') {
-            let content_start = start_idx + tag_end + 1;
-            if let Some(end_idx) = lower[content_start..].find(&close_tag) {
-                let val = html[content_start..content_start + end_idx].trim();
-                if !val.is_empty() {
-                    return Some(val.to_string());
+    for (start_byte, _) in html.char_indices() {
+        let slice = &html[start_byte..];
+        if slice.to_ascii_lowercase().starts_with(&open_prefix) {
+            let next_idx = open_prefix.len();
+            if next_idx < slice.len() {
+                let next_char = slice[next_idx..].chars().next().unwrap_or(' ');
+                if next_char != '>' && !next_char.is_whitespace() {
+                    continue;
+                }
+            }
+            if let Some(tag_end) = slice.find('>') {
+                let content_start = start_byte + tag_end + 1;
+                for (end_byte, _) in html[content_start..].char_indices() {
+                    if html[content_start + end_byte..]
+                        .to_ascii_lowercase()
+                        .starts_with(&close_tag)
+                    {
+                        let val = html[content_start..content_start + end_byte].trim();
+                        if !val.is_empty() {
+                            return Some(val.to_string());
+                        }
+                    }
                 }
             }
         }
@@ -219,25 +233,31 @@ fn extract_tag_content(html: &str, tag_name: &str) -> Option<String> {
     None
 }
 
-fn extract_meta_attr(html: &str, attr_name: &str) -> Option<String> {
-    let lower = html.to_lowercase();
-    let pat = format!("name=\"{}\"", attr_name);
-    if let Some(idx) = lower.find(&pat) {
-        if let Some(content_idx) = lower[idx..].find("content=\"") {
-            let val_start = idx + content_idx + 9;
-            if let Some(val_end) = lower[val_start..].find('"') {
-                let val = html[val_start..val_start + val_end].trim();
-                if !val.is_empty() {
-                    return Some(val.to_string());
+fn extract_meta_name(html: &str, name: &str) -> Option<String> {
+    let target = format!("name=\"{}\"", name.to_ascii_lowercase());
+    for (byte_idx, _) in html.char_indices() {
+        if html[byte_idx..].to_ascii_lowercase().starts_with(&target) {
+            if let Some(content_pos) = html[byte_idx..].to_ascii_lowercase().find("content=\"") {
+                let val_start = byte_idx + content_pos + 9;
+                if val_start < html.len() {
+                    if let Some(val_end) = html[val_start..].find('"') {
+                        let val = html[val_start..val_start + val_end].trim();
+                        if !val.is_empty() {
+                            return Some(val.to_string());
+                        }
+                    }
                 }
             }
         }
     }
     None
+}
+
+fn extract_meta_attr(html: &str, name: &str) -> Option<String> {
+    extract_meta_name(html, name)
 }
 
 fn split_lit_html(html: &str) -> Vec<String> {
-    let lower = html.to_lowercase();
     let mut boundaries = vec![0];
 
     let patterns = &[
@@ -281,14 +301,15 @@ fn split_lit_html(html: &str) -> Vec<String> {
         "chapter 10",
     ];
 
-    for tag in patterns {
-        let mut pos = 0;
-        while let Some(idx) = lower[pos..].find(tag) {
-            let abs = pos + idx;
-            if abs > 200 {
-                boundaries.push(abs);
+    for (byte_idx, _) in html.char_indices() {
+        if byte_idx > 200 {
+            let slice = &html[byte_idx..];
+            for &tag in patterns {
+                if slice.len() >= tag.len() && slice[..tag.len()].eq_ignore_ascii_case(tag) {
+                    boundaries.push(byte_idx);
+                    break;
+                }
             }
-            pos = abs + tag.len();
         }
     }
 

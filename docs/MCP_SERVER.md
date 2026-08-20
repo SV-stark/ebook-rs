@@ -1,6 +1,6 @@
 # Model Context Protocol (MCP) Server for `ebook-rs`
 
-`ebook-rs` includes a built-in **Model Context Protocol (MCP)** server enabling AI assistants (Claude Desktop, Antigravity, Cursor, Zed, ChatGPT Local, etc.) to read, search, analyze, and convert eBooks seamlessly via standard JSON-RPC 2.0 over `stdio` or `HTTP/SSE`.
+`ebook-rs` includes a built-in **Model Context Protocol (MCP)** server enabling AI assistants (Claude Desktop, Antigravity, Cursor, Zed, ChatGPT Local, etc.) to read, search, analyze, and convert eBooks seamlessly via standard JSON-RPC 2.0 over `stdio` or HTTP POST (`/api/mcp`).
 
 ---
 

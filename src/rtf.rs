@@ -12,7 +12,7 @@ use ahash::AHashMap;
 /// Rich Text Format (.rtf) document parser engine.
 pub struct RtfBook;
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct RtfState {
     bold: bool,
     italic: bool,
@@ -20,6 +20,21 @@ struct RtfState {
     strike: bool,
     is_destination: bool,
     dest_name: String,
+    uc: usize,
+}
+
+impl Default for RtfState {
+    fn default() -> Self {
+        Self {
+            bold: false,
+            italic: false,
+            underline: false,
+            strike: false,
+            is_destination: false,
+            dest_name: String::new(),
+            uc: 1,
+        }
+    }
 }
 
 impl RtfBook {
@@ -216,11 +231,18 @@ impl RtfBook {
                             if i + 2 < len {
                                 let hex_str: String = chars[i + 1..=i + 2].iter().collect();
                                 if let Ok(byte) = u8::from_str_radix(&hex_str, 16) {
-                                    let ch = byte as char;
-                                    if cur_state.is_destination {
-                                        dest_buffer.push(ch);
+                                    let s = if byte < 0x80 {
+                                        (byte as char).to_string()
                                     } else {
-                                        cur_run.push(ch);
+                                        let byte_arr = [byte];
+                                        let (cow, _) = encoding_rs::WINDOWS_1252
+                                            .decode_without_bom_handling(&byte_arr);
+                                        cow.to_string()
+                                    };
+                                    if cur_state.is_destination {
+                                        dest_buffer.push_str(&s);
+                                    } else {
+                                        cur_run.push_str(&s);
                                     }
                                 }
                                 i += 3;
@@ -383,6 +405,11 @@ impl RtfBook {
                                 current_text.push('\t');
                             }
                         }
+                        "uc" => {
+                            if let Some(n) = param {
+                                cur_state.uc = (n.max(0)) as usize;
+                            }
+                        }
                         "u" => {
                             if let Some(code) = param {
                                 let unsigned_code = if code < 0 {
@@ -397,9 +424,23 @@ impl RtfBook {
                                         cur_run.push(ch);
                                     }
                                 }
-                                // Skip optional fallback char
-                                if i < len && chars[i] == '?' {
+                                // Skip optional fallback chars according to \ucN (including \'hh hex escapes)
+                                let mut skipped = 0;
+                                while i < len && skipped < cur_state.uc {
+                                    if chars[i] == '{' || chars[i] == '}' {
+                                        break;
+                                    }
+                                    if chars[i] == '\\' {
+                                        if i + 3 < len && chars[i + 1] == '\'' {
+                                            i += 4;
+                                            skipped += 1;
+                                            continue;
+                                        } else {
+                                            break;
+                                        }
+                                    }
                                     i += 1;
+                                    skipped += 1;
                                 }
                             }
                         }
@@ -547,7 +588,7 @@ impl RtfBook {
 
 fn hex_to_bytes(hex: &str) -> Result<Vec<u8>, String> {
     let clean: String = hex.chars().filter(|c| c.is_ascii_hexdigit()).collect();
-    if !clean.len().is_multiple_of(2) {
+    if clean.len() % 2 != 0 {
         return Err("Invalid hex length".to_string());
     }
     let mut bytes = Vec::with_capacity(clean.len() / 2);

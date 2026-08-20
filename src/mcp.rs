@@ -1,10 +1,49 @@
 use crate::book::Book;
 use crate::rag::{RagChunkConfig, RagChunker};
 use crate::validator::EpubValidator;
+use ahash::AHashMap;
+use parking_lot::RwLock;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::io::{BufRead, Write};
 use std::path::Path;
+use std::sync::{Arc, LazyLock};
+
+struct CachedMcpBook {
+    modified: Option<std::time::SystemTime>,
+    book: Arc<Book>,
+}
+
+static MCP_BOOK_CACHE: LazyLock<RwLock<AHashMap<String, CachedMcpBook>>> =
+    LazyLock::new(|| RwLock::new(AHashMap::new()));
+
+pub fn get_cached_mcp_book(path: &str) -> Result<Arc<Book>, Box<dyn std::error::Error>> {
+    let mod_time = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
+    {
+        let cache = MCP_BOOK_CACHE.read();
+        if let Some(entry) = cache.get(path) {
+            if entry.modified == mod_time {
+                return Ok(entry.book.clone());
+            }
+        }
+    }
+
+    let book = Arc::new(Book::from_file(path)?);
+    {
+        let mut cache = MCP_BOOK_CACHE.write();
+        if cache.len() >= 16 {
+            cache.clear();
+        }
+        cache.insert(
+            path.to_string(),
+            CachedMcpBook {
+                modified: mod_time,
+                book: book.clone(),
+            },
+        );
+    }
+    Ok(book)
+}
 
 /// MCP JSON-RPC Request structure
 #[derive(Debug, Deserialize)]
@@ -30,8 +69,21 @@ pub fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
 
-        if let Ok(req) = serde_json::from_str::<JsonRpcRequest>(trimmed) {
-            handle_mcp_request(&req, &mut writer)?;
+        match serde_json::from_str::<JsonRpcRequest>(trimmed) {
+            Ok(req) => {
+                handle_mcp_request(&req, &mut writer)?;
+            }
+            Err(e) => {
+                let err_resp = json!({
+                    "jsonrpc": "2.0",
+                    "error": {
+                        "code": -32700,
+                        "message": format!("Parse error: {}", e)
+                    },
+                    "id": Value::Null
+                });
+                send_json(&mut writer, &err_resp)?;
+            }
         }
 
         line.clear();
@@ -53,23 +105,49 @@ fn handle_mcp_request<W: Write>(
 
 /// Process JSON-RPC request and return Value response (or None for notifications).
 pub fn process_mcp_request(req: &JsonRpcRequest) -> Option<Value> {
-    match req.method.as_str() {
-        "initialize" => Some(json!({
+    if req.jsonrpc != "2.0" {
+        return Some(json!({
             "jsonrpc": "2.0",
             "id": req.id,
-            "result": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {
-                    "tools": {},
-                    "resources": {},
-                    "prompts": {}
-                },
-                "serverInfo": {
-                    "name": "ebook-rs-mcp",
-                    "version": env!("CARGO_PKG_VERSION")
-                }
+            "error": {
+                "code": -32600,
+                "message": format!("Invalid Request: jsonrpc version must be '2.0', got '{}'", req.jsonrpc)
             }
-        })),
+        }));
+    }
+
+    match req.method.as_str() {
+        "initialize" => {
+            let requested_proto = req
+                .params
+                .as_ref()
+                .and_then(|p| p.get("protocolVersion"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("2024-11-05");
+
+            let supported_proto = "2024-11-05";
+            let negotiated_proto = match requested_proto {
+                "2024-11-05" | "2024-10-07" => requested_proto,
+                _ => supported_proto,
+            };
+
+            Some(json!({
+                "jsonrpc": "2.0",
+                "id": req.id,
+                "result": {
+                    "protocolVersion": negotiated_proto,
+                    "capabilities": {
+                        "tools": {},
+                        "resources": {},
+                        "prompts": {}
+                    },
+                    "serverInfo": {
+                        "name": "ebook-rs-mcp",
+                        "version": env!("CARGO_PKG_VERSION")
+                    }
+                }
+            }))
+        }
         "notifications/initialized" => None,
         "ping" => Some(json!({
             "jsonrpc": "2.0",
@@ -345,11 +423,8 @@ fn handle_resource_read(
         ))
     } else if uri.starts_with("ebook://") {
         let rest = uri.trim_start_matches("ebook://");
-        let parts: Vec<&str> = rest.split("/").collect();
-        if parts.len() >= 2 {
-            let path = parts[0];
-            let sub = parts[1];
-            let book = Book::from_file(path)?;
+        if let Some((path, sub)) = rest.rsplit_once('/') {
+            let book = get_cached_mcp_book(path)?;
             if sub == "metadata" {
                 let meta = serde_json::to_string_pretty(book.metadata())?;
                 return Ok((uri.to_string(), meta, "application/json".to_string()));
@@ -376,7 +451,7 @@ fn handle_prompt_get(params: Option<&Value>) -> Result<Vec<Value>, Box<dyn std::
         .get("path")
         .and_then(|v| v.as_str())
         .ok_or("Missing required prompt argument 'path'")?;
-    let book = Book::from_file(path)?;
+    let book = get_cached_mcp_book(path)?;
     let meta = book.metadata();
 
     match prompt_name {
@@ -446,7 +521,7 @@ fn handle_tool_call(params: Option<&Value>) -> Result<String, Box<dyn std::error
                 .get("path")
                 .and_then(|v| v.as_str())
                 .ok_or("Missing required argument 'path'")?;
-            let book = Book::from_file(path)?;
+            let book = get_cached_mcp_book(path)?;
             let meta = book.metadata();
             let mut result_json = serde_json::to_value(meta)?;
             if let Some(obj) = result_json.as_object_mut() {
@@ -463,7 +538,7 @@ fn handle_tool_call(params: Option<&Value>) -> Result<String, Box<dyn std::error
                 .get("path")
                 .and_then(|v| v.as_str())
                 .ok_or("Missing required argument 'path'")?;
-            let book = Book::from_file(path)?;
+            let book = get_cached_mcp_book(path)?;
             Ok(serde_json::to_string_pretty(book.toc())?)
         }
         "read_section" => {
@@ -471,7 +546,7 @@ fn handle_tool_call(params: Option<&Value>) -> Result<String, Box<dyn std::error
                 .get("path")
                 .and_then(|v| v.as_str())
                 .ok_or("Missing required argument 'path'")?;
-            let book = Book::from_file(path)?;
+            let book = get_cached_mcp_book(path)?;
 
             let format = args
                 .get("format")
@@ -514,7 +589,7 @@ fn handle_tool_call(params: Option<&Value>) -> Result<String, Box<dyn std::error
             }
 
             let section = &book.sections[target_index];
-            let cfi_anchor = format!("/4/2[{}]", (target_index + 1) * 2);
+            let cfi_anchor = crate::cfi::Cfi::from_spine_index(target_index, None, 0).to_string();
             let approx_tokens = section.plain_text.len() / 4;
             let section_title = format!("Section {}", section.index);
 
@@ -554,7 +629,7 @@ fn handle_tool_call(params: Option<&Value>) -> Result<String, Box<dyn std::error
                 .and_then(|v| v.as_u64())
                 .unwrap_or(20) as usize;
 
-            let book = Book::from_file(path)?;
+            let book = get_cached_mcp_book(path)?;
             let mut results = book.search(query);
             if results.len() > max_results {
                 results.truncate(max_results);
@@ -577,7 +652,7 @@ fn handle_tool_call(params: Option<&Value>) -> Result<String, Box<dyn std::error
                 .unwrap_or(64) as usize;
             let query_rank = args.get("query_rank").and_then(|v| v.as_str());
 
-            let book = Book::from_file(path)?;
+            let book = get_cached_mcp_book(path)?;
             let config = RagChunkConfig {
                 max_tokens,
                 overlap_tokens,
@@ -603,6 +678,20 @@ fn handle_tool_call(params: Option<&Value>) -> Result<String, Box<dyn std::error
                 .get("output_path")
                 .and_then(|v| v.as_str())
                 .ok_or("Missing required argument 'output_path'")?;
+
+            if input_path.contains('\0') || output_path.contains('\0') {
+                return Err("File paths must not contain null characters".into());
+            }
+
+            if !Path::new(input_path).exists() {
+                return Err(format!("Input file not found: {}", input_path).into());
+            }
+
+            if let Some(parent) = Path::new(output_path).parent() {
+                if !parent.as_os_str().is_empty() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+            }
 
             let book = Book::from_file(input_path)?;
             if output_path.ends_with(".epub") {
@@ -676,5 +765,25 @@ mod tests {
             serde_json::from_str(r#"{"jsonrpc":"2.0","id":3,"method":"prompts/list"}"#).unwrap();
         let resp_prompts = process_mcp_request(&req_prompts).unwrap();
         assert!(resp_prompts.to_string().contains("summarize_book"));
+    }
+
+    #[test]
+    fn test_mcp_book_cache() {
+        let temp_dir = std::env::temp_dir();
+        let test_epub_path = temp_dir.join("mcp_test_cache_sample.epub");
+        let bytes = crate::generate_sample_epub().unwrap();
+        std::fs::write(&test_epub_path, bytes).unwrap();
+
+        let path_str = test_epub_path.to_str().unwrap();
+
+        // First call populates cache
+        let b1 = get_cached_mcp_book(path_str).expect("Failed first book load");
+        assert_eq!(b1.metadata().title, "The Rustonomicon & EBook-RS Guide");
+
+        // Second call retrieves from cache
+        let b2 = get_cached_mcp_book(path_str).expect("Failed second book load from cache");
+        assert_eq!(b2.metadata().title, b1.metadata().title);
+
+        let _ = std::fs::remove_file(test_epub_path);
     }
 }
