@@ -4,7 +4,39 @@ use zip::write::SimpleFileOptions;
 
 #[test]
 fn test_blackbox_pdf_parsing() {
-    let pdf_bytes = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
+    let pdf_bytes = b"%PDF-1.4\n\
+1 0 obj\n\
+<< /Type /Catalog /Pages 2 0 R >>\n\
+endobj\n\
+2 0 obj\n\
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>\n\
+endobj\n\
+3 0 obj\n\
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << >> >>\n\
+endobj\n\
+4 0 obj\n\
+<< /Length 44 >>\n\
+stream\n\
+BT\n\
+/F1 12 Tf\n\
+72 712 Td\n\
+(Hello PDF World) Tj\n\
+ET\n\
+endstream\n\
+endobj\n\
+xref\n\
+0 5\n\
+0000000000 65535 f \n\
+0000000009 00000 n \n\
+0000000058 00000 n \n\
+0000000115 00000 n \n\
+0000000216 00000 n \n\
+trailer\n\
+<< /Size 5 /Root 1 0 R >>\n\
+startxref\n\
+310\n\
+%%EOF\n";
+
     #[cfg(feature = "pdf")]
     {
         let pdf_book = PdfBook::parse(pdf_bytes, "Test PDF")
