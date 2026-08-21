@@ -204,11 +204,16 @@ impl CbzBook {
 }
 
 fn extract_img_src_from_html(html: &str) -> Option<String> {
-    let lower = html.to_lowercase();
-    if let Some(pos) = lower.find("src=\"") {
-        let start = pos + 5;
-        if let Some(end) = html[start..].find('"') {
-            return Some(html[start..start + end].to_string());
+    for (idx, _) in html.char_indices() {
+        if let Some(sub) = html.as_bytes().get(idx..idx + 5) {
+            if sub.eq_ignore_ascii_case(b"src=\"") {
+                let start = idx + 5;
+                if start <= html.len() {
+                    if let Some(end) = html[start..].find('"') {
+                        return Some(html[start..start + end].to_string());
+                    }
+                }
+            }
         }
     }
     None

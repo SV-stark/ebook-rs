@@ -9,7 +9,7 @@
 [![PyPI Version](https://img.shields.io/pypi/v/ebook-rs.svg?style=flat-square&logo=python&label=pypi)](https://pypi.org/project/ebook-rs/)
 [![Docs.rs](https://img.shields.io/docsrs/ebook-rs?style=flat-square&logo=docs.rs)](https://docs.rs/ebook-rs)
 [![CI Build Status](https://img.shields.io/github/actions/workflow/status/SV-stark/ebook-rs/ci.yml?branch=main&style=flat-square&label=build)](https://github.com/SV-stark/ebook-rs/actions)
-[![Rust Edition](https://img.shields.io/badge/rust-2024%20%7C%201.85%2B-informational?style=flat-square&logo=rust)](https://www.rust-lang.org/)
+[![Rust Edition](https://img.shields.io/badge/rust-2024%20%7C%201.95%2B-informational?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/crates/l/ebook-rs.svg?style=flat-square&color=green)](LICENSE)
 
 *Pure Rust multi-format eBook engine (**EPUB 2/3, MOBI, AZW3, KFX, FB2, LIT, CBZ, PDF, ODT, DOCX, RTF, TXT & MD**) featuring Mozilla UniFFI mobile bindings, Readium CFI locators & LCP DRM, SpeechSynthesis TTS word sync, CJK vertical & RTL pagination, academic PDF reflow, lossless EPUB3 optimizer, AI RAG BM25 chunking, zero-copy search, Zstd caching, Python/WASM bindings, and native MCP server.*

@@ -380,7 +380,7 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
 
         <div class="reader-stage" id="reader-stage">
             <button class="page-btn left" id="btn-prev">❮</button>
-            <iframe id="section-frame" src="about:blank"></iframe>
+            <iframe id="section-frame" sandbox="allow-same-origin allow-scripts" src="about:blank"></iframe>
             <button class="page-btn right" id="btn-next">❯</button>
 
             <!-- Feature 2: Floating Highlight Selection Bar -->

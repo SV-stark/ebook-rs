@@ -94,7 +94,15 @@ pub fn deobfuscate_adobe(font_bytes: &mut [u8], identifier: &str) {
 }
 
 fn parse_adobe_guid_key(identifier: &str) -> [u8; 16] {
-    let hex_str: String = identifier
+    let clean = identifier.trim();
+    let without_prefix = clean
+        .strip_prefix("urn:uuid:")
+        .or_else(|| clean.strip_prefix("URN:UUID:"))
+        .or_else(|| clean.strip_prefix("urn:guid:"))
+        .or_else(|| clean.strip_prefix("URN:GUID:"))
+        .unwrap_or(clean);
+
+    let hex_str: String = without_prefix
         .chars()
         .filter(|c| c.is_ascii_hexdigit())
         .collect();

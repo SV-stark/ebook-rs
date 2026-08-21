@@ -197,7 +197,13 @@ impl RagChunker {
                 });
 
                 // Apply overlap
-                let keep_start = current_chunk_text.len().saturating_sub(overlap_chars);
+                let total_chars = current_chunk_text.chars().count();
+                let keep_char_idx = total_chars.saturating_sub(overlap_chars);
+                let keep_start = current_chunk_text
+                    .char_indices()
+                    .nth(keep_char_idx)
+                    .map(|(idx, _)| idx)
+                    .unwrap_or(current_chunk_text.len());
                 current_chunk_text = current_chunk_text[keep_start..].to_string();
             }
 

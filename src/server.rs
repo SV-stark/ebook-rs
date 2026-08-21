@@ -49,6 +49,32 @@ impl ReaderServer {
             active_cnt.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             std::thread::spawn(move || {
                 let _guard = ThreadGuard(active_cnt);
+
+                // DNS Rebinding Protection: Verify Host header if present
+                let host_header = request
+                    .headers()
+                    .iter()
+                    .find(|h| h.field.equiv("Host"))
+                    .map(|h| h.value.as_str());
+                if let Some(host) = host_header {
+                    let host_clean = host.split(':').next().unwrap_or(host);
+                    if !host_clean.eq_ignore_ascii_case("localhost")
+                        && host_clean != "127.0.0.1"
+                        && host_clean != "[::1]"
+                        && host_clean != "::1"
+                    {
+                        let header =
+                            Header::from_bytes(&b"Content-Type"[..], &b"text/plain"[..]).unwrap();
+                        send_response(
+                            request,
+                            Response::from_string("403 Forbidden: Invalid Host Header")
+                                .with_status_code(StatusCode(403))
+                                .with_header(header),
+                        );
+                        return;
+                    }
+                }
+
                 let url_str = format!("http://localhost{}", request.url());
                 let parsed_url = Url::parse(&url_str)
                     .unwrap_or_else(|_| Url::parse("http://localhost/").unwrap());

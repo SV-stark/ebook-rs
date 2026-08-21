@@ -79,6 +79,7 @@ impl RtfBook {
         let mut pict_type = "png";
 
         let mut in_table = false;
+        let mut cell_start_idx = 0;
         let mut table_cells: Vec<String> = Vec::new();
 
         let flush_run =
@@ -476,6 +477,7 @@ impl RtfBook {
                             );
                             in_table = true;
                             table_cells.clear();
+                            cell_start_idx = current_html.len();
                         }
                         "cell" => {
                             flush_run(
@@ -484,6 +486,11 @@ impl RtfBook {
                                 &mut cur_run,
                                 &cur_state,
                             );
+                            if in_table && current_html.len() >= cell_start_idx {
+                                let cell_content = current_html.split_off(cell_start_idx);
+                                table_cells.push(cell_content);
+                                cell_start_idx = current_html.len();
+                            }
                         }
                         "row" => {
                             flush_run(
@@ -493,12 +500,17 @@ impl RtfBook {
                                 &cur_state,
                             );
                             if in_table {
-                                current_html.push_str("<tr>\n");
+                                if current_html.len() > cell_start_idx {
+                                    let cell_content = current_html.split_off(cell_start_idx);
+                                    table_cells.push(cell_content);
+                                }
+                                current_html.push_str("<table>\n<tr>\n");
                                 for cell in &table_cells {
                                     current_html.push_str(&format!("  <td>{}</td>\n", cell));
                                 }
-                                current_html.push_str("</tr>\n");
+                                current_html.push_str("</tr>\n</table>\n");
                                 table_cells.clear();
+                                in_table = false;
                             }
                         }
                         _ => {}
@@ -588,7 +600,7 @@ impl RtfBook {
 
 fn hex_to_bytes(hex: &str) -> Result<Vec<u8>, String> {
     let clean: String = hex.chars().filter(|c| c.is_ascii_hexdigit()).collect();
-    if clean.len() % 2 != 0 {
+    if !clean.len().is_multiple_of(2) {
         return Err("Invalid hex length".to_string());
     }
     let mut bytes = Vec::with_capacity(clean.len() / 2);

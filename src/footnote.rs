@@ -131,10 +131,14 @@ fn extract_footnote_target(html: &str, target_id: &str) -> Option<(String, Strin
     let tag_start = html[..target_idx].rfind('<')?;
 
     // Determine target tag type (e.g. <aside>, <li>, <div>, <p>, <section>)
-    let tag_name_end = html[tag_start + 1..]
-        .find(|ch: char| ch.is_whitespace() || ch == '>')
-        .unwrap_or(5);
-    let tag_name = &html[tag_start + 1..tag_start + 1 + tag_name_end];
+    let after_tag = &html[tag_start + 1..];
+    let tag_name_end = after_tag
+        .find(|ch: char| ch.is_whitespace() || ch == '>' || ch == '/')
+        .unwrap_or(after_tag.len());
+    let tag_name = &after_tag[..tag_name_end];
+    if tag_name.is_empty() {
+        return None;
+    }
     let close_tag = format!("</{}>", tag_name);
 
     if let Some(close_idx) = find_ignore_case(&html[tag_start..], &close_tag) {

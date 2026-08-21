@@ -565,9 +565,15 @@ fn process_css_resources(css: &str, css_path: &str, archive: &EpubArchive) -> St
                         let deobf =
                             crate::deobfuscate::FontDeobfuscator::parse_encryption_xml(&enc_xml);
                         if deobf.is_encrypted(&res_path) {
+                            let opf_path = archive
+                                .get_opf_path()
+                                .unwrap_or_else(|_| "OEBPS/content.opf".to_string());
                             let identifier = archive
-                                .read_string("OEBPS/content.opf")
+                                .read_string(&opf_path)
                                 .or_else(|_| archive.read_string("content.opf"))
+                                .ok()
+                                .and_then(|xml| crate::opf::parse_opf(&xml, &opf_path).ok())
+                                .map(|pkg| pkg.metadata.identifier.clone().unwrap_or_default())
                                 .unwrap_or_default();
                             deobf.deobfuscate(&res_path, &mut bytes, &identifier);
                         }
@@ -806,22 +812,34 @@ pub fn sanitize_html_scripts(html: &str) -> String {
             continue;
         }
         let slice = &sanitized[cur_idx..];
-        let decoded_slice = decode_html_entities_for_uri(slice);
+        let first_byte = slice.as_bytes().first().copied().unwrap_or(0);
+        let might_be_scheme = matches!(first_byte, b'j' | b'J' | b'v' | b'V' | b'd' | b'D' | b'&');
 
-        let match_info = if starts_with_ignore_case(slice, "javascript:") {
-            Some("javascript:".len())
-        } else if starts_with_ignore_case(slice, "vbscript:") {
-            Some("vbscript:".len())
-        } else if starts_with_ignore_case(slice, "data:text/html") {
-            Some("data:text/html".len())
-        } else if starts_with_ignore_case(&decoded_slice, "javascript:")
-            || starts_with_ignore_case(&decoded_slice, "vbscript:")
-            || starts_with_ignore_case(&decoded_slice, "data:text/html")
-        {
-            if let Some(colon_pos) = slice.find(':') {
-                Some(colon_pos + 1)
+        let match_info = if might_be_scheme {
+            let mut window_len = slice.len().min(64);
+            while !slice.is_char_boundary(window_len) {
+                window_len -= 1;
+            }
+            let window = &slice[..window_len];
+            let decoded_window = decode_html_entities_for_uri(window);
+
+            if starts_with_ignore_case(window, "javascript:") {
+                Some("javascript:".len())
+            } else if starts_with_ignore_case(window, "vbscript:") {
+                Some("vbscript:".len())
+            } else if starts_with_ignore_case(window, "data:text/html") {
+                Some("data:text/html".len())
+            } else if starts_with_ignore_case(&decoded_window, "javascript:")
+                || starts_with_ignore_case(&decoded_window, "vbscript:")
+                || starts_with_ignore_case(&decoded_window, "data:text/html")
+            {
+                if let Some(colon_pos) = window.find(':') {
+                    Some(colon_pos + 1)
+                } else {
+                    Some(window.len().min(15))
+                }
             } else {
-                Some(slice.len().min(15))
+                None
             }
         } else {
             None

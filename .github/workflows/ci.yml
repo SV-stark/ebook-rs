@@ -33,4 +33,4 @@ jobs:
           curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh || cargo install wasm-pack || true
 
       - name: Run WASM Tests (Node.js)
-        run: wasm-pack test --node -- --features wasm || cargo check --target wasm32-unknown-unknown --features wasm
+        run: wasm-pack test --node -- --features wasm

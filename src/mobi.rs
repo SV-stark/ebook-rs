@@ -272,6 +272,11 @@ impl MobiBook {
             match compression {
                 1 => raw_html_bytes.extend_from_slice(chunk),
                 2 => raw_html_bytes.extend_from_slice(&decompress_palmdoc(chunk)),
+                17480 => {
+                    return Err(EbookError::InvalidFormat(
+                        "MOBI HUFF/CDIC compression is unsupported. Please convert using Calibre or KindleUnpack.".to_string(),
+                    ));
+                }
                 _ => raw_html_bytes.extend_from_slice(chunk),
             }
         }
@@ -459,19 +464,20 @@ fn split_mobi_html(html: &str) -> Vec<String> {
     // We collect boundary indices where a new chapter begins.
     if parts.len() <= 1 && !html.trim().is_empty() {
         parts.clear();
-        let lower = html.to_lowercase();
         let mut boundaries: Vec<usize> = vec![0];
 
         // Find all <h1>, <h2>, <h3> tag positions as chapter split points
-        for tag in &["<h1", "<h2", "<h3"] {
-            let mut pos = 0;
-            while let Some(idx) = lower[pos..].find(tag) {
-                let abs = pos + idx;
-                // Skip if it's very close to the start (< 200 chars — likely a book title header)
-                if abs > 200 {
-                    boundaries.push(abs);
+        for (byte_idx, _) in html.char_indices() {
+            if byte_idx > 200 {
+                let slice = &html[byte_idx..];
+                for tag in &["<h1", "<h2", "<h3"] {
+                    if let Some(sub) = slice.get(..tag.len()) {
+                        if sub.eq_ignore_ascii_case(tag) {
+                            boundaries.push(byte_idx);
+                            break;
+                        }
+                    }
                 }
-                pos = abs + tag.len();
             }
         }
 

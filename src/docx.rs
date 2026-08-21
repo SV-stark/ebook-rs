@@ -21,10 +21,18 @@ impl DocxBook {
         let mut archive = zip::ZipArchive::new(reader)
             .map_err(|e| EbookError::Zip(format!("Failed to open DOCX ZIP archive: {}", e)))?;
 
+        const MAX_DOCX_ENTRIES: usize = 10_000;
+        if archive.len() > MAX_DOCX_ENTRIES {
+            return Err(EbookError::InvalidFormat(
+                "DOCX archive exceeds maximum entry limit".to_string(),
+            ));
+        }
+
         // 1. Read word/document.xml
         let mut document_xml = String::new();
         const MAX_DOCX_XML_SIZE: u64 = 64 * 1024 * 1024; // 64 MB limit for document.xml
         const MAX_DOCX_MEDIA_SIZE: u64 = 64 * 1024 * 1024; // 64 MB limit per media file
+        const MAX_DOCX_META_SIZE: u64 = 16 * 1024 * 1024; // 16 MB limit for metadata XML
         if let Ok(mut file) = archive.by_name("word/document.xml") {
             file.by_ref()
                 .take(MAX_DOCX_XML_SIZE)
@@ -66,7 +74,12 @@ impl DocxBook {
 
         if let Ok(mut file) = archive.by_name("docProps/core.xml") {
             let mut core_xml = String::new();
-            if file.read_to_string(&mut core_xml).is_ok() {
+            if file
+                .by_ref()
+                .take(MAX_DOCX_META_SIZE)
+                .read_to_string(&mut core_xml)
+                .is_ok()
+            {
                 if let Ok(doc) = Document::parse(&core_xml) {
                     for node in doc.descendants() {
                         if node.is_element() {
@@ -100,7 +113,12 @@ impl DocxBook {
         let mut rels_map: AHashMap<String, String> = AHashMap::new();
         if let Ok(mut file) = archive.by_name("word/_rels/document.xml.rels") {
             let mut rels_xml = String::new();
-            if file.read_to_string(&mut rels_xml).is_ok() {
+            if file
+                .by_ref()
+                .take(MAX_DOCX_META_SIZE)
+                .read_to_string(&mut rels_xml)
+                .is_ok()
+            {
                 if let Ok(doc) = Document::parse(&rels_xml) {
                     for node in doc.descendants() {
                         if node.is_element() && node.tag_name().name() == "Relationship" {

@@ -177,7 +177,9 @@ fn extract_html_from_lit_bytes(bytes: &[u8]) -> String {
     // Check if container bytes are UTF-16LE encoded
     let text = if bytes.windows(2).any(|w| w == b"<\0") {
         let u16_data: Vec<u16> = bytes
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
             .collect();
         String::from_utf16_lossy(&u16_data)
@@ -201,13 +203,19 @@ fn extract_html_from_lit_bytes(bytes: &[u8]) -> String {
 }
 
 fn extract_tag_content(html: &str, tag_name: &str) -> Option<String> {
-    let open_prefix = format!("<{}", tag_name.to_ascii_lowercase());
-    let close_tag = format!("</{}>", tag_name.to_ascii_lowercase());
+    let open_prefix = format!("<{}", tag_name);
+    let close_tag = format!("</{}>", tag_name);
+    let open_bytes = open_prefix.as_bytes();
+    let close_bytes = close_tag.as_bytes();
+    let html_bytes = html.as_bytes();
 
     for (start_byte, _) in html.char_indices() {
-        let slice = &html[start_byte..];
-        if slice.to_ascii_lowercase().starts_with(&open_prefix) {
-            let next_idx = open_prefix.len();
+        if start_byte + open_bytes.len() <= html_bytes.len()
+            && html_bytes[start_byte..start_byte + open_bytes.len()]
+                .eq_ignore_ascii_case(open_bytes)
+        {
+            let slice = &html[start_byte..];
+            let next_idx = open_bytes.len();
             if next_idx < slice.len() {
                 let next_char = slice[next_idx..].chars().next().unwrap_or(' ');
                 if next_char != '>' && !next_char.is_whitespace() {
@@ -216,10 +224,11 @@ fn extract_tag_content(html: &str, tag_name: &str) -> Option<String> {
             }
             if let Some(tag_end) = slice.find('>') {
                 let content_start = start_byte + tag_end + 1;
+                let remaining = &html_bytes[content_start..];
                 for (end_byte, _) in html[content_start..].char_indices() {
-                    if html[content_start + end_byte..]
-                        .to_ascii_lowercase()
-                        .starts_with(&close_tag)
+                    if end_byte + close_bytes.len() <= remaining.len()
+                        && remaining[end_byte..end_byte + close_bytes.len()]
+                            .eq_ignore_ascii_case(close_bytes)
                     {
                         let val = html[content_start..content_start + end_byte].trim();
                         if !val.is_empty() {
@@ -234,16 +243,27 @@ fn extract_tag_content(html: &str, tag_name: &str) -> Option<String> {
 }
 
 fn extract_meta_name(html: &str, name: &str) -> Option<String> {
-    let target = format!("name=\"{}\"", name.to_ascii_lowercase());
+    let target = format!("name=\"{}\"", name);
+    let target_bytes = target.as_bytes();
+    let html_bytes = html.as_bytes();
+
     for (byte_idx, _) in html.char_indices() {
-        if html[byte_idx..].to_ascii_lowercase().starts_with(&target) {
-            if let Some(content_pos) = html[byte_idx..].to_ascii_lowercase().find("content=\"") {
-                let val_start = byte_idx + content_pos + 9;
-                if val_start < html.len() {
-                    if let Some(val_end) = html[val_start..].find('"') {
-                        let val = html[val_start..val_start + val_end].trim();
-                        if !val.is_empty() {
-                            return Some(val.to_string());
+        if byte_idx + target_bytes.len() <= html_bytes.len()
+            && html_bytes[byte_idx..byte_idx + target_bytes.len()]
+                .eq_ignore_ascii_case(target_bytes)
+        {
+            let remaining = &html[byte_idx..];
+            for (c_idx, _) in remaining.char_indices() {
+                if c_idx + 9 <= remaining.len()
+                    && remaining.as_bytes()[c_idx..c_idx + 9].eq_ignore_ascii_case(b"content=\"")
+                {
+                    let val_start = byte_idx + c_idx + 9;
+                    if val_start < html.len() {
+                        if let Some(val_end) = html[val_start..].find('"') {
+                            let val = html[val_start..val_start + val_end].trim();
+                            if !val.is_empty() {
+                                return Some(val.to_string());
+                            }
                         }
                     }
                 }
@@ -259,6 +279,7 @@ fn extract_meta_attr(html: &str, name: &str) -> Option<String> {
 
 fn split_lit_html(html: &str) -> Vec<String> {
     let mut boundaries = vec![0];
+    let html_bytes = html.as_bytes();
 
     let patterns = &[
         "<h1",
@@ -303,11 +324,17 @@ fn split_lit_html(html: &str) -> Vec<String> {
 
     for (byte_idx, _) in html.char_indices() {
         if byte_idx > 200 {
+            let b = html_bytes[byte_idx];
+            if b != b'<' && b != b'c' && b != b'C' {
+                continue;
+            }
             let slice = &html[byte_idx..];
             for &tag in patterns {
-                if slice.len() >= tag.len() && slice[..tag.len()].eq_ignore_ascii_case(tag) {
-                    boundaries.push(byte_idx);
-                    break;
+                if let Some(sub) = slice.get(..tag.len()) {
+                    if sub.eq_ignore_ascii_case(tag) {
+                        boundaries.push(byte_idx);
+                        break;
+                    }
                 }
             }
         }
@@ -379,22 +406,13 @@ fn extract_images_from_lit_bytes(bytes: &[u8], archive: &mut EpubArchive) -> usi
         // PNG magic check: \x89PNG\r\n\x1a\n
         if &bytes[i..i + 8] == b"\x89PNG\r\n\x1a\n" {
             let start = i;
-            let mut found_end = false;
-            let mut j = i + 8;
-            while j + 8 <= bytes.len() {
-                if &bytes[j..j + 4] == b"IEND" {
-                    let end = j + 8;
-                    let img_data = bytes[start..end].to_vec();
-                    image_count += 1;
-                    let filename = format!("images/img_{:04}.png", image_count);
-                    archive.insert(format!("OEBPS/{}", filename), img_data);
-                    i = end;
-                    found_end = true;
-                    break;
-                }
-                j += 1;
-            }
-            if found_end {
+            if let Some(iend_pos) = memchr::memmem::find(&bytes[i + 8..], b"IEND") {
+                let end = (i + 8 + iend_pos + 8).min(bytes.len());
+                let img_data = bytes[start..end].to_vec();
+                image_count += 1;
+                let filename = format!("images/img_{:04}.png", image_count);
+                archive.insert(format!("OEBPS/{}", filename), img_data);
+                i = end;
                 continue;
             }
         }
@@ -402,26 +420,17 @@ fn extract_images_from_lit_bytes(bytes: &[u8], archive: &mut EpubArchive) -> usi
         // JPEG magic check: \xFF\xD8\xFF
         if bytes[i] == 0xFF && bytes[i + 1] == 0xD8 && bytes[i + 2] == 0xFF {
             let start = i;
-            let mut j = i + 3;
-            let mut found_end = false;
-            while j + 2 <= bytes.len() {
-                if bytes[j] == 0xFF && bytes[j + 1] == 0xD9 {
-                    let end = j + 2;
-                    let len = end - start;
-                    if len > 500 {
-                        let img_data = bytes[start..end].to_vec();
-                        image_count += 1;
-                        let filename = format!("images/img_{:04}.jpg", image_count);
-                        archive.insert(format!("OEBPS/{}", filename), img_data);
-                        i = end;
-                        found_end = true;
-                        break;
-                    }
+            if let Some(eoi_pos) = memchr::memmem::find(&bytes[i + 3..], b"\xFF\xD9") {
+                let end = i + 3 + eoi_pos + 2;
+                let len = end - start;
+                if len > 500 && len < 20 * 1024 * 1024 {
+                    let img_data = bytes[start..end].to_vec();
+                    image_count += 1;
+                    let filename = format!("images/img_{:04}.jpg", image_count);
+                    archive.insert(format!("OEBPS/{}", filename), img_data);
+                    i = end;
+                    continue;
                 }
-                j += 1;
-            }
-            if found_end {
-                continue;
             }
         }
 

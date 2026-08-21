@@ -99,7 +99,8 @@ impl EbookDomTree {
                         let (tag_name, attrs) = parse_tag_parts(tag_content);
                         let is_void = void_tags.contains(&tag_name.to_lowercase().as_str());
 
-                        if is_self_closing || is_void {
+                        const MAX_DOM_DEPTH: usize = 256;
+                        if is_self_closing || is_void || stack.len() >= MAX_DOM_DEPTH {
                             let node = DomNode::Element {
                                 tag_name,
                                 attributes: attrs,

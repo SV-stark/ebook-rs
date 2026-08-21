@@ -173,32 +173,24 @@ impl SearchEngine {
 
         for section in sections {
             for m in re.find_iter(&section.plain_text) {
-                let abs_idx = m.start();
-                let match_str = m.as_str();
-
-                let text_chars: Vec<char> = section.plain_text.chars().collect();
-                let char_idx = section.plain_text[..abs_idx.min(section.plain_text.len())]
+                let start_b = m.start();
+                let match_len = m.len();
+                let char_idx = section.plain_text[..start_b.min(section.plain_text.len())]
                     .chars()
                     .count();
-                let q_char_len = match_str.chars().count();
 
-                let start_c = char_idx.saturating_sub(40);
-                let end_c = (char_idx + q_char_len + 40).min(text_chars.len());
+                let (before, matched, after, has_prefix, has_suffix) =
+                    extract_zero_alloc_snippet(&section.plain_text, start_b, match_len);
 
-                let match_end = (char_idx + q_char_len).min(text_chars.len());
-                let before: String = text_chars[start_c..char_idx].iter().collect();
-                let matched: String = text_chars[char_idx..match_end].iter().collect();
-                let after: String = text_chars[match_end..end_c].iter().collect();
-
-                let prefix = if start_c > 0 { "..." } else { "" };
-                let suffix = if end_c < text_chars.len() { "..." } else { "" };
+                let prefix = if has_prefix { "..." } else { "" };
+                let suffix = if has_suffix { "..." } else { "" };
 
                 let snippet = format!(
                     "{}{}<mark>{}</mark>{}{}",
                     prefix,
-                    html_escape(&before),
-                    html_escape(&matched),
-                    html_escape(&after),
+                    html_escape(before),
+                    html_escape(matched),
+                    html_escape(after),
                     suffix
                 );
                 let cfi = Cfi::from_spine_index(section.index, None, char_idx).to_string();

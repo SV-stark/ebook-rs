@@ -155,11 +155,14 @@ impl ReflowPaginator {
             total_checked > 0 && (cjk_count as f32 / total_checked as f32) > 0.3
         };
 
+        let font_size = (self.font_size_px as f32).max(8.0);
+        let line_height = self.line_height.max(1.0);
+
         let chars_per_page = match self.writing_mode {
             WritingMode::VerticalRl | WritingMode::VerticalLr => {
                 // In vertical mode: columns advance horizontally, characters flow top-to-bottom.
-                let char_height = self.font_size_px as f32 * 1.05;
-                let col_spacing_px = self.font_size_px as f32 * self.line_height;
+                let char_height = font_size * 1.05;
+                let col_spacing_px = font_size * line_height;
 
                 let chars_per_col = (usable_height / char_height).max(6.0) as usize;
                 let cols_per_page = (usable_width / col_spacing_px).max(4.0) as usize;
@@ -167,11 +170,11 @@ impl ReflowPaginator {
             }
             WritingMode::HorizontalLtr | WritingMode::HorizontalRtl => {
                 let char_width = if is_cjk_dominant {
-                    self.font_size_px as f32 * 0.95
+                    font_size * 0.95
                 } else {
-                    self.font_size_px as f32 * 0.55
+                    font_size * 0.55
                 };
-                let line_height_px = self.font_size_px as f32 * self.line_height;
+                let line_height_px = font_size * line_height;
 
                 let chars_per_line = (usable_width / char_width).max(10.0) as usize;
                 let lines_per_page = (usable_height / line_height_px).max(4.0) as usize;

@@ -45,6 +45,12 @@ impl EpubArchive {
         self.files.insert(key, data);
     }
 
+    /// Remove a file entry from the archive.
+    pub fn remove(&mut self, path: &str) -> Option<Vec<u8>> {
+        let key = normalize_path(path);
+        self.files.remove(&key)
+    }
+
     /// Access reference to underlying files map in the archive.
     pub fn files(&self) -> &AHashMap<String, Vec<u8>> {
         &self.files
@@ -63,24 +69,30 @@ impl EpubArchive {
             "application/xhtml+xml"
         } else if lower.ends_with(".css") {
             "text/css"
-        } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
-            "image/jpeg"
         } else if lower.ends_with(".png") {
             "image/png"
+        } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+            "image/jpeg"
         } else if lower.ends_with(".gif") {
             "image/gif"
         } else if lower.ends_with(".svg") {
             "image/svg+xml"
         } else if lower.ends_with(".webp") {
             "image/webp"
-        } else if lower.ends_with(".ttf")
-            || lower.ends_with(".otf")
-            || lower.ends_with(".woff")
-            || lower.ends_with(".woff2")
-        {
+        } else if lower.ends_with(".ttf") {
+            "font/ttf"
+        } else if lower.ends_with(".otf") {
             "font/otf"
-        } else if lower.ends_with(".ncx") {
-            "application/x-dtbncx+xml"
+        } else if lower.ends_with(".woff") {
+            "font/woff"
+        } else if lower.ends_with(".woff2") {
+            "font/woff2"
+        } else if lower.ends_with(".js") {
+            "application/javascript"
+        } else if lower.ends_with(".json") {
+            "application/json"
+        } else if lower.ends_with(".smil") {
+            "application/smil+xml"
         } else {
             "application/octet-stream"
         }
@@ -91,7 +103,7 @@ impl EpubArchive {
         Self::from_reader(Cursor::new(bytes))
     }
 
-    /// Create an `EpubArchive` from any `Read + Seek` stream.
+    /// Construct `EpubArchive` from any `Read + Seek` source.
     /// If total uncompressed size exceeds 500MB, seamlessly switches to lazy on-demand decompression mode.
     pub fn from_reader<R: Read + Seek>(mut reader: R) -> Result<Self, EbookError> {
         let mut raw_bytes = Vec::new();
@@ -102,7 +114,8 @@ impl EpubArchive {
             .read_to_end(&mut raw_bytes)
             .map_err(|e| EbookError::Io(format!("Failed to read archive bytes: {}", e)))?;
 
-        let mut zip = ZipArchive::new(Cursor::new(raw_bytes.clone()))
+        let compressed_len = raw_bytes.len() as u64;
+        let mut zip = ZipArchive::new(Cursor::new(raw_bytes))
             .map_err(|e| EbookError::Zip(format!("Failed to parse ZIP archive: {}", e)))?;
 
         let entry_count = zip.len();
@@ -124,7 +137,6 @@ impl EpubArchive {
 
         // Decompression ratio protection (e.g. 100:1 ratio check against zip-bombs)
         const MAX_DECOMPRESSION_RATIO: u64 = 100;
-        let compressed_len = raw_bytes.len() as u64;
         if compressed_len > 0 && total_uncompressed_estimate > 20 * 1024 * 1024 {
             if total_uncompressed_estimate / compressed_len > MAX_DECOMPRESSION_RATIO {
                 return Err(EbookError::InvalidFormat(

@@ -133,7 +133,6 @@ impl KfxBook {
                 subitems: Vec::new(),
             });
         } else {
-            let total_chaps = grouped_chapters.len();
             for (idx, chap_html) in grouped_chapters.into_iter().enumerate() {
                 let sec_id = format!("kfx_sec_{}", idx);
                 let href = format!("sec_{}.xhtml", idx);
@@ -142,17 +141,9 @@ impl KfxBook {
                 let label = extract_first_heading(&chap_html)
                     .unwrap_or_else(|| format!("Section {}", idx + 1));
 
-                let img_tag = idx
-                    .checked_mul(37)
-                    .and_then(|val| val.checked_div(total_chaps))
-                    .map(|v| v + 1)
-                    .filter(|&img_idx| img_idx <= 37)
-                    .map(|img_idx| format!("\n<div class=\"kfx-image\" style=\"text-align: center; margin: 20px 0;\"><img src=\"images/img_{:04}.png\" alt=\"Illustration {}\" style=\"max-width: 100%; height: auto;\" /></div>\n", img_idx, img_idx))
-                    .unwrap_or_default();
-
                 let raw_html = format!(
-                    "<div class=\"kfx-section\"><h2>{}</h2><div>{}{}\n{}</div></div>",
-                    label, img_tag, chap_html, img_tag
+                    "<div class=\"kfx-section\"><h2>{}</h2><div>\n{}</div></div>",
+                    label, chap_html
                 );
                 let plain_text = crate::section::extract_plain_text(&raw_html);
                 let plain_text_lower = plain_text.to_lowercase();
@@ -246,21 +237,37 @@ impl KfxBook {
     }
 }
 
+fn find_ascii_ignore_case(haystack: &str, needle: &str) -> Option<usize> {
+    if needle.is_empty() {
+        return Some(0);
+    }
+    let needle_bytes = needle.as_bytes();
+    for (idx, _) in haystack.char_indices() {
+        if let Some(sub) = haystack.as_bytes().get(idx..idx + needle_bytes.len()) {
+            if sub.eq_ignore_ascii_case(needle_bytes) {
+                return Some(idx);
+            }
+        }
+    }
+    None
+}
+
 fn extract_first_heading(html: &str) -> Option<String> {
-    let lower = html.to_lowercase();
     for tag in &["<p>chapter ", "<p>chapter", "<h1>", "<h2>", "<h3>"] {
-        if let Some(idx) = lower.find(tag) {
+        if let Some(idx) = find_ascii_ignore_case(html, tag) {
             let start = idx + tag.len();
-            if let Some(end) = html[start..].find('<') {
-                let txt = html[start..start + end].trim();
-                if !txt.is_empty() && txt.len() < 100 {
-                    let mut heading = if !tag.starts_with("<p>") {
-                        txt.to_string()
-                    } else {
-                        format!("CHAPTER {}", txt)
-                    };
-                    heading = heading.replace("CHAPTER CHAPTER", "CHAPTER");
-                    return Some(heading);
+            if start <= html.len() {
+                if let Some(end) = html[start..].find('<') {
+                    let txt = html[start..start + end].trim();
+                    if !txt.is_empty() && txt.len() < 100 {
+                        let mut heading = if !tag.starts_with("<p>") {
+                            txt.to_string()
+                        } else {
+                            format!("CHAPTER {}", txt)
+                        };
+                        heading = heading.replace("CHAPTER CHAPTER", "CHAPTER");
+                        return Some(heading);
+                    }
                 }
             }
         }
@@ -269,13 +276,10 @@ fn extract_first_heading(html: &str) -> Option<String> {
 }
 
 fn extract_tag_or_kv(text: &str, key: &str) -> Option<String> {
-    let lower = text.to_lowercase();
-    let key_lower = key.to_lowercase();
-
-    for pat in &[format!("{}:", key_lower), format!("{} :", key_lower)] {
+    for pat in &[format!("{}:", key), format!("{} :", key)] {
         let mut search_from = 0;
-        while search_from < lower.len() {
-            if let Some(idx) = lower[search_from..].find(pat) {
+        while search_from < text.len() {
+            if let Some(idx) = find_ascii_ignore_case(&text[search_from..], pat) {
                 let start = search_from + idx + pat.len();
                 if start < text.len() {
                     let rest = &text[start..];

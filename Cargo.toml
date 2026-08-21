@@ -1,15 +1,15 @@
 [package]
 name = "ebook-rs"
-version = "0.16.2"
+version = "0.16.3"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.95"
 authors = ["SV-Stark"]
 description = "Pure Rust multi-format eBook engine (EPUB 2/3, MOBI, AZW3, KFX, FB2, LIT, CBZ, PDF, ODT, DOCX, RTF, TXT, MD) featuring Mozilla UniFFI, Readium CFI/LCP, SpeechSynthesis TTS sync, CJK vertical/RTL reflow, EPUB3 optimizer, AI RAG BM25 chunking, zero-copy search, Zstd caching, Python/WASM bindings, and native MCP server."
 license = "MIT"
 repository = "https://github.com/SV-stark/ebook-rs"
 homepage = "https://github.com/SV-stark/ebook-rs"
 readme = "README.md"
-exclude = ["samples/*"]
+exclude = ["samples/*", "tests/test_real_samples_golden.rs"]
 keywords = ["epub", "reader", "ebook", "parser", "cfi"]
 categories = ["parsing", "web-programming"]
 
@@ -31,9 +31,9 @@ required-features = ["server"]
 
 [features]
 default = ["server", "opds", "parallel", "mmap", "serde", "zstd", "mcp"]
-mcp = ["serde", "dep:serde_json"]
+mcp = []
 server = ["dep:tiny_http", "dep:url"]
-wasm = ["dep:wasm-bindgen", "dep:getrandom", "serde"]
+wasm = ["dep:wasm-bindgen", "dep:getrandom"]
 python = ["dep:pyo3"]
 opds = []
 parallel = ["dep:rayon"]
@@ -41,8 +41,8 @@ pdf = ["dep:pdf_oxide"]
 mmap = ["dep:memmap2"]
 async = ["dep:tokio"]
 mimalloc = ["dep:mimalloc"]
-serde = ["dep:serde", "dep:serde_json"]
-uniffi = ["dep:uniffi", "serde"]
+serde = []
+uniffi = ["dep:uniffi"]
 zstd = ["dep:zstd"]
 
 [dependencies]
@@ -52,8 +52,8 @@ pyo3 = { version = "0.29", features = ["extension-module", "abi3-py38"], optiona
 mimalloc = { version = "0.1", optional = true, default-features = false }
 zip = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
 roxmltree = "0.21"
-serde = { version = "1.0", features = ["derive"], optional = true }
-serde_json = { version = "1.0", optional = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 base64 = "0.23"
 percent-encoding = "2.3"
 tiny_http = { version = "0.12", optional = true }
@@ -76,10 +76,7 @@ whatlang = "0.18"
 zstd = { version = "0.13", optional = true }
 aes = "0.9"
 cbc = { version = "0.2", features = ["alloc"] }
-cipher = "0.5"
-ion-rs = "1.0.0-rc.11"
 sha1_smol = "1.0"
-rdocx = { version = "0.7", default-features = false }
 
 
 [profile.release]

@@ -77,9 +77,10 @@ impl Locations {
             return;
         }
 
+        let chunk_size = self.chunk_size.max(1);
         let mut offset = 0;
         while offset < text_len {
-            let next_offset = (offset + self.chunk_size).min(text_len);
+            let next_offset = offset.saturating_add(chunk_size).min(text_len);
             self.total_locations += 1;
             self.entries.push(LocationEntry {
                 location: self.total_locations,

@@ -334,14 +334,6 @@ impl UniversalEpub3Exporter {
             }
 
             // Write all section and asset entries into ZIP archive
-            #[cfg(feature = "parallel")]
-            {
-                use rayon::prelude::*;
-                // Validate entries concurrently across rayon worker threads
-                entries.par_iter().for_each(|entry| {
-                    let _len = entry.bytes.len();
-                });
-            }
 
             for entry in entries {
                 zip.start_file(&entry.path, options_deflate)

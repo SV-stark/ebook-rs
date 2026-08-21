@@ -6,11 +6,11 @@ use serde::{Deserialize, Serialize};
 
 fn hex_decode(s: &str) -> Result<Vec<u8>, ()> {
     let bytes_input = s.as_bytes();
-    if bytes_input.len() % 2 != 0 {
+    if !bytes_input.len().is_multiple_of(2) {
         return Err(());
     }
     let mut bytes = Vec::with_capacity(bytes_input.len() / 2);
-    for chunk in bytes_input.chunks_exact(2) {
+    for chunk in bytes_input.as_chunks::<2>().0 {
         let hi = hex_nibble(chunk[0])?;
         let lo = hex_nibble(chunk[1])?;
         bytes.push((hi << 4) | lo);
@@ -170,17 +170,6 @@ impl LcpDecryptor {
                                     }
                                 }
                             }
-                        }
-                    }
-                    if !valid {
-                        // Fallback check against double-hash for test backwards-compatibility
-                        let double_hash = sha256_hash(&user_key_bytes);
-                        let hex_str = double_hash
-                            .iter()
-                            .map(|b| format!("{:02x}", b))
-                            .collect::<String>();
-                        if hex_str.eq_ignore_ascii_case(key_check) {
-                            valid = true;
                         }
                     }
                     if !valid {

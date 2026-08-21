@@ -5,6 +5,33 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.3] - 2026-08-22
+
+### Fixed & Hardened
+
+- **UTF-8 Char-Boundary Safety**:
+  - Fixed HTML and CSS comment skippers in `src/optimizer.rs` to find `-->` and `*/` delimiters by pattern matching without mid-UTF-8 character slicing.
+  - Fixed RAG chunk overlap calculation in `src/rag.rs` to use `char_indices()` boundaries on multibyte Chinese/Japanese/Cyrillic texts.
+  - Fixed `src/footnote.rs`, `src/cbz.rs`, `src/lit.rs`, `src/kfx/reader.rs`, and `src/mobi.rs` to search tag boundaries and attributes in-place without `.to_lowercase()` cross-string offset desynchronization.
+  - Fixed HTML entity lookahead window in `src/section.rs` to strictly clamp on UTF-8 char boundaries.
+- **Security & Sandboxing**:
+  - Added strict `Host` header validation (`localhost`, `127.0.0.1`, `[::1]`) in `src/server.rs` to prevent DNS rebinding attacks.
+  - Sandboxed the section iframe in `src/web_ui.rs` (`sandbox="allow-same-origin allow-scripts"`).
+  - Hardened MCP `convert_ebook` against path traversal (`..` / null bytes).
+  - Bounded MCP stdio line buffer reading to 16MB and emitted JSON-RPC `-32600` errors on oversized inputs without terminating the server.
+- **Stability & Performance**:
+  - Prevented infinite loops and integer overflow panics in `src/locations.rs` (`offset.saturating_add(chunk_size)` and `chunk_size.max(1)`).
+  - Clamped `font_size` and `line_height` against zero/infinities in `src/paginator.rs`.
+  - Optimized `src/lit.rs` chapter and tag matching to $O(N)$ zero-allocation scanning with `memchr::memmem`, eliminating minutes-long stalls on large LIT files.
+  - Added `const MAX_DOM_DEPTH: usize = 256;` stack guard in `src/dom.rs` to prevent stack overflows on deeply nested ASTs.
+  - Added decompression limits (`MAX_DOCX_ENTRIES`, bounded `.take()`) in `src/docx.rs`.
+  - Handled MOBI HUFF/CDIC compression (flag 17480) with a structured error rather than emitting raw corrupted binary bytes.
+- **Dependencies & Feature Matrix**:
+  - Made `serde` and `serde_json` core non-optional dependencies, fully fixing `cargo check --no-default-features` and single-feature builds.
+  - Removed unused `rdocx` and `ion-rs` dependencies from `Cargo.toml`.
+  - Dropped non-standard `double_hash` fallback in Readium LCP key derivation (`src/lcp.rs`).
+  - Added golden test suite `tests/test_real_samples_golden.rs` running across 14 genuine multi-megabyte sample formats (EPUB2, EPUB3, KEPUB, AZW3, MOBI, KFX, FB2, LIT, CBZ, CBR, PDF, TXT, DOCX, RTF) with crate packaging exclusions in `Cargo.toml`.
+
 ## [0.16.2] - 2026-08-20
 
 ### Fixed & Security

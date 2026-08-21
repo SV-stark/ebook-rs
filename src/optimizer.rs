@@ -113,7 +113,6 @@ impl EpubOptimizer {
     /// Minify HTML content by removing HTML comments and collapsing redundant whitespace.
     pub fn minify_html(html: &str) -> String {
         let mut out = String::with_capacity(html.len());
-        let mut in_comment = false;
         let mut in_tag = false;
         let mut in_quote: Option<char> = None;
         let mut in_pre = false;
@@ -121,18 +120,11 @@ impl EpubOptimizer {
         let mut i = 0;
 
         while i < bytes.len() {
-            if !in_comment && !in_tag && html[i..].starts_with("<!--") {
-                in_comment = true;
-                i += 4;
-                continue;
-            }
-
-            if in_comment {
-                if html[i..].starts_with("-->") {
-                    in_comment = false;
-                    i += 3;
+            if !in_tag && html[i..].starts_with("<!--") {
+                if let Some(end_idx) = html[i + 4..].find("-->") {
+                    i += 4 + end_idx + 3;
                 } else {
-                    i += 1;
+                    break;
                 }
                 continue;
             }
@@ -198,23 +190,15 @@ impl EpubOptimizer {
     /// Minify CSS style sheets by removing CSS comments and collapsing whitespace.
     pub fn minify_css(css: &str) -> String {
         let mut out = String::with_capacity(css.len());
-        let mut in_comment = false;
         let bytes = css.as_bytes();
         let mut i = 0;
 
         while i < bytes.len() {
-            if !in_comment && css[i..].starts_with("/*") {
-                in_comment = true;
-                i += 2;
-                continue;
-            }
-
-            if in_comment {
-                if css[i..].starts_with("*/") {
-                    in_comment = false;
-                    i += 2;
+            if css[i..].starts_with("/*") {
+                if let Some(end_idx) = css[i + 2..].find("*/") {
+                    i += 2 + end_idx + 2;
                 } else {
-                    i += 1;
+                    break;
                 }
                 continue;
             }
@@ -415,7 +399,7 @@ impl EpubOptimizer {
             }
         }
 
-        // Remap section HTML src / href references
+        // Remap section HTML src / href references and remove duplicate files from archive
         if !path_redirects.is_empty() {
             for section in sections {
                 for (old_path, new_path) in &path_redirects {
@@ -425,6 +409,9 @@ impl EpubOptimizer {
                     section.processed_html =
                         section.processed_html.replace(old_filename, new_filename);
                 }
+            }
+            for old_path in path_redirects.keys() {
+                archive.remove(old_path);
             }
         }
 

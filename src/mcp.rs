@@ -61,8 +61,22 @@ pub fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
     let mut reader = stdin.lock();
     let mut writer = stdout.lock();
 
+    const MAX_MCP_LINE_SIZE: usize = 16 * 1024 * 1024;
     let mut line = String::new();
     while reader.read_line(&mut line)? > 0 {
+        if line.len() > MAX_MCP_LINE_SIZE {
+            line.clear();
+            let err_resp = json!({
+                "jsonrpc": "2.0",
+                "error": {
+                    "code": -32600,
+                    "message": "Request entity too large: MCP line exceeds 16MB limit"
+                },
+                "id": Value::Null
+            });
+            let _ = send_json(&mut writer, &err_resp);
+            continue;
+        }
         let trimmed = line.trim();
         if trimmed.is_empty() {
             line.clear();
@@ -679,8 +693,9 @@ fn handle_tool_call(params: Option<&Value>) -> Result<String, Box<dyn std::error
                 .and_then(|v| v.as_str())
                 .ok_or("Missing required argument 'output_path'")?;
 
-            if input_path.contains('\0') || output_path.contains('\0') {
-                return Err("File paths must not contain null characters".into());
+            if input_path.contains('\0') || output_path.contains('\0') || output_path.contains("..")
+            {
+                return Err("Invalid file path: path traversal or null byte detected".into());
             }
 
             if !Path::new(input_path).exists() {
