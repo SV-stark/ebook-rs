@@ -1,0 +1,16 @@
+{
+  "name": "ebook-rs-docs",
+  "version": "0.16.4",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.41.7",
+    "astro": "^5.4.2",
+    "sharp": "^0.33.5"
+  }
+}

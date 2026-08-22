@@ -8,6 +8,7 @@
 [![Crates.io Downloads](https://img.shields.io/crates/d/ebook-rs.svg?style=flat-square&color=blue)](https://crates.io/crates/ebook-rs)
 [![PyPI Version](https://img.shields.io/pypi/v/ebook-rs.svg?style=flat-square&logo=python&label=pypi)](https://pypi.org/project/ebook-rs/)
 [![Docs.rs](https://img.shields.io/docsrs/ebook-rs?style=flat-square&logo=docs.rs)](https://docs.rs/ebook-rs)
+[![Documentation](https://img.shields.io/badge/docs-sv--stark.github.io%2Febook--rs-0284c7?style=flat-square&logo=gitbook&logoColor=white)](https://sv-stark.github.io/ebook-rs/)
 [![CI Build Status](https://img.shields.io/github/actions/workflow/status/SV-stark/ebook-rs/ci.yml?branch=main&style=flat-square&label=build)](https://github.com/SV-stark/ebook-rs/actions)
 [![Rust Edition](https://img.shields.io/badge/rust-2024%20%7C%201.95%2B-informational?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/crates/l/ebook-rs.svg?style=flat-square&color=green)](LICENSE)
