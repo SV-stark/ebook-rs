@@ -5,7 +5,7 @@ use ahash::AHashMap;
 use parking_lot::RwLock;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::io::{BufRead, Write};
+use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, LazyLock};
 
@@ -62,10 +62,50 @@ pub fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
     let mut writer = stdout.lock();
 
     const MAX_MCP_LINE_SIZE: usize = 16 * 1024 * 1024;
-    let mut line = String::new();
-    while reader.read_line(&mut line)? > 0 {
-        if line.len() > MAX_MCP_LINE_SIZE {
-            line.clear();
+    let mut raw_buf = Vec::new();
+
+    loop {
+        raw_buf.clear();
+        let mut total_read = 0;
+        let mut exceeded = false;
+
+        loop {
+            use std::io::BufRead;
+            let available = match reader.fill_buf() {
+                Ok(n) => n,
+                Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => return Err(Box::new(e)),
+            };
+            if available.is_empty() {
+                break;
+            }
+            if let Some(nl_pos) = memchr::memchr(b'\n', available) {
+                let take_len = nl_pos + 1;
+                if total_read + take_len > MAX_MCP_LINE_SIZE {
+                    exceeded = true;
+                } else if !exceeded {
+                    raw_buf.extend_from_slice(&available[..take_len]);
+                }
+                reader.consume(take_len);
+                total_read += take_len;
+                break;
+            } else {
+                let chunk_len = available.len();
+                if total_read + chunk_len > MAX_MCP_LINE_SIZE {
+                    exceeded = true;
+                } else if !exceeded {
+                    raw_buf.extend_from_slice(available);
+                }
+                reader.consume(chunk_len);
+                total_read += chunk_len;
+            }
+        }
+
+        if total_read == 0 {
+            break;
+        }
+
+        if exceeded {
             let err_resp = json!({
                 "jsonrpc": "2.0",
                 "error": {
@@ -77,9 +117,25 @@ pub fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
             let _ = send_json(&mut writer, &err_resp);
             continue;
         }
-        let trimmed = line.trim();
+
+        let line_str = match std::str::from_utf8(&raw_buf) {
+            Ok(s) => s,
+            Err(_) => {
+                let err_resp = json!({
+                    "jsonrpc": "2.0",
+                    "error": {
+                        "code": -32700,
+                        "message": "Invalid UTF-8 in MCP request"
+                    },
+                    "id": Value::Null
+                });
+                let _ = send_json(&mut writer, &err_resp);
+                continue;
+            }
+        };
+
+        let trimmed = line_str.trim();
         if trimmed.is_empty() {
-            line.clear();
             continue;
         }
 
@@ -99,8 +155,6 @@ pub fn run_mcp_server() -> Result<(), Box<dyn std::error::Error>> {
                 send_json(&mut writer, &err_resp)?;
             }
         }
-
-        line.clear();
     }
 
     Ok(())

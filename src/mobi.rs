@@ -564,7 +564,6 @@ fn extract_mobi_images_and_populate_archive(
                 let rel_path = format!("images/img_{:04}.{}", img_num, ext);
                 let full_archive_path = format!("OEBPS/{}", rel_path);
                 archive.insert(full_archive_path, img_bytes.to_vec());
-                archive.insert(rel_path.clone(), img_bytes.to_vec());
                 image_map.insert(img_num, rel_path);
             }
         }

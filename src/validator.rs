@@ -218,7 +218,7 @@ impl UniversalEpub3Exporter {
             };
             let mut opf_xml = format!(
                 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<package xmlns=\"http://www.idpf.org/2007/opf\" version=\"3.0\" unique-identifier=\"uid\">\n  <metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\n    <dc:title>{}</dc:title>\n    <dc:identifier id=\"uid\">{}</dc:identifier>\n    <dc:language>{}</dc:language>\n",
-                crate::dom::sanitize_and_repair_xml(&meta.title),
+                crate::dom::xml_escape(&meta.title),
                 meta.identifier
                     .as_deref()
                     .unwrap_or("urn:uuid:ebook-rs-export"),
@@ -227,7 +227,7 @@ impl UniversalEpub3Exporter {
             for creator in &meta.creators {
                 opf_xml.push_str(&format!(
                     "    <dc:creator>{}</dc:creator>\n",
-                    crate::dom::sanitize_and_repair_xml(creator)
+                    crate::dom::xml_escape(creator)
                 ));
             }
             opf_xml.push_str("  </metadata>\n  <manifest>\n    <item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>\n");

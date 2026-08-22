@@ -321,13 +321,44 @@ impl EpubArchive {
         )))
     }
 
-    /// Read text content of a file in the archive with SIMD UTF-8 decoding.
+    /// Read text content of a file in the archive with SIMD UTF-8 / UTF-16 / legacy decoding.
     pub fn read_string(&self, path: &str) -> Result<String, EbookError> {
         let bytes = self.read_bytes(path)?;
         if let Ok(s) = simdutf8::basic::from_utf8(&bytes) {
             Ok(s.to_string())
+        } else if bytes.starts_with(&[0xFE, 0xFF]) {
+            let u16_data: Vec<u16> = bytes[2..]
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_be_bytes([c[0], c[1]]))
+                .collect();
+            Ok(String::from_utf16_lossy(&u16_data))
+        } else if bytes.starts_with(&[0xFF, 0xFE]) {
+            let u16_data: Vec<u16> = bytes[2..]
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .collect();
+            Ok(String::from_utf16_lossy(&u16_data))
+        } else if bytes.windows(2).any(|w| w == b"<\0" || w == b"\0<") {
+            let is_le = bytes.windows(2).any(|w| w == b"<\0");
+            let u16_data: Vec<u16> = bytes
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| {
+                    if is_le {
+                        u16::from_le_bytes([c[0], c[1]])
+                    } else {
+                        u16::from_be_bytes([c[0], c[1]])
+                    }
+                })
+                .collect();
+            Ok(String::from_utf16_lossy(&u16_data))
         } else {
-            Ok(String::from_utf8_lossy(&bytes).to_string())
+            Ok(crate::dom::decode_bytes_with_encoding(&bytes, None))
         }
     }
 

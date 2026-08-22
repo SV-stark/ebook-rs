@@ -28,13 +28,24 @@ impl SearchEngine {
             query.to_lowercase()
         };
 
+        let precompiled_re = if !case_sensitive && !query.is_ascii() {
+            regex::Regex::new(&format!("(?i){}", regex::escape(query))).ok()
+        } else {
+            None
+        };
+
         #[cfg(feature = "parallel")]
         {
             use rayon::prelude::*;
             sections
                 .par_iter()
                 .flat_map(|section| {
-                    Self::search_section_prepared(section, &query_pattern, case_sensitive)
+                    Self::search_section_prepared(
+                        section,
+                        &query_pattern,
+                        case_sensitive,
+                        precompiled_re.as_ref(),
+                    )
                 })
                 .collect()
         }
@@ -47,6 +58,7 @@ impl SearchEngine {
                     section,
                     &query_pattern,
                     case_sensitive,
+                    precompiled_re.as_ref(),
                 ));
             }
             results
@@ -64,13 +76,24 @@ impl SearchEngine {
         } else {
             query.to_lowercase()
         };
-        Self::search_section_prepared(section, &query_pattern, case_sensitive)
+        let precompiled_re = if !case_sensitive && !query.is_ascii() {
+            regex::Regex::new(&format!("(?i){}", regex::escape(query))).ok()
+        } else {
+            None
+        };
+        Self::search_section_prepared(
+            section,
+            &query_pattern,
+            case_sensitive,
+            precompiled_re.as_ref(),
+        )
     }
 
     fn search_section_prepared(
         section: &Section,
         query: &str,
         case_sensitive: bool,
+        precompiled_re: Option<&regex::Regex>,
     ) -> Vec<SearchResult> {
         let mut results = Vec::new();
         if query.trim().is_empty() || section.plain_text.is_empty() {
@@ -128,37 +151,46 @@ impl SearchEngine {
             }
         } else {
             // Non-ASCII case-insensitive matching: match directly on section.plain_text
-            let pattern = format!("(?i){}", regex::escape(query));
-            if let Ok(re) = regex::Regex::new(&pattern) {
-                for m in re.find_iter(&section.plain_text) {
-                    let start_b = m.start();
-                    let match_len = m.len();
-                    let char_offset = section.plain_text[..start_b].chars().count();
-
-                    let (before, matched, after, has_prefix, has_suffix) =
-                        extract_zero_alloc_snippet(&section.plain_text, start_b, match_len);
-
-                    let prefix = if has_prefix { "..." } else { "" };
-                    let suffix = if has_suffix { "..." } else { "" };
-
-                    let snippet = format!(
-                        "{}{}<mark>{}</mark>{}{}",
-                        prefix,
-                        html_escape(before),
-                        html_escape(matched),
-                        html_escape(after),
-                        suffix
-                    );
-
-                    let cfi = Cfi::from_spine_index(section.index, None, char_offset).to_string();
-
-                    results.push(SearchResult {
-                        spine_index: section.index,
-                        snippet,
-                        cfi,
-                        char_offset,
-                    });
+            let owned_re;
+            let re = if let Some(r) = precompiled_re {
+                r
+            } else {
+                let pattern = format!("(?i){}", regex::escape(query));
+                if let Ok(r) = regex::Regex::new(&pattern) {
+                    owned_re = Some(r);
+                    owned_re.as_ref().unwrap()
+                } else {
+                    return results;
                 }
+            };
+            for m in re.find_iter(&section.plain_text) {
+                let start_b = m.start();
+                let match_len = m.len();
+                let char_offset = section.plain_text[..start_b].chars().count();
+
+                let (before, matched, after, has_prefix, has_suffix) =
+                    extract_zero_alloc_snippet(&section.plain_text, start_b, match_len);
+
+                let prefix = if has_prefix { "..." } else { "" };
+                let suffix = if has_suffix { "..." } else { "" };
+
+                let snippet = format!(
+                    "{}{}<mark>{}</mark>{}{}",
+                    prefix,
+                    html_escape(before),
+                    html_escape(matched),
+                    html_escape(after),
+                    suffix
+                );
+
+                let cfi = Cfi::from_spine_index(section.index, None, char_offset).to_string();
+
+                results.push(SearchResult {
+                    spine_index: section.index,
+                    snippet,
+                    cfi,
+                    char_offset,
+                });
             }
         }
 

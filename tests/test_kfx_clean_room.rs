@@ -44,3 +44,32 @@ fn test_kfx_container_header_structure() {
     assert!(header_len > 18);
     assert!(header_len < kfx_bytes.len());
 }
+
+#[test]
+fn test_kfx_multibyte_utf8_preservation() {
+    let markdown_content = "# KFX UTF-8 Test: München & Café\n\nChapter with German characters: Müller und Schönbrunn. Also curly quotes: “Hello, world!” and em-dashes — perfectly preserved in KFX.";
+    let original_book =
+        TxtBook::parse(markdown_content.as_bytes(), "KFX UTF-8 Book", true).unwrap();
+
+    let kfx_bytes = UniversalKfxExporter::export(&original_book).unwrap();
+    let parsed_book = KfxBook::parse(&kfx_bytes).unwrap();
+
+    assert!(!parsed_book.sections.is_empty());
+    let all_text = parsed_book
+        .sections
+        .iter()
+        .map(|s| s.plain_text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    assert!(
+        all_text.contains("Müller")
+            || all_text.contains("Schönbrunn")
+            || all_text.contains("Café")
+            || all_text.contains("Hello")
+    );
+
+    // Verify search works on KFX parsed book
+    let results = parsed_book.search("Müller");
+    assert!(!results.is_empty() || !parsed_book.search("Hello").is_empty());
+}

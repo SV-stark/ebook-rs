@@ -33,7 +33,24 @@ impl KfxBook {
         let mut toc = Vec::new();
         let resources = AHashMap::new();
 
-        // Extract clean, human-readable text fragments from KFX binary container
+        // 1. First, attempt to extract structured storylines from container index entries
+        let mut storyline_sections: Vec<String> = Vec::new();
+        for entry in &container.index_entries {
+            if entry.type_id == crate::kfx::symbols::SYM_STORYLINE_FRAGMENT
+                || entry.type_id == crate::kfx::symbols::SYM_SECTION_BLOCK
+                || entry.type_id == crate::kfx::symbols::SYM_CONTENT_BODY
+            {
+                if let Some(payload_slice) = container.get_entry_payload(entry) {
+                    let sec_str = String::from_utf8_lossy(payload_slice);
+                    let clean = sec_str.trim();
+                    if !clean.is_empty() && is_valid_kfx_text_paragraph(clean) {
+                        storyline_sections.push(clean.to_string());
+                    }
+                }
+            }
+        }
+
+        // 2. Extract clean, human-readable text fragments from KFX binary container
         let text_fragments = carve_kfx_text_fragments(bytes);
 
         // Fallback title / creator extraction from container payload
@@ -67,9 +84,17 @@ impl KfxBook {
         let mut grouped_chapters: Vec<String> = Vec::new();
         let mut current_chap = String::new();
 
-        for frag in text_fragments {
+        let fragments_to_group = if !storyline_sections.is_empty() {
+            storyline_sections
+        } else {
+            text_fragments
+        };
+
+        for frag in fragments_to_group {
             let is_chap_header = frag.starts_with("CHAPTER ")
                 || frag.starts_with("Chapter ")
+                || frag.starts_with("# ")
+                || frag.starts_with("## ")
                 || frag.contains("CHAPTER I")
                 || frag.contains("CHAPTER II");
 
@@ -316,22 +341,13 @@ fn carve_kfx_images(bytes: &[u8], archive: &mut crate::archive::EpubArchive) -> 
         // PNG magic check: \x89PNG\r\n\x1a\n
         if &bytes[i..i + 8] == b"\x89PNG\r\n\x1a\n" {
             let start = i;
-            let mut found_end = false;
-            let mut j = i + 8;
-            while j + 8 <= bytes.len() {
-                if &bytes[j..j + 4] == b"IEND" {
-                    let end = j + 8;
-                    let img_data = bytes[start..end].to_vec();
-                    image_count += 1;
-                    let filename = format!("images/img_{:04}.png", image_count);
-                    archive.insert(format!("OEBPS/{}", filename), img_data);
-                    i = end;
-                    found_end = true;
-                    break;
-                }
-                j += 1;
-            }
-            if found_end {
+            if let Some(iend_pos) = memchr::memmem::find(&bytes[i + 8..], b"IEND") {
+                let end = (i + 8 + iend_pos + 8).min(bytes.len());
+                let img_data = bytes[start..end].to_vec();
+                image_count += 1;
+                let filename = format!("images/img_{:04}.png", image_count);
+                archive.insert(format!("OEBPS/{}", filename), img_data);
+                i = end;
                 continue;
             }
         }
@@ -339,26 +355,17 @@ fn carve_kfx_images(bytes: &[u8], archive: &mut crate::archive::EpubArchive) -> 
         // JPEG magic check: \xFF\xD8\xFF
         if bytes[i] == 0xFF && bytes[i + 1] == 0xD8 && bytes[i + 2] == 0xFF {
             let start = i;
-            let mut j = i + 3;
-            let mut found_end = false;
-            while j + 2 <= bytes.len() {
-                if bytes[j] == 0xFF && bytes[j + 1] == 0xD9 {
-                    let end = j + 2;
-                    let len = end - start;
-                    if len > 500 {
-                        let img_data = bytes[start..end].to_vec();
-                        image_count += 1;
-                        let filename = format!("images/img_{:04}.jpg", image_count);
-                        archive.insert(format!("OEBPS/{}", filename), img_data);
-                        i = end;
-                        found_end = true;
-                        break;
-                    }
+            if let Some(eoi_pos) = memchr::memmem::find(&bytes[i + 3..], b"\xFF\xD9") {
+                let end = i + 3 + eoi_pos + 2;
+                let len = end - start;
+                if len > 500 && len < 20 * 1024 * 1024 {
+                    let img_data = bytes[start..end].to_vec();
+                    image_count += 1;
+                    let filename = format!("images/img_{:04}.jpg", image_count);
+                    archive.insert(format!("OEBPS/{}", filename), img_data);
+                    i = end;
+                    continue;
                 }
-                j += 1;
-            }
-            if found_end {
-                continue;
             }
         }
 
@@ -372,11 +379,13 @@ fn carve_kfx_text_fragments(bytes: &[u8]) -> Vec<String> {
     let mut fragments = Vec::new();
     let mut current = String::new();
 
-    for &b in bytes {
-        if (32..=126).contains(&b) || b == b'\n' || b == b'\r' || b == b'\t' {
-            current.push(b as char);
+    let utf8_text = String::from_utf8_lossy(bytes);
+
+    for ch in utf8_text.chars() {
+        if ch != '\u{FFFD}' && (!ch.is_control() || ch == '\n' || ch == '\r' || ch == '\t') {
+            current.push(ch);
         } else {
-            if current.len() >= 25 {
+            if current.trim().len() >= 4 {
                 let trim = current.trim();
                 if is_valid_kfx_text_paragraph(trim) {
                     fragments.push(trim.to_string());
@@ -385,7 +394,7 @@ fn carve_kfx_text_fragments(bytes: &[u8]) -> Vec<String> {
             current.clear();
         }
     }
-    if current.len() >= 25 {
+    if current.trim().len() >= 4 {
         let trim = current.trim();
         if is_valid_kfx_text_paragraph(trim) {
             fragments.push(trim.to_string());
@@ -407,6 +416,9 @@ fn is_valid_kfx_text_paragraph(text: &str) -> bool {
         || text.contains("Generator")
         || text.contains("calibre_pb")
         || text.contains("OEBPS/Images/")
+        || text.contains("com.amazon")
+        || text.contains("font_family")
+        || text.contains("kfx_style")
     {
         return false;
     }
@@ -419,18 +431,26 @@ fn is_valid_kfx_text_paragraph(text: &str) -> bool {
         || lower.starts_with("style")
         || lower.starts_with("width")
         || lower.starts_with("height")
+        || lower.starts_with("text-align")
+        || lower.starts_with("line-height")
+        || lower.starts_with("background-")
         || lower.starts_with("@font-face")
         || lower.starts_with("@page")
     {
         return false;
     }
 
-    let letters = text
+    let total_chars = text.chars().count();
+    if total_chars == 0 {
+        return false;
+    }
+
+    let valid_count = text
         .chars()
-        .filter(|c| c.is_alphanumeric() || c.is_whitespace() || ".,!?'\"-".contains(*c))
+        .filter(|c| !c.is_control() || *c == '\n' || *c == '\r' || *c == '\t')
         .count();
-    let ratio = letters as f64 / text.len() as f64;
-    ratio >= 0.82
+    let ratio = valid_count as f64 / total_chars as f64;
+    ratio >= 0.90
 }
 
 #[cfg(test)]

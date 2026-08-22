@@ -139,11 +139,57 @@ fn test_golden_real_kfx() {
         !book.sections.is_empty(),
         "KFX sections should be populated"
     );
-    assert!(!book.metadata().title.is_empty());
+    assert!(
+        !book.metadata().title.is_empty(),
+        "KFX title should not be empty"
+    );
 
-    // Test KFX export roundtrip
+    let total_chars: usize = book.sections.iter().map(|s| s.char_count).sum();
+    assert!(
+        total_chars > 20_000,
+        "Real KFX book should extract substantial text content, got {}",
+        total_chars
+    );
+
+    // 1. Search operations on real KFX
+    let search_rabbit = book.search("Rabbit");
+    assert!(
+        !search_rabbit.is_empty(),
+        "Should find 'Rabbit' in real KFX book"
+    );
+
+    let search_alice = book.search("Alice");
+    assert!(
+        !search_alice.is_empty(),
+        "Should find 'Alice' in real KFX book"
+    );
+
+    // 2. Table of Contents & Locations
+    assert!(!book.toc().is_empty(), "TOC entries should be generated");
+    assert!(
+        book.locations().total_locations > 0,
+        "Locations should be generated"
+    );
+
+    // 3. AI RAG Chunking
+    let rag_chunks = book.to_rag_chunks(&RagChunkConfig::default());
+    assert!(
+        !rag_chunks.is_empty(),
+        "RAG chunks should be generated from KFX"
+    );
+
+    // 4. Universal KFX export roundtrip & re-parsing
     let kfx_bytes = UniversalKfxExporter::export(&book).expect("Failed to export KFX");
-    assert!(!kfx_bytes.is_empty());
+    assert!(kfx_bytes.len() > 100, "Exported KFX buffer should be valid");
+    assert_eq!(
+        &kfx_bytes[0..4],
+        b"CONT",
+        "Exported KFX should have CONT magic"
+    );
+
+    let roundtrip_book = Book::from_bytes(&kfx_bytes).expect("Roundtrip KFX should parse cleanly");
+    assert_eq!(roundtrip_book.metadata().title, book.metadata().title);
+    assert!(!roundtrip_book.sections.is_empty());
 }
 
 #[test]

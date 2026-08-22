@@ -17,6 +17,7 @@ pub struct KfxIndexEntry {
 pub struct KfxContainer {
     pub version: u16,
     pub index_entries: Vec<KfxIndexEntry>,
+    pub payload_start: usize,
     pub payload: Vec<u8>,
 }
 
@@ -24,6 +25,24 @@ impl KfxContainer {
     /// Detect if bytes start with valid KFX magic.
     pub fn is_kfx(bytes: &[u8]) -> bool {
         bytes.len() >= 4 && &bytes[0..4] == KFX_MAGIC_CONT
+    }
+
+    /// Retrieve raw byte slice for a specific index entry from the container payload.
+    pub fn get_entry_payload<'a>(&'a self, entry: &KfxIndexEntry) -> Option<&'a [u8]> {
+        let len = entry.length as usize;
+        let off = entry.offset as usize;
+        if off.checked_add(len)? <= self.payload.len() {
+            Some(&self.payload[off..off + len])
+        } else if off >= self.payload_start {
+            let rel_off = off - self.payload_start;
+            if rel_off.checked_add(len)? <= self.payload.len() {
+                Some(&self.payload[rel_off..rel_off + len])
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 
     /// Parse raw container bytes into KfxContainer.
@@ -117,6 +136,7 @@ impl KfxContainer {
         Ok(Self {
             version,
             index_entries,
+            payload_start,
             payload,
         })
     }

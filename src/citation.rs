@@ -42,8 +42,8 @@ impl CitationExporter {
         }
         if let Some(id) = metadata.identifier.as_deref() {
             bib.push_str(&format!("  isbn      = {{{}}}\n", id));
-        } else {
-            bib.pop(); // remove trailing comma
+        } else if bib.ends_with(",\n") {
+            bib.truncate(bib.len() - 2);
             bib.push('\n');
         }
         bib.push('}');
@@ -163,6 +163,16 @@ fn generate_cite_key(metadata: &Metadata) -> String {
 
 fn extract_year(date_str: Option<&str>) -> Option<String> {
     let d = date_str?;
+    for token in d.split(|c: char| !c.is_ascii_digit()) {
+        if token.len() == 4
+            && (token.starts_with("17")
+                || token.starts_with("18")
+                || token.starts_with("19")
+                || token.starts_with("20"))
+        {
+            return Some(token.to_string());
+        }
+    }
     let digits: String = d.chars().filter(|c| c.is_ascii_digit()).collect();
     if digits.len() >= 4 {
         Some(digits[..4].to_string())

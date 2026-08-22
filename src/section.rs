@@ -516,6 +516,24 @@ fn regex_find_attr(html: &str, attr: &str) -> Vec<(String, String)> {
             (None, None) => break,
         };
 
+        // Skip if inside <pre>, <code>, <script>, or <style> blocks
+        let before_slice = &html[..abs_start];
+        let inside_code = ["<pre", "<code", "<script", "<style"].iter().any(|open| {
+            let close = format!("</{}", &open[1..]);
+            let last_o = before_slice.rfind(open);
+            let last_c = before_slice.rfind(&close);
+            match (last_o, last_c) {
+                (Some(_o), None) => true,
+                (Some(o), Some(c)) => o > c,
+                _ => false,
+            }
+        });
+
+        if inside_code {
+            search_idx = abs_start + 1;
+            continue;
+        }
+
         let val_start = abs_start + attr.len() + 2;
         if html.is_char_boundary(val_start) {
             if let Some(end) = html[val_start..].find('"') {
@@ -668,10 +686,18 @@ pub fn sanitize_html_scripts(html: &str) -> String {
                 || starts_with_ignore_case(slice, "<iframe")
                 || starts_with_ignore_case(slice, "<object")
                 || starts_with_ignore_case(slice, "<embed")
+                || starts_with_ignore_case(slice, "<applet")
+                || starts_with_ignore_case(slice, "<base")
+                || starts_with_ignore_case(slice, "<form")
+                || (starts_with_ignore_case(slice, "<meta")
+                    && (find_ignore_case(slice.get(..60).unwrap_or(slice), "http-equiv").is_some()
+                        || find_ignore_case(slice.get(..60).unwrap_or(slice), "refresh").is_some()))
             {
                 if let Some(close_tag_pos) = find_tag_end(html, i) {
                     let tag_str = &html[i..=close_tag_pos];
-                    let is_self_closing = tag_str.ends_with("/>");
+                    let is_self_closing = tag_str.ends_with("/>")
+                        || starts_with_ignore_case(slice, "<base")
+                        || starts_with_ignore_case(slice, "<meta");
                     if is_self_closing {
                         i = close_tag_pos + 1;
                         continue;
@@ -683,6 +709,10 @@ pub fn sanitize_html_scripts(html: &str) -> String {
                         "</iframe>"
                     } else if starts_with_ignore_case(slice, "<object") {
                         "</object>"
+                    } else if starts_with_ignore_case(slice, "<applet") {
+                        "</applet>"
+                    } else if starts_with_ignore_case(slice, "<form") {
+                        "</form>"
                     } else {
                         "</embed>"
                     };

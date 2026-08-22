@@ -9,6 +9,7 @@ use url::Url;
 pub struct ReaderServer {
     book: Arc<RwLock<Book>>,
     port: u16,
+    auth_token: Option<String>,
 }
 
 impl ReaderServer {
@@ -16,7 +17,14 @@ impl ReaderServer {
         Self {
             book: Arc::new(RwLock::new(book)),
             port,
+            auth_token: None,
         }
+    }
+
+    /// Set an optional bearer authentication token for `/api/mcp` and API endpoints.
+    pub fn with_auth_token(mut self, token: impl Into<String>) -> Self {
+        self.auth_token = Some(token.into());
+        self
     }
 
     /// Start listening and serving incoming HTTP requests.
@@ -31,13 +39,18 @@ impl ReaderServer {
             "🚀 EBook-RS Reader Server listening on http://localhost:{}",
             self.port
         );
+        if let Some(_ref) = &self.auth_token {
+            println!("🔒 MCP Endpoint Authenticated (Bearer token configured).");
+        }
         println!("Press Ctrl+C to exit.");
 
         let active_threads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let server_auth_token = self.auth_token.clone();
 
         for mut request in server.incoming_requests() {
             let book_arc = Arc::clone(&self.book);
             let active_cnt = Arc::clone(&active_threads);
+            let auth_tok = server_auth_token.clone();
 
             if active_cnt.load(std::sync::atomic::Ordering::Relaxed) >= 64 {
                 let res = Response::from_string("503 Service Unavailable: Server busy")
@@ -96,6 +109,40 @@ impl ReaderServer {
                         let header =
                             Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
                                 .unwrap();
+
+                        // Validate Authentication Token if configured
+                        if let Some(ref required_token) = auth_tok {
+                            let auth_hdr = request
+                                .headers()
+                                .iter()
+                                .find(|h| {
+                                    h.field.equiv("Authorization") || h.field.equiv("X-MCP-Token")
+                                })
+                                .map(|h| h.value.as_str());
+                            let query_tok = parsed_url
+                                .query_pairs()
+                                .find(|(k, _)| k == "token")
+                                .map(|(_, v)| v.to_string());
+
+                            let is_authed = match auth_hdr {
+                                Some(hdr) if hdr.starts_with("Bearer ") => {
+                                    &hdr[7..] == required_token
+                                }
+                                Some(hdr) => hdr == required_token,
+                                None => query_tok.as_deref() == Some(required_token.as_str()),
+                            };
+
+                            if !is_authed {
+                                send_response(
+                                    request,
+                                    Response::from_string("{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32000,\"message\":\"Unauthorized: Invalid or missing authentication token\"},\"id\":null}")
+                                        .with_status_code(StatusCode(401))
+                                        .with_header(header),
+                                );
+                                return;
+                            }
+                        }
+
                         if request.method() != &tiny_http::Method::Post {
                             send_response(
                                 request,
@@ -203,63 +250,25 @@ impl ReaderServer {
                                 );
                             }
                             Err(e) => {
-                                let err_resp = serde_json::json!({
-                                    "jsonrpc": "2.0",
-                                    "error": {
-                                        "code": -32700,
-                                        "message": format!("Parse error: {}", e)
-                                    },
-                                    "id": serde_json::Value::Null
-                                });
+                                let err_resp = format!(
+                                    "{{\"jsonrpc\":\"2.0\",\"error\":{{\"code\":-32700,\"message\":\"Parse error: {}\"}},\"id\":null}}",
+                                    e
+                                );
                                 send_response(
                                     request,
-                                    Response::from_string(err_resp.to_string())
+                                    Response::from_string(err_resp)
                                         .with_status_code(StatusCode(400))
                                         .with_header(header),
                                 );
                             }
                         }
                     }
-                    "/api/book/metadata" => {
-                        let book = book_arc.read().unwrap_or_else(|e| e.into_inner());
-                        let json = serde_json::to_string(book.metadata()).unwrap_or_default();
-                        let header =
-                            Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
-                                .unwrap();
-                        send_response(request, Response::from_string(json).with_header(header));
-                    }
-                    "/api/book/toc" => {
-                        let book = book_arc.read().unwrap_or_else(|e| e.into_inner());
-                        let json = serde_json::to_string(book.toc()).unwrap_or_default();
-                        let header =
-                            Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
-                                .unwrap();
-                        send_response(request, Response::from_string(json).with_header(header));
-                    }
-                    "/api/book/spine" => {
-                        let book = book_arc.read().unwrap_or_else(|e| e.into_inner());
-                        let json = serde_json::to_string(book.spine()).unwrap_or_default();
-                        let header =
-                            Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
-                                .unwrap();
-                        send_response(request, Response::from_string(json).with_header(header));
-                    }
                     _ if path.starts_with("/api/book/section/") => {
-                        let idx_str = path.trim_start_matches("/api/book/section/");
-                        let idx = match idx_str.parse::<usize>() {
-                            Ok(i) => i,
-                            Err(_) => {
-                                send_response(
-                                    request,
-                                    Response::from_string("Invalid section index")
-                                        .with_status_code(StatusCode(404)),
-                                );
-                                return;
-                            }
-                        };
+                        let sec_idx_str = path.trim_start_matches("/api/book/section/");
+                        let sec_idx: usize = sec_idx_str.parse().unwrap_or(0);
                         let book = book_arc.read().unwrap_or_else(|e| e.into_inner());
 
-                        match book.get_section(idx) {
+                        match book.get_section(sec_idx) {
                             Ok(sec) => {
                                 let header = Header::from_bytes(
                                     &b"Content-Type"[..],
@@ -365,6 +374,15 @@ impl ReaderServer {
                                 .take(2 * 1024 * 1024)
                                 .read_to_string(&mut body_str);
                             if let Ok(mut ann) = serde_json::from_str::<Annotation>(&body_str) {
+                                let mut book = book_arc.write().unwrap_or_else(|e| e.into_inner());
+                                if book.annotations.list().len() >= 5000 {
+                                    send_response(
+                                        request,
+                                        Response::from_string("400 Bad Request: Maximum annotation capacity reached (5000)")
+                                            .with_status_code(StatusCode(400)),
+                                    );
+                                    return;
+                                }
                                 // Assign server-managed ID to prevent client ID collisions or injection
                                 if ann.id.is_empty()
                                     || ann.id.len() > 64
@@ -381,7 +399,6 @@ impl ReaderServer {
                                     ann.id = format!("ann-{:x}-{:x}", now, c);
                                 }
                                 let ann_id = ann.id.clone();
-                                let mut book = book_arc.write().unwrap_or_else(|e| e.into_inner());
                                 book.annotations.add(ann);
                                 let header = Header::from_bytes(
                                     &b"Content-Type"[..],
@@ -389,7 +406,7 @@ impl ReaderServer {
                                 )
                                 .unwrap();
                                 let resp_json =
-                                    format!("{{\"status\":\"ok\",\"id\":\"{}\"}}", ann_id);
+                                    format!("{{\"status\":\"success\",\"id\":\"{}\"}}", ann_id);
                                 send_response(
                                     request,
                                     Response::from_string(resp_json).with_header(header),
@@ -397,11 +414,11 @@ impl ReaderServer {
                             } else {
                                 send_response(
                                     request,
-                                    Response::from_string("Invalid JSON or payload too large")
+                                    Response::from_string("Invalid annotation payload")
                                         .with_status_code(StatusCode(400)),
                                 );
                             }
-                        } else {
+                        } else if request.method() == &tiny_http::Method::Get {
                             let book = book_arc.read().unwrap_or_else(|e| e.into_inner());
                             let json =
                                 serde_json::to_string(&book.annotations.list()).unwrap_or_default();
@@ -409,7 +426,37 @@ impl ReaderServer {
                                 Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
                                     .unwrap();
                             send_response(request, Response::from_string(json).with_header(header));
+                        } else {
+                            send_response(
+                                request,
+                                Response::from_string("Method not allowed")
+                                    .with_status_code(StatusCode(405)),
+                            );
                         }
+                    }
+                    "/api/book/metadata" => {
+                        let book = book_arc.read().unwrap_or_else(|e| e.into_inner());
+                        let json = serde_json::to_string(&book.metadata()).unwrap_or_default();
+                        let header =
+                            Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
+                                .unwrap();
+                        send_response(request, Response::from_string(json).with_header(header));
+                    }
+                    "/api/book/spine" => {
+                        let book = book_arc.read().unwrap_or_else(|e| e.into_inner());
+                        let json = serde_json::to_string(&book.spine()).unwrap_or_default();
+                        let header =
+                            Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
+                                .unwrap();
+                        send_response(request, Response::from_string(json).with_header(header));
+                    }
+                    "/api/book/toc" => {
+                        let book = book_arc.read().unwrap_or_else(|e| e.into_inner());
+                        let json = serde_json::to_string(&book.toc()).unwrap_or_default();
+                        let header =
+                            Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
+                                .unwrap();
+                        send_response(request, Response::from_string(json).with_header(header));
                     }
                     _ => {
                         send_response(
@@ -433,7 +480,7 @@ fn send_response<R: std::io::Read>(request: tiny_http::Request, response: Respon
         .with_header(
             Header::from_bytes(
                 &b"Content-Security-Policy"[..],
-                &b"default-src 'self' 'unsafe-inline' data: blob:"[..],
+                &b"default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'self' blob: data:; object-src 'none'; base-uri 'self';"[..],
             )
             .unwrap(),
         );

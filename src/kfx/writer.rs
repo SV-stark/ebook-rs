@@ -35,8 +35,15 @@ impl UniversalKfxExporter {
 
         // Pass 2: Storylines / Sections Payload
         for (idx, _) in book.spine().iter().enumerate() {
-            if let Some(sec) = book.get_section_raw(idx) {
-                let sec_text = sec.plain_text.as_bytes();
+            if let Ok(sec) = book.get_section(idx) {
+                let text_to_write = if !sec.plain_text.trim().is_empty() {
+                    &sec.plain_text
+                } else if !sec.raw_html.trim().is_empty() {
+                    &sec.raw_html
+                } else {
+                    ""
+                };
+                let sec_text = text_to_write.as_bytes();
                 let sec_offset = payload.len() as u64;
                 let sec_len = sec_text.len() as u64;
                 payload.extend_from_slice(sec_text);

@@ -365,7 +365,14 @@ fn format_path(path: &CfiPath) -> String {
     for step in &path.steps {
         out.push_str(&format!("/{}", step.index));
         if let Some(ref id) = step.element_id {
-            out.push_str(&format!("[{}]", id));
+            out.push('[');
+            for c in id.chars() {
+                if matches!(c, '^' | '[' | ']' | '(' | ')' | ',' | ';' | '!') {
+                    out.push('^');
+                }
+                out.push(c);
+            }
+            out.push(']');
         }
         if step.indirection {
             out.push('!');

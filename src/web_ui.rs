@@ -380,7 +380,7 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
 
         <div class="reader-stage" id="reader-stage">
             <button class="page-btn left" id="btn-prev">❮</button>
-            <iframe id="section-frame" sandbox="allow-same-origin allow-scripts" src="about:blank"></iframe>
+            <iframe id="section-frame" sandbox="allow-scripts" src="about:blank"></iframe>
             <button class="page-btn right" id="btn-next">❯</button>
 
             <!-- Feature 2: Floating Highlight Selection Bar -->
@@ -573,9 +573,28 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
                                 border-top: 1px solid rgba(150, 150, 150, 0.15);
                             }
                             a { color: #3b82f6; }
-                            img { max-width: 100%; height: auto; }
                             mark { border-radius: 3px; padding: 2px 4px; }
                         </style>
+                        <script>
+                            document.addEventListener('mouseup', () => {
+                                const sel = window.getSelection();
+                                if (sel && sel.toString().trim().length > 0) {
+                                    const range = sel.getRangeAt(0);
+                                    const rect = range.getBoundingClientRect();
+                                    window.parent.postMessage({
+                                        type: 'selection',
+                                        text: sel.toString().trim(),
+                                        startOffset: range.startOffset,
+                                        endOffset: range.endOffset,
+                                        top: rect.top,
+                                        left: rect.left,
+                                        width: rect.width
+                                    }, '*');
+                                } else {
+                                    window.parent.postMessage({ type: 'selection_clear' }, '*');
+                                }
+                            });
+                        </script>
                     </head>
                     <body>
                         <div class="book-spread">
@@ -621,6 +640,26 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
                             img { max-width: 100%; height: auto; }
                             mark { border-radius: 3px; padding: 2px 4px; }
                         </style>
+                        <script>
+                            document.addEventListener('mouseup', () => {
+                                const sel = window.getSelection();
+                                if (sel && sel.toString().trim().length > 0) {
+                                    const range = sel.getRangeAt(0);
+                                    const rect = range.getBoundingClientRect();
+                                    window.parent.postMessage({
+                                        type: 'selection',
+                                        text: sel.toString().trim(),
+                                        startOffset: range.startOffset,
+                                        endOffset: range.endOffset,
+                                        top: rect.top,
+                                        left: rect.left,
+                                        width: rect.width
+                                    }, '*');
+                                } else {
+                                    window.parent.postMessage({ type: 'selection_clear' }, '*');
+                                }
+                            });
+                        </script>
                     </head>
                     <body>${html}</body>
                     </html>
@@ -710,28 +749,26 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
             return `/6/${spineStep}!${sub}:${offset}`;
         }
 
-        // Feature 2: Live DOM Selection to CFI Bridge
+        // Feature 2: Secure postMessage DOM Selection to CFI Bridge
         function setupIframeListeners() {
-            const doc = sectionFrame.contentDocument || sectionFrame.contentWindow.document;
-            doc.addEventListener('mouseup', () => {
-                const sel = sectionFrame.contentWindow.getSelection();
-                if (sel && sel.toString().trim().length > 0) {
-                    selectedText = sel.toString().trim();
-                    const range = sel.getRangeAt(0);
-                    const startCfi = computeNodeCfiSubpath(range.startContainer, range.startOffset);
-                    const endCfi = computeNodeCfiSubpath(range.endContainer, range.endOffset);
-                    selectedCfiRange = `epubcfi(${startCfi},${endCfi})`;
-
-                    // Show selection toolbar
-                    const rect = range.getBoundingClientRect();
-                    selectionToolbar.style.display = 'flex';
-                    selectionToolbar.style.top = `${rect.top - 40}px`;
-                    selectionToolbar.style.left = `${rect.left + (rect.width / 2) - 60}px`;
-                } else {
-                    selectionToolbar.style.display = 'none';
-                }
-            });
+            // Handled via window message event listener
         }
+
+        window.addEventListener('message', (e) => {
+            if (e.data && e.data.type === 'selection') {
+                selectedText = e.data.text;
+                const spineStep = (currentSpineIndex + 1) * 2;
+                const startCfi = `/6/${spineStep}!/4/2/1:${e.data.startOffset}`;
+                const endCfi = `/6/${spineStep}!/4/2/1:${e.data.endOffset}`;
+                selectedCfiRange = `epubcfi(${startCfi},${endCfi})`;
+
+                selectionToolbar.style.display = 'flex';
+                selectionToolbar.style.top = `${e.data.top - 40}px`;
+                selectionToolbar.style.left = `${e.data.left + (e.data.width / 2) - 60}px`;
+            } else if (e.data && e.data.type === 'selection_clear') {
+                selectionToolbar.style.display = 'none';
+            }
+        });
 
         async function addHighlight(color) {
             if (!selectedCfiRange) return;

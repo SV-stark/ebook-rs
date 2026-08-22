@@ -171,16 +171,21 @@ impl RagChunker {
         };
 
         for para in paragraphs.iter() {
-            let p_len = para.len();
+            let p_char_len = para.chars().count();
             if current_chunk_text.is_empty() {
                 chunk_start_offset = current_char_offset;
             }
 
+            let cur_char_len = current_chunk_text.chars().count();
             if !current_chunk_text.is_empty()
-                && current_chunk_text.len() + p_len > max_chars
-                && current_chunk_text.len() >= config.min_chunk_size
+                && cur_char_len + p_char_len > max_chars
+                && cur_char_len >= config.min_chunk_size
             {
-                let cfi = Cfi::from_spine_index(spine_index, None, chunk_start_offset).to_string();
+                let cfi = if config.include_cfi {
+                    Cfi::from_spine_index(spine_index, None, chunk_start_offset).to_string()
+                } else {
+                    String::new()
+                };
                 let markdown = Self::build_markdown(&current_headings, &current_chunk_text, config);
 
                 chunks.push(RagChunk {
@@ -191,7 +196,7 @@ impl RagChunker {
                     cfi,
                     text: current_chunk_text.trim().to_string(),
                     markdown,
-                    token_count_estimate: current_chunk_text.len().div_ceil(4),
+                    token_count_estimate: cur_char_len.div_ceil(4),
                     book_title: book_title.to_string(),
                     book_author: book_author.to_string(),
                 });
@@ -205,19 +210,26 @@ impl RagChunker {
                     .map(|(idx, _)| idx)
                     .unwrap_or(current_chunk_text.len());
                 current_chunk_text = current_chunk_text[keep_start..].to_string();
+                chunk_start_offset =
+                    current_char_offset.saturating_sub(current_chunk_text.chars().count());
             }
 
             if !current_chunk_text.is_empty() && !current_chunk_text.ends_with('\n') {
                 current_chunk_text.push('\n');
             }
             current_chunk_text.push_str(para);
-            current_char_offset += p_len + 1;
+            current_char_offset += p_char_len + 1;
         }
 
         // Flush final chunk
         let final_text = current_chunk_text.trim();
-        if final_text.len() >= config.min_chunk_size {
-            let cfi = Cfi::from_spine_index(spine_index, None, chunk_start_offset).to_string();
+        let final_chars = final_text.chars().count();
+        if final_chars >= config.min_chunk_size {
+            let cfi = if config.include_cfi {
+                Cfi::from_spine_index(spine_index, None, chunk_start_offset).to_string()
+            } else {
+                String::new()
+            };
             let markdown = Self::build_markdown(&current_headings, final_text, config);
 
             chunks.push(RagChunk {
@@ -228,7 +240,7 @@ impl RagChunker {
                 cfi,
                 text: final_text.to_string(),
                 markdown,
-                token_count_estimate: final_text.len().div_ceil(4),
+                token_count_estimate: final_chars.div_ceil(4),
                 book_title: book_title.to_string(),
                 book_author: book_author.to_string(),
             });

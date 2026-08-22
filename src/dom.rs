@@ -260,13 +260,29 @@ fn collect_matching_nodes<'a>(node: &'a DomNode, tag_lower: &str, matches: &mut 
     }
 }
 
+/// Fast XML escaping for text nodes and attribute values.
+pub fn xml_escape(input: &str) -> String {
+    let mut out = String::with_capacity(input.len() + 16);
+    for ch in input.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 fn render_node(node: &DomNode, out: &mut String) {
     match node {
         DomNode::Text(t) => out.push_str(t),
         DomNode::Comment(c) => {
-            out.push('<');
-            out.push_str(c);
-            out.push('>');
+            out.push_str("<!--");
+            out.push_str(c.trim_start_matches("!--").trim_end_matches("--"));
+            out.push_str("-->");
         }
         DomNode::Element {
             tag_name,
@@ -284,8 +300,31 @@ fn render_node(node: &DomNode, out: &mut String) {
                     out.push('"');
                 }
             }
-            if children.is_empty() {
+            let tag_lower = tag_name.to_lowercase();
+            let is_void = matches!(
+                tag_lower.as_str(),
+                "img"
+                    | "br"
+                    | "hr"
+                    | "meta"
+                    | "link"
+                    | "input"
+                    | "area"
+                    | "base"
+                    | "col"
+                    | "embed"
+                    | "param"
+                    | "source"
+                    | "track"
+                    | "wbr"
+            );
+            if children.is_empty() && is_void {
                 out.push_str(" />");
+            } else if children.is_empty() {
+                out.push('>');
+                out.push_str("</");
+                out.push_str(tag_name);
+                out.push('>');
             } else {
                 out.push('>');
                 for child in children {

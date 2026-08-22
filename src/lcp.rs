@@ -81,6 +81,11 @@ impl LcpLicense {
     pub fn is_expired(&self, current_iso_date: &str) -> bool {
         if let Some(ref rights) = self.rights {
             if let Some(ref end) = rights.end {
+                let cur_ts = parse_iso_date_to_seconds(current_iso_date, false);
+                let end_ts = parse_iso_date_to_seconds(end, true);
+                if let (Some(cur), Some(end)) = (cur_ts, end_ts) {
+                    return cur > end;
+                }
                 let cur_norm = normalize_iso_timestamp(current_iso_date, false);
                 let end_norm = normalize_iso_timestamp(end, true);
                 return cur_norm > end_norm;
@@ -88,6 +93,68 @@ impl LcpLicense {
         }
         false
     }
+}
+
+fn parse_iso_date_to_seconds(s: &str, is_end_of_day: bool) -> Option<i64> {
+    let clean = s.trim();
+    if clean.len() >= 10 {
+        let year: i32 = clean[0..4].parse().ok()?;
+        let month: u32 = clean[5..7].parse().ok()?;
+        let day: u32 = clean[8..10].parse().ok()?;
+        let (hour, min, sec, offset_minutes) = if clean.len() > 10 && clean.as_bytes()[10] == b'T' {
+            let time_part = &clean[11..];
+            let (hms, tz) = if let Some(pos) = time_part.find(&['+', '-', 'Z'][..]) {
+                (&time_part[..pos], &time_part[pos..])
+            } else {
+                (time_part, "")
+            };
+            let parts: Vec<&str> = hms.split(':').collect();
+            let h = parts.first().and_then(|p| p.parse().ok()).unwrap_or(0);
+            let m = parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(0);
+            let s = parts
+                .get(2)
+                .and_then(|p| p.split('.').next().unwrap_or("").parse().ok())
+                .unwrap_or(0);
+
+            let tz_off = if tz.starts_with('+') || tz.starts_with('-') {
+                let sign = if tz.starts_with('+') { 1 } else { -1 };
+                let tz_clean = &tz[1..];
+                if let Some((th, tm)) = tz_clean.split_once(':') {
+                    let h_val: i64 = th.parse().unwrap_or(0);
+                    let m_val: i64 = tm.parse().unwrap_or(0);
+                    sign * (h_val * 60 + m_val)
+                } else if tz_clean.len() == 2 {
+                    let h_val: i64 = tz_clean.parse().unwrap_or(0);
+                    sign * (h_val * 60)
+                } else {
+                    0
+                }
+            } else {
+                0
+            };
+            (h, m, s, tz_off)
+        } else if is_end_of_day {
+            (23, 59, 59, 0)
+        } else {
+            (0, 0, 0, 0)
+        };
+
+        let days = days_from_civil(year, month, day);
+        let secs = days * 86400 + (hour as i64 * 3600) + (min as i64 * 60) + (sec as i64)
+            - (offset_minutes * 60);
+        Some(secs)
+    } else {
+        None
+    }
+}
+
+fn days_from_civil(mut y: i32, m: u32, d: u32) -> i64 {
+    y -= (m <= 2) as i32;
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = (y - era * 400) as u32;
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    (era as i64 * 146097 + doe as i64) - 719468
 }
 
 fn normalize_iso_timestamp(s: &str, is_end_of_day: bool) -> String {
