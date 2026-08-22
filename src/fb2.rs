@@ -104,8 +104,7 @@ impl Fb2Book {
 
                     if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(&b64_clean)
                     {
-                        archive.insert(full_archive_path, bytes.clone());
-                        archive.insert(rel_path.clone(), bytes);
+                        archive.insert(full_archive_path, bytes);
                         binary_map.insert(clean_id, rel_path);
                     }
                 }

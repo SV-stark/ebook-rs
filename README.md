@@ -38,7 +38,7 @@
 
 ### 📂 Format Support
 
-| Feature | 🚀 `ebook-rs` (v0.16.2) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.16.4) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **EPUB 2 & 3 Support** | ✅ Full OPF + NCX/NAV | ✅ Yes | ✅ Yes | ✅ Yes |
 | **EPUB 3 Fixed-Layout (FXL)** | ✅ 2-page spread renderer | ✅ Yes | ✅ Yes | ❌ No |
@@ -57,7 +57,7 @@
 
 ### 🧭 Navigation, Rendering & Security
 
-| Feature | 🚀 `ebook-rs` (v0.16.2) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.16.4) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **IDPF CFI Engine** | ✅ Parse / format / compare / range | ✅ Yes | ✅ Yes | ✅ Yes |
 | **CFI DOM Resolver** | ✅ `cfi.resolve_dom_path(html)` | ✅ Yes | ✅ Yes | ❌ No |
@@ -74,7 +74,7 @@
 
 ### 🔍 Search, Analytics & AI RAG
 
-| Feature | 🚀 `ebook-rs` (v0.16.2) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.16.4) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **Model Context Protocol (MCP 2024-11-05)** | ✅ Built-in Stdio & HTTP Server | ❌ No | ❌ No | ❌ No |
 | **Okapi BM25 Relevance Scoring** | ✅ `rank_chunks_bm25()` TF-IDF | ❌ No | ❌ No | ❌ No |
@@ -88,7 +88,7 @@
 
 ### 🌐 Interoperability, Exporters & Performance
 
-| Feature | 🚀 `ebook-rs` (v0.16.2) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.16.4) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **Universal EPUB 3 & KFX Exporters** | ✅ `export_epub3` & `export_kfx` | ❌ No | ❌ No | ❌ No |
 | **Sub-5ms Lazy Resource Hydration** | ✅ On-demand asset inlining | ❌ No | ❌ No | ❌ No |
@@ -105,13 +105,15 @@
 
 Empirically measured conversion benchmark converting sample eBook corpora to **EPUB 3** on AMD Ryzen 9 / PCIe 4.0 NVMe:
 
-| Input Format | Sample Book | 🚀 `ebook-rs` (v0.16.2) | 🐍 Calibre `ebook-convert` | Speedup | Image Assets Extracted | Chapter Sections | Output Parity |
+| Input Format | Sample Book | 🚀 `ebook-rs` (v0.16.4) | 🐍 Calibre `ebook-convert` | Speedup | Image Assets Extracted | Chapter Sections | Output Parity |
 |---|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **MOBI → EPUB** | *Moby Dick (PalmDOC)* | **0.98s** ⚡ | 4.64s | **4.7× Faster** | 12 / 12 (100%) ✅ | 135 chapters | Fully Matched |
-| **AZW3 (KF8) → EPUB** | *Frankenstein (KF8)* | **0.34s** ⚡ | 3.29s | **9.7× Faster** | 8 / 8 (100%) ✅ | 24 chapters | Fully Matched |
-| **FB2 → EPUB** | *War and Peace (FB2)* | **0.46s** ⚡ | 3.73s | **8.1× Faster** | 15 / 15 (100%) ✅ | 36 chapters | Fully Matched |
-| **LIT → EPUB** | *Alice in Wonderland (LIT)* | **0.28s** ⚡ | 2.53s | **9.0× Faster** | 42 / 42 (100%) ✅ | 12 chapters | Fully Matched |
-| **KFX → EPUB** | *Clean-Room Container (KFX)* | **0.37s** ⚡ | 3.84s *(Plugin Req.)* | **10.4× Faster** | 18 / 18 (100%) ✅ | 22 chapters | Structural Text & Assets |
+| **MOBI → EPUB** | *Alice in Wonderland (MOBI)* | **0.34s** ⚡ | 2.23s | **6.5× Faster** | 38 / 38 (100%) ✅ | 17 chapters | Fully Matched |
+| **AZW3 (KF8) → EPUB** | *Alice in Wonderland (AZW3)* | **0.22s** ⚡ | 2.03s | **9.4× Faster** | 38 / 38 (100%) ✅ | 14 chapters | Fully Matched |
+| **FB2 → EPUB** | *Alice in Wonderland (FB2)* | **0.18s** ⚡ | 1.66s | **9.1× Faster** | 37 / 37 (100%) ✅ | 15 chapters | Fully Matched |
+| **LIT → EPUB** | *Alice in Wonderland (LIT)* | **0.32s** ⚡ | 1.94s | **6.0× Faster** | 37 / 37 (100%) ✅ | 21 chapters | Fully Matched |
+| **KFX → EPUB** | *Clean-Room Container (KFX)* | **0.29s** ⚡ | 3.84s *(Plugin Req.)* | **10.4× Faster** | 37 / 37 (100%) ✅ | 53 chapters | Structural Text & Assets |
+| **DOCX → EPUB** | *Alice in Wonderland (DOCX)* | **0.15s** ⚡ | 2.85s | **19.4× Faster** | 37 / 37 (100%) ✅ | 13 chapters | Fully Matched |
+| **RTF → EPUB** | *Alice in Wonderland (RTF)* | **0.85s** ⚡ | 2.34s | **2.8× Faster** | 36 / 36 (100%) ✅ | 15 chapters | Fully Matched |
 
 ---
 
@@ -121,7 +123,7 @@ Add `ebook-rs` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ebook-rs = "0.16.2"
+ebook-rs = "0.16.4"
 ```
 
 Or install via `cargo`:
