@@ -328,26 +328,20 @@ impl EpubArchive {
             Ok(s.to_string())
         } else if bytes.starts_with(&[0xFE, 0xFF]) {
             let u16_data: Vec<u16> = bytes[2..]
-                .as_chunks::<2>()
-                .0
-                .iter()
+                .chunks_exact(2)
                 .map(|c| u16::from_be_bytes([c[0], c[1]]))
                 .collect();
             Ok(String::from_utf16_lossy(&u16_data))
         } else if bytes.starts_with(&[0xFF, 0xFE]) {
             let u16_data: Vec<u16> = bytes[2..]
-                .as_chunks::<2>()
-                .0
-                .iter()
+                .chunks_exact(2)
                 .map(|c| u16::from_le_bytes([c[0], c[1]]))
                 .collect();
             Ok(String::from_utf16_lossy(&u16_data))
         } else if bytes.windows(2).any(|w| w == b"<\0" || w == b"\0<") {
             let is_le = bytes.windows(2).any(|w| w == b"<\0");
             let u16_data: Vec<u16> = bytes
-                .as_chunks::<2>()
-                .0
-                .iter()
+                .chunks_exact(2)
                 .map(|c| {
                     if is_le {
                         u16::from_le_bytes([c[0], c[1]])

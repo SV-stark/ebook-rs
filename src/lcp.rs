@@ -6,11 +6,11 @@ use serde::{Deserialize, Serialize};
 
 fn hex_decode(s: &str) -> Result<Vec<u8>, ()> {
     let bytes_input = s.as_bytes();
-    if !bytes_input.len().is_multiple_of(2) {
+    if bytes_input.len() % 2 != 0 {
         return Err(());
     }
     let mut bytes = Vec::with_capacity(bytes_input.len() / 2);
-    for chunk in bytes_input.as_chunks::<2>().0 {
+    for chunk in bytes_input.chunks_exact(2) {
         let hi = hex_nibble(chunk[0])?;
         let lo = hex_nibble(chunk[1])?;
         bytes.push((hi << 4) | lo);

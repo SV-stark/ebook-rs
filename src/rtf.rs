@@ -600,7 +600,7 @@ impl RtfBook {
 
 fn hex_to_bytes(hex: &str) -> Result<Vec<u8>, String> {
     let clean: String = hex.chars().filter(|c| c.is_ascii_hexdigit()).collect();
-    if !clean.len().is_multiple_of(2) {
+    if clean.len() % 2 != 0 {
         return Err("Invalid hex length".to_string());
     }
     let mut bytes = Vec::with_capacity(clean.len() / 2);

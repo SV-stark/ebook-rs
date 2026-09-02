@@ -5,6 +5,17 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.5] - 2026-09-02
+
+### Changed & Improved
+
+- **Rust 1.85+ Compatibility**:
+  - Restored crate Minimum Supported Rust Version (MSRV) to `1.85` in `Cargo.toml`.
+  - Replaced unstable `.as_chunks::<N>()` with standard stable `.chunks_exact(N)` in `src/archive.rs`, `src/fingerprint.rs`, `src/lcp.rs`, and `src/lit.rs`.
+  - Replaced unstable `.is_multiple_of(2)` with standard `% 2 != 0` modulo checks in `src/lcp.rs` and `src/rtf.rs`.
+  - Downgraded `zip` dependency to `7.0` (which supports Rust 1.83+) with full feature and API parity for archive extraction and EPUB3 generation.
+  - Aligned lockfile dependency tree to support Rust 1.85+ toolchains cleanly across all targets.
+
 ## [0.16.4] - 2026-08-22
 
 ### Fixed & Hardened
