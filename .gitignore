@@ -4,3 +4,6 @@ scratch/
 website/node_modules/
 website/dist/
 website/.astro/
+fuzz/corpus/
+fuzz/artifacts/
+fuzz/target/

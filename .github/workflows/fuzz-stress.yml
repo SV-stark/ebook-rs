@@ -1,0 +1,57 @@
+name: Continuous Real-World Corpus Stress & Fuzzing
+
+on:
+  schedule:
+    - cron: '0 4 * * 0' # Every Sunday at 04:00 UTC
+  workflow_dispatch:
+
+jobs:
+  corpus-stress-test:
+    name: Real-World Corpus & Corruption Stress Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run Mass Corpus Stress Test & Chaos Ingestion
+        run: |
+          cargo run --release --all-features --example corpus_stress -- samples > stress_report.md
+          cat stress_report.md
+          cat stress_report.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload Stress Test Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-test-report
+          path: stress_report.md
+
+  mutation-fuzzing:
+    name: 10-Minute Continuous libFuzzer Mutation Run
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Nightly Rust Toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Seed Fuzz Corpus
+        run: |
+          mkdir -p fuzz/corpus/fuzz_from_bytes
+          # Seed with sample files up to 256KB to prime coverage-guided mutation engine
+          for file in samples/*; do
+            if [ -f "$file" ]; then
+              head -c 262144 "$file" > "fuzz/corpus/fuzz_from_bytes/$(basename "$file")" || true
+            fi
+          done
+
+      - name: Run Coverage-Guided Fuzzing (10 minutes)
+        run: |
+          cd fuzz
+          cargo +nightly fuzz run fuzz_from_bytes -- -max_total_time=600 -rss_limit_mb=4096
