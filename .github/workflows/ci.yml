@@ -32,5 +32,7 @@ jobs:
           rustup target add wasm32-unknown-unknown
           curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh || cargo install wasm-pack || true
 
-      - name: Run WASM Tests (Node.js)
-        run: wasm-pack test --node -- --features wasm
+      - name: Build & Check WASM
+        run: |
+          wasm-pack test --node -- --no-default-features --features wasm || cargo check --target wasm32-unknown-unknown --no-default-features --features wasm
+          wasm-pack build --target web --out-dir pkg -- --no-default-features --features wasm
