@@ -17,11 +17,45 @@ use ahash::AHashMap;
 /// PDF Document Parser using pre-extracted text / markdown via `pdf_oxide`.
 pub struct PdfBook;
 
+#[cfg(feature = "pdf")]
+use std::sync::atomic::{AtomicU64, Ordering};
+
+#[cfg(feature = "pdf")]
+static TEMP_PDF_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(feature = "pdf")]
+struct TempPdfGuard(std::path::PathBuf);
+
+#[cfg(feature = "pdf")]
+impl Drop for TempPdfGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 impl PdfBook {
     /// Parse raw PDF byte data into a `Book` struct.
     #[cfg(feature = "pdf")]
     pub fn parse(bytes: &[u8], title_fallback: &str) -> Result<Book, EbookError> {
-        let doc = pdf_oxide::PdfDocument::from_bytes(bytes.to_vec()).map_err(|e| {
+        let temp_dir = std::env::temp_dir();
+        let counter = TEMP_PDF_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let temp_path = temp_dir.join(format!(
+            "ebook_rs_temp_{}_{}_{}.pdf",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
+            counter
+        ));
+
+        std::fs::write(&temp_path, bytes).map_err(|e| {
+            EbookError::InvalidFormat(format!("Failed to write temporary PDF file: {}", e))
+        })?;
+
+        let _guard = TempPdfGuard(temp_path.clone());
+
+        let mut doc = pdf_oxide::PdfDocument::open(&temp_path).map_err(|e| {
             EbookError::InvalidFormat(format!("Failed to open PDF document with pdf_oxide: {}", e))
         })?;
 
