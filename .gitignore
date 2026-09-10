@@ -7,3 +7,4 @@ website/.astro/
 fuzz/corpus/
 fuzz/artifacts/
 fuzz/target/
+corpus/

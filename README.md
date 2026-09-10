@@ -138,9 +138,17 @@ Empirically measured conversion benchmark converting sample eBook corpora to **E
 | **Bit-Flipped Noise Injection** | All formats | ⚠️ Handled / Resilient | **0 Panics** | Clean `Err` |
 | **Coverage-Guided Fuzzing (libFuzzer)** | Arbitrary byte streams | Millions of mutations | **0 Panics** | 100% Memory-Safe |
 
-#### Run the Stress Test on Your Own Library:
+#### Run the Automated Gutenberg Stress Test:
 ```bash
-cargo run --release --all-features --example corpus_stress -- /path/to/your/ebook/collection
+# 1. Automatically fetch 25 Project Gutenberg classics:
+./scripts/fetch_gutenberg.sh 25 corpus/gutenberg      # Linux / macOS
+pwsh scripts/fetch_gutenberg.ps1 -Count 25           # Windows
+
+# 2. Run parallel resilience & chaos stress test:
+cargo run --release --all-features --example corpus_stress -- corpus/gutenberg
+
+# Or stress-test any local library directory:
+cargo run --release --all-features --example corpus_stress -- /path/to/your/ebooks
 ```
 
 ---

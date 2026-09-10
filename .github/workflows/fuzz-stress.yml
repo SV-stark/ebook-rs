@@ -16,17 +16,37 @@ jobs:
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Run Mass Corpus Stress Test & Chaos Ingestion
-        run: |
-          cargo run --release --all-features --example corpus_stress -- samples > stress_report.md
-          cat stress_report.md
-          cat stress_report.md >> $GITHUB_STEP_SUMMARY
+      - name: Cache Project Gutenberg Corpus
+        id: cache-gutenberg
+        uses: actions/cache@v4
+        with:
+          path: corpus/gutenberg
+          key: gutenberg-corpus-v1
 
-      - name: Upload Stress Test Report
+      - name: Fetch Project Gutenberg Books
+        run: |
+          chmod +x scripts/fetch_gutenberg.sh
+          ./scripts/fetch_gutenberg.sh 25 corpus/gutenberg
+
+      - name: Run Sample Suite Stress Test
+        run: |
+          echo "## 🧪 Local Golden Sample Stress Test" >> $GITHUB_STEP_SUMMARY
+          cargo run --release --all-features --example corpus_stress -- samples > sample_report.md
+          cat sample_report.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Run Project Gutenberg Mass Stress Test
+        run: |
+          echo -e "\n## 📚 Project Gutenberg Mass Stress Test (25 Real-World Classics)" >> $GITHUB_STEP_SUMMARY
+          cargo run --release --all-features --example corpus_stress -- corpus/gutenberg > gutenberg_report.md
+          cat gutenberg_report.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload Stress Test Reports
         uses: actions/upload-artifact@v4
         with:
-          name: stress-test-report
-          path: stress_report.md
+          name: stress-test-reports
+          path: |
+            sample_report.md
+            gutenberg_report.md
 
   mutation-fuzzing:
     name: 10-Minute Continuous libFuzzer Mutation Run
