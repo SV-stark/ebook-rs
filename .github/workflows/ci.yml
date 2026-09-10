@@ -27,6 +27,12 @@ jobs:
       - name: Run Tests
         run: cargo test --all-targets --all-features
 
+      - name: Random 25 Project Gutenberg Books Stress Test
+        run: |
+          chmod +x scripts/fetch_gutenberg.sh
+          ./scripts/fetch_gutenberg.sh 25 corpus/ci_gutenberg --random
+          cargo run --release --all-features --example corpus_stress -- corpus/ci_gutenberg
+
       - name: Install wasm-pack & Target
         run: |
           rustup target add wasm32-unknown-unknown

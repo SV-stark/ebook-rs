@@ -26,7 +26,7 @@ jobs:
       - name: Fetch Project Gutenberg Books
         run: |
           chmod +x scripts/fetch_gutenberg.sh
-          ./scripts/fetch_gutenberg.sh 25 corpus/gutenberg
+          ./scripts/fetch_gutenberg.sh 25 corpus/gutenberg --random
 
       - name: Run Sample Suite Stress Test
         run: |
@@ -36,7 +36,7 @@ jobs:
 
       - name: Run Project Gutenberg Mass Stress Test
         run: |
-          echo -e "\n## 📚 Project Gutenberg Mass Stress Test (25 Real-World Classics)" >> $GITHUB_STEP_SUMMARY
+          echo -e "\n## 📚 Project Gutenberg Mass Stress Test (25 Random Real-World Books)" >> $GITHUB_STEP_SUMMARY
           cargo run --release --all-features --example corpus_stress -- corpus/gutenberg > gutenberg_report.md
           cat gutenberg_report.md >> $GITHUB_STEP_SUMMARY
 
