@@ -2,6 +2,7 @@ use std::fmt;
 
 /// Strongly-typed error enum for `ebook-rs` operations and multi-format parsers.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum EbookError {
     /// File or stream input/output error.
     Io(String),
@@ -24,14 +25,14 @@ pub enum EbookError {
 impl fmt::Display for EbookError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            EbookError::Io(msg) => write!(f, "I/O Error: {}", msg),
-            EbookError::Xml(msg) => write!(f, "XML Parse Error: {}", msg),
-            EbookError::Zip(msg) => write!(f, "Zip Archive Error: {}", msg),
-            EbookError::DrmProtected(msg) => write!(f, "DRM Protected: {}", msg),
-            EbookError::InvalidFormat(msg) => write!(f, "Invalid Format: {}", msg),
-            EbookError::CorruptedData(msg) => write!(f, "Corrupted Data: {}", msg),
-            EbookError::NotFound(msg) => write!(f, "Not Found: {}", msg),
-            EbookError::Custom(msg) => write!(f, "{}", msg),
+            EbookError::Io(msg) => write!(f, "i/o error: {msg}"),
+            EbookError::Xml(msg) => write!(f, "xml parse error: {msg}"),
+            EbookError::Zip(msg) => write!(f, "zip archive error: {msg}"),
+            EbookError::DrmProtected(msg) => write!(f, "drm protected: {msg}"),
+            EbookError::InvalidFormat(msg) => write!(f, "invalid format: {msg}"),
+            EbookError::CorruptedData(msg) => write!(f, "corrupted data: {msg}"),
+            EbookError::NotFound(msg) => write!(f, "not found: {msg}"),
+            EbookError::Custom(msg) => write!(f, "{msg}"),
         }
     }
 }

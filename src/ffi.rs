@@ -60,6 +60,8 @@ pub unsafe extern "C" fn ebook_rs_book_free(handle: CBookHandle) {
     }
     let removed = LIVE_BOOKS.lock().remove(&(handle as usize));
     if let Some(_book_arc) = removed {
+        // SAFETY: `handle` was verified to be a live allocation tracked by `LIVE_BOOKS`
+        // and was originally created via `Arc::into_raw`.
         let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
             drop(Arc::from_raw(handle));
         }));
@@ -220,6 +222,8 @@ pub unsafe extern "C" fn ebook_rs_string_free(ptr: *mut c_char) {
     if !is_live {
         return; // Guard against double-free UB
     }
+    // SAFETY: `ptr` was verified to be a live string allocation tracked in `LIVE_STRINGS`
+    // originally created by `CString::into_raw`.
     let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
         drop(CString::from_raw(ptr));
     }));

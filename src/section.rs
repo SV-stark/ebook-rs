@@ -87,42 +87,54 @@ impl Section {
     }
 
     /// Tokenizes plain text into word tokens with exact character start/end offsets for SpeechSynthesis TTS synchronization.
+    #[must_use]
     pub fn tokenize_tts_words(&self) -> Vec<TtsWordToken> {
         let mut tokens = Vec::new();
         let mut word_index = 0;
         let mut char_offset = 0;
-        let plain_chars: Vec<char> = self.plain_text.chars().collect();
+        let mut in_word = false;
+        let mut start_char = 0;
+        let mut current_word = String::new();
 
-        let mut i = 0;
-        while i < plain_chars.len() {
-            if plain_chars[i].is_whitespace() {
-                i += 1;
-                char_offset += 1;
-                continue;
+        for ch in self.plain_text.chars() {
+            if ch.is_whitespace() {
+                if in_word {
+                    tokens.push(TtsWordToken {
+                        index: word_index,
+                        word: std::mem::take(&mut current_word),
+                        char_start: start_char,
+                        char_end: char_offset,
+                    });
+                    word_index += 1;
+                    in_word = false;
+                }
+            } else {
+                if !in_word {
+                    in_word = true;
+                    start_char = char_offset;
+                }
+                current_word.push(ch);
             }
+            char_offset += 1;
+        }
 
-            let start_char = char_offset;
-            let mut word = String::new();
-            while i < plain_chars.len() && !plain_chars[i].is_whitespace() {
-                word.push(plain_chars[i]);
-                i += 1;
-                char_offset += 1;
-            }
-
+        if in_word {
             tokens.push(TtsWordToken {
                 index: word_index,
-                word,
+                word: current_word,
                 char_start: start_char,
                 char_end: char_offset,
             });
-            word_index += 1;
         }
 
         tokens
     }
 
     /// Wraps plain text words in the processed HTML with `<span id="tts-w-{index}" class="tts-word">` for live SpeechSynthesis word-by-word visual highlighting.
+    #[must_use]
     pub fn to_tts_annotated_html(&self) -> String {
+        use std::fmt::Write;
+
         let tokens = self.tokenize_tts_words();
         if tokens.is_empty() {
             return self.processed_html.clone();
@@ -170,10 +182,11 @@ impl Section {
                 let t_len = token_chars.len();
 
                 if i + t_len <= html_chars.len() && html_chars[i..i + t_len] == token_chars[..] {
-                    annotated.push_str(&format!(
+                    let _ = write!(
+                        annotated,
                         "<span id=\"tts-w-{}\" class=\"tts-word\" data-start=\"{}\" data-end=\"{}\">{}</span>",
                         token.index, token.char_start, token.char_end, token.word
-                    ));
+                    );
                     i += t_len;
                     token_idx += 1;
                     continue;
@@ -461,30 +474,29 @@ fn regex_find_link_css(html: &str) -> Vec<(String, String)> {
 }
 
 fn extract_attr(tag_str: &str, attr: &str) -> Option<(String, String)> {
-    let attr_lower = attr.to_lowercase();
-    let pat1 = format!(" {}=\"", attr_lower);
-    let pat2 = format!("<{}=\"", attr_lower);
-    let pat3 = format!(" {}='", attr_lower);
-    let pat4 = format!("<{}='", attr_lower);
+    let quotes = ['"', '\''];
+    let prefixes = [' ', '<'];
 
-    for pat in &[pat1, pat2, pat3, pat4] {
-        if let Some(pos) = find_ignore_case(tag_str, pat) {
-            let quote = pat.chars().last().unwrap();
-            let attr_start = pos + 1;
-            let val_start = pos + pat.len();
+    for &prefix in &prefixes {
+        for &quote in &quotes {
+            let pat = format!("{prefix}{attr}={quote}");
+            if let Some(pos) = find_ignore_case(tag_str, &pat) {
+                let attr_start = pos + 1;
+                let val_start = pos + pat.len();
 
-            if tag_str.is_char_boundary(val_start) {
-                if let Some(quote_idx) =
-                    memchr::memchr(quote as u8, &tag_str.as_bytes()[val_start..])
-                {
-                    let val_end = val_start + quote_idx;
-                    if tag_str.is_char_boundary(attr_start)
-                        && tag_str.is_char_boundary(val_end)
-                        && val_end < tag_str.len()
+                if tag_str.is_char_boundary(val_start) {
+                    if let Some(quote_idx) =
+                        memchr::memchr(quote as u8, &tag_str.as_bytes()[val_start..])
                     {
-                        let val = &tag_str[val_start..val_end];
-                        let orig = &tag_str[attr_start..=val_end];
-                        return Some((orig.to_string(), val.to_string()));
+                        let val_end = val_start + quote_idx;
+                        if tag_str.is_char_boundary(attr_start)
+                            && tag_str.is_char_boundary(val_end)
+                            && val_end < tag_str.len()
+                        {
+                            let val = &tag_str[val_start..val_end];
+                            let orig = &tag_str[attr_start..=val_end];
+                            return Some((orig.to_string(), val.to_string()));
+                        }
                     }
                 }
             }
@@ -598,7 +610,8 @@ fn process_css_resources(css: &str, css_path: &str, archive: &EpubArchive) -> St
                     }
                     let mime = EpubArchive::get_mime_type(&res_path);
                     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                    output.push_str(&format!("url(\"data:{};base64,{}\")", mime, b64));
+                    use std::fmt::Write;
+                    let _ = write!(output, "url(\"data:{mime};base64,{b64}\")");
                     search_idx = abs_close + 1;
                     continue;
                 }

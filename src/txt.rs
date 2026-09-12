@@ -192,7 +192,9 @@ impl TxtBook {
                 // Callout start detection (`> [!NOTE] Title`)
                 if trimmed.starts_with('>') {
                     let quote_content = trimmed.trim_start_matches('>').trim();
-                    if quote_content.starts_with("[!") && quote_content.contains(']') {
+                    if let Some(rest) = quote_content.strip_prefix("[!")
+                        && let Some(end_bracket) = rest.find(']')
+                    {
                         if in_callout {
                             flush_callout(
                                 &mut current_section_html,
@@ -203,9 +205,8 @@ impl TxtBook {
                             );
                         }
 
-                        let end_bracket = quote_content.find(']').unwrap();
-                        let tag_type = quote_content[2..end_bracket].to_lowercase();
-                        let custom_title = quote_content[end_bracket + 1..].trim();
+                        let tag_type = rest[..end_bracket].to_lowercase();
+                        let custom_title = rest[end_bracket + 1..].trim();
 
                         in_callout = true;
                         callout_type = tag_type;

@@ -10,7 +10,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
 
-    let mode = args.get(1).map(|s| s.as_str()).unwrap_or("serve");
+    let mode = args.get(1).map_or("serve", String::as_str);
 
     match mode {
         "mcp" => {
@@ -43,11 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .ok_or("Usage: ebook-rs search <path.epub> <query>")?;
             let book = Book::from_file(path)?;
             let results = book.search(query);
-            println!(
-                "🔍 Search results for '{}' ({} found):",
-                query,
-                results.len()
-            );
+            println!("🔍 Search results for '{query}' ({} found):", results.len());
             for r in results {
                 println!(
                     "[Spine {}] CFI: {}\n    Snippet: {}\n",
@@ -65,10 +61,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", serde_json::to_string_pretty(&book.locations.entries)?);
         }
         "sample" => {
-            let out_path = args.get(2).map(|s| s.as_str()).unwrap_or("sample.epub");
+            let out_path = args.get(2).map_or("sample.epub", String::as_str);
             let bytes = generate_sample_epub()?;
             fs::write(out_path, bytes)?;
-            println!("✅ Generated sample EPUB file at: {}", out_path);
+            println!("✅ Generated sample EPUB file at: {out_path}");
         }
         "convert" => {
             let in_path = args
@@ -78,22 +74,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .get(3)
                 .ok_or("Usage: ebook-rs convert <input.epub/mobi/pdf/fb2/txt/kfx> <output.epub|output.kfx|output.json>")?;
 
-            println!("🔄 Loading eBook from: {}", in_path);
+            println!("🔄 Loading eBook from: {in_path}");
             let book = Book::from_file(in_path)?;
 
-            if out_path.ends_with(".epub") {
+            let out_ext = Path::new(out_path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("");
+            if out_ext.eq_ignore_ascii_case("epub") {
                 let epub_bytes = ebook_rs::UniversalEpub3Exporter::export(&book)?;
                 fs::write(out_path, epub_bytes)?;
-                println!("✅ Converted and exported EPUB 3 file to: {}", out_path);
-            } else if out_path.ends_with(".kfx") {
+                println!("✅ Converted and exported EPUB 3 file to: {out_path}");
+            } else if out_ext.eq_ignore_ascii_case("kfx") {
                 let kfx_bytes = ebook_rs::UniversalKfxExporter::export(&book)?;
                 fs::write(out_path, kfx_bytes)?;
-                println!("✅ Converted and exported Amazon KFX file to: {}", out_path);
-            } else if out_path.ends_with(".json") {
+                println!("✅ Converted and exported Amazon KFX file to: {out_path}");
+            } else if out_ext.eq_ignore_ascii_case("json") {
                 let chunks = book.to_rag_chunks(&ebook_rs::RagChunkConfig::default());
                 let json = serde_json::to_string_pretty(&chunks)?;
                 fs::write(out_path, json)?;
-                println!("✅ Exported RAG chunks JSON file to: {}", out_path);
+                println!("✅ Exported RAG chunks JSON file to: {out_path}");
             } else {
                 return Err("Unsupported output extension. Supported: .epub, .kfx, .json".into());
             }
@@ -128,12 +128,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let book = if let Some(p) = file_arg {
                 if Path::new(p).exists() {
-                    println!("📖 Loading EPUB from file: {}", p);
+                    println!("📖 Loading EPUB from file: {p}");
                     Book::from_file(p)?
                 } else {
                     println!(
-                        "⚠️ Specified file '{}' not found. Generating sample EPUB in memory...",
-                        p
+                        "⚠️ Specified file '{p}' not found. Generating sample EPUB in memory..."
                     );
                     let bytes = generate_sample_epub()?;
                     Book::from_bytes(&bytes)?

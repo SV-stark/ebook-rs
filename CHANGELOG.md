@@ -5,6 +5,19 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.6] - 2026-09-12
+
+### Changed & Improved
+
+- **Rust Best Practices & Memory Optimization**:
+  - **Zero-Allocation MIME Lookup**: Rewrote `EpubArchive::get_mime_type` to perform zero-allocation case-insensitive extension matching using `Path::extension()` and `eq_ignore_ascii_case`, eliminating heap allocations on every archive file lookup.
+  - **In-Place Buffer Formatting**: Replaced loop-allocated `push_str(&format!(...))` patterns across OPF, TOC, CFI, and section generation with direct `write!` and `writeln!`, eliminating thousands of temporary string allocations during parsing and export.
+  - **Optimized TTS Tokenization**: Refactored `Section::tokenize_tts_words` to stream from `plain_text.chars()` directly without allocating intermediate `Vec<char>` buffers.
+  - **Eliminated Production Unsoundness**: Replaced fallible `.unwrap()` calls in XML entity decoding (`src/dom.rs`), Markdown callout parsing (`src/txt.rs`), and author citation formatting (`src/citation.rs`) with safe pattern matching, `strip_prefix`, and `split_last`.
+  - **API Forward Compatibility**: Marked `EbookError` as `#[non_exhaustive]` and aligned error `Display` formatting to idiomatic lowercase messages.
+  - **Unsafe Code Documentation**: Added explicit `// SAFETY:` rationale blocks to `from_mmap` and FFI deallocators (`ebook_rs_book_free`, `ebook_rs_string_free`).
+  - **CLI Cleanups**: Applied automated and pedantic clippy cleanups to CLI argument handling and formatting.
+
 ## [0.16.5] - 2026-09-02
 
 ### Changed & Improved

@@ -31,6 +31,7 @@ impl EpubArchive {
     }
 
     /// Create an empty `EpubArchive` instance.
+    #[must_use]
     pub fn empty() -> Self {
         Self {
             files: AHashMap::new(),
@@ -40,8 +41,8 @@ impl EpubArchive {
     }
 
     /// Insert or update a file entry in the archive.
-    pub fn insert(&mut self, path: impl Into<String>, data: Vec<u8>) {
-        let key = normalize_path(&path.into());
+    pub fn insert(&mut self, path: impl AsRef<str>, data: Vec<u8>) {
+        let key = normalize_path(path.as_ref());
         self.files.insert(key, data);
     }
 
@@ -52,6 +53,7 @@ impl EpubArchive {
     }
 
     /// Access reference to underlying files map in the archive.
+    #[must_use]
     pub fn files(&self) -> &AHashMap<String, Vec<u8>> {
         &self.files
     }
@@ -63,35 +65,42 @@ impl EpubArchive {
     }
 
     /// Helper to detect MIME type from entry file extension.
+    #[must_use]
     pub fn get_mime_type(path: &str) -> &'static str {
-        let lower = path.to_lowercase();
-        if lower.ends_with(".xhtml") || lower.ends_with(".html") || lower.ends_with(".htm") {
+        let ext = Path::new(path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+        if ext.eq_ignore_ascii_case("xhtml")
+            || ext.eq_ignore_ascii_case("html")
+            || ext.eq_ignore_ascii_case("htm")
+        {
             "application/xhtml+xml"
-        } else if lower.ends_with(".css") {
+        } else if ext.eq_ignore_ascii_case("css") {
             "text/css"
-        } else if lower.ends_with(".png") {
+        } else if ext.eq_ignore_ascii_case("png") {
             "image/png"
-        } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+        } else if ext.eq_ignore_ascii_case("jpg") || ext.eq_ignore_ascii_case("jpeg") {
             "image/jpeg"
-        } else if lower.ends_with(".gif") {
+        } else if ext.eq_ignore_ascii_case("gif") {
             "image/gif"
-        } else if lower.ends_with(".svg") {
+        } else if ext.eq_ignore_ascii_case("svg") {
             "image/svg+xml"
-        } else if lower.ends_with(".webp") {
+        } else if ext.eq_ignore_ascii_case("webp") {
             "image/webp"
-        } else if lower.ends_with(".ttf") {
+        } else if ext.eq_ignore_ascii_case("ttf") {
             "font/ttf"
-        } else if lower.ends_with(".otf") {
+        } else if ext.eq_ignore_ascii_case("otf") {
             "font/otf"
-        } else if lower.ends_with(".woff") {
+        } else if ext.eq_ignore_ascii_case("woff") {
             "font/woff"
-        } else if lower.ends_with(".woff2") {
+        } else if ext.eq_ignore_ascii_case("woff2") {
             "font/woff2"
-        } else if lower.ends_with(".js") {
+        } else if ext.eq_ignore_ascii_case("js") {
             "application/javascript"
-        } else if lower.ends_with(".json") {
+        } else if ext.eq_ignore_ascii_case("json") {
             "application/json"
-        } else if lower.ends_with(".smil") {
+        } else if ext.eq_ignore_ascii_case("smil") {
             "application/smil+xml"
         } else {
             "application/octet-stream"

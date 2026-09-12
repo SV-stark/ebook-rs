@@ -209,15 +209,18 @@ impl Cfi {
 
         // Check if element_id exists in target HTML
         if element_id.is_none() {
-            let lower_html = html.to_lowercase();
-            for step in &self.path.steps {
-                if let Some(id) = &step.element_id {
-                    let id_lower = id.to_lowercase();
-                    if lower_html.contains(&format!("id=\"{}\"", id_lower))
-                        || lower_html.contains(&format!("id='{}'", id_lower))
-                    {
-                        element_id = Some(id.clone());
-                        break;
+            let has_step_id = self.path.steps.iter().any(|s| s.element_id.is_some());
+            if has_step_id {
+                let lower_html = html.to_lowercase();
+                for step in &self.path.steps {
+                    if let Some(id) = &step.element_id {
+                        let id_lower = id.to_lowercase();
+                        let pat_dq = format!("id=\"{id_lower}\"");
+                        let pat_sq = format!("id='{id_lower}'");
+                        if lower_html.contains(&pat_dq) || lower_html.contains(&pat_sq) {
+                            element_id = Some(id.clone());
+                            break;
+                        }
                     }
                 }
             }
@@ -361,9 +364,10 @@ fn split_cfi_range(payload: &str) -> Option<Vec<&str>> {
 }
 
 fn format_path(path: &CfiPath) -> String {
+    use std::fmt::Write as _;
     let mut out = String::new();
     for step in &path.steps {
-        out.push_str(&format!("/{}", step.index));
+        let _ = write!(out, "/{}", step.index);
         if let Some(ref id) = step.element_id {
             out.push('[');
             for c in id.chars() {
@@ -379,7 +383,7 @@ fn format_path(path: &CfiPath) -> String {
         }
     }
     if let Some(CfiOffset::Character(off)) = path.offset {
-        out.push_str(&format!(":{}", off));
+        let _ = write!(out, ":{off}");
     }
     out
 }

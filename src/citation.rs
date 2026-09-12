@@ -125,10 +125,10 @@ impl CitationExporter {
 
 fn invert_author_name(creator: &str) -> String {
     let parts: Vec<&str> = creator.split_whitespace().collect();
-    if parts.len() >= 2 {
-        let last = parts.last().unwrap();
-        let firsts = parts[..parts.len() - 1].join(" ");
-        format!("{}, {}", last, firsts)
+    if let Some((last, firsts)) = parts.split_last()
+        && !firsts.is_empty()
+    {
+        format!("{last}, {}", firsts.join(" "))
     } else {
         creator.to_string()
     }
@@ -187,15 +187,16 @@ fn format_author_apa(author: &str) -> String {
     }
 
     let parts: Vec<&str> = author.split_whitespace().collect();
-    if parts.len() > 1 {
-        let last = parts.last().unwrap();
-        let initials: String = parts[..parts.len() - 1]
+    if let Some((last, firsts)) = parts.split_last()
+        && !firsts.is_empty()
+    {
+        let initials: String = firsts
             .iter()
             .filter_map(|p| p.chars().next())
-            .map(|c| format!("{}.", c))
+            .map(|c| format!("{c}."))
             .collect::<Vec<_>>()
             .join(" ");
-        format!("{}, {}", last, initials)
+        format!("{last}, {initials}")
     } else {
         author.to_string()
     }

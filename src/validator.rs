@@ -196,12 +196,14 @@ impl UniversalEpub3Exporter {
             let mut nav_html = String::from(
                 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html>\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\">\n<head><title>TOC</title></head>\n<body>\n<nav epub:type=\"toc\" id=\"toc\"><h1>Table of Contents</h1><ol>",
             );
+            use std::fmt::Write as _;
             for (idx, _) in book.spine().iter().enumerate() {
-                nav_html.push_str(&format!(
+                let _ = write!(
+                    nav_html,
                     "<li><a href=\"sec_{}.xhtml\">Section {}</a></li>",
                     idx,
                     idx + 1
-                ));
+                );
             }
             nav_html.push_str("</ol></nav>\n</body>\n</html>");
             zip.write_all(nav_html.as_bytes())
@@ -225,31 +227,36 @@ impl UniversalEpub3Exporter {
                 lang
             );
             for creator in &meta.creators {
-                opf_xml.push_str(&format!(
-                    "    <dc:creator>{}</dc:creator>\n",
+                let _ = writeln!(
+                    opf_xml,
+                    "    <dc:creator>{}</dc:creator>",
                     crate::dom::xml_escape(creator)
-                ));
+                );
             }
             opf_xml.push_str("  </metadata>\n  <manifest>\n    <item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>\n");
 
             for (idx, _) in book.spine().iter().enumerate() {
-                opf_xml.push_str(&format!("    <item id=\"sec_{}\" href=\"sec_{}.xhtml\" media-type=\"application/xhtml+xml\"/>\n", idx, idx));
+                let _ = writeln!(
+                    opf_xml,
+                    "    <item id=\"sec_{idx}\" href=\"sec_{idx}.xhtml\" media-type=\"application/xhtml+xml\"/>"
+                );
             }
             // Add asset files (images, css, fonts) from book.archive to content.opf manifest
             let mut asset_idx = 0;
             let mut seen_manifest_hrefs = std::collections::HashSet::new();
             for path in book.archive.files().keys() {
-                let path_low = path.to_lowercase();
-                if path_low.ends_with(".opf")
-                    || path_low.ends_with(".ncx")
-                    || path_low == "mimetype"
-                    || path_low == "meta-inf/container.xml"
-                    || path_low == "oebps/nav.xhtml"
-                    || (path_low.contains("sec_") && path_low.ends_with(".xhtml"))
+                let path_str = path.as_str();
+                if path_str.ends_with(".opf")
+                    || path_str.ends_with(".ncx")
+                    || path_str.eq_ignore_ascii_case("mimetype")
+                    || path_str.eq_ignore_ascii_case("meta-inf/container.xml")
+                    || path_str.eq_ignore_ascii_case("oebps/nav.xhtml")
+                    || (path_str.to_ascii_lowercase().contains("sec_")
+                        && path_str.ends_with(".xhtml"))
                 {
                     continue;
                 }
-                let rel_href = if path_low.starts_with("oebps/") {
+                let rel_href = if path_str.to_ascii_lowercase().starts_with("oebps/") {
                     &path[6..]
                 } else {
                     path.as_str()
@@ -258,18 +265,19 @@ impl UniversalEpub3Exporter {
                     continue;
                 }
                 let mime = EpubArchive::get_mime_type(path);
-                opf_xml.push_str(&format!(
-                    "    <item id=\"asset_{}\" href=\"{}\" media-type=\"{}\"/>\n",
+                let _ = writeln!(
+                    opf_xml,
+                    "    <item id=\"asset_{}\" href=\"{}\" media-type=\"{}\"/>",
                     asset_idx,
                     crate::dom::sanitize_and_repair_xml(rel_href),
                     mime
-                ));
+                );
                 asset_idx += 1;
             }
 
             opf_xml.push_str("  </manifest>\n  <spine>\n");
             for (idx, _) in book.spine().iter().enumerate() {
-                opf_xml.push_str(&format!("    <itemref idref=\"sec_{}\"/>\n", idx));
+                let _ = writeln!(opf_xml, "    <itemref idref=\"sec_{idx}\"/>");
             }
             opf_xml.push_str("  </spine>\n</package>");
             zip.write_all(opf_xml.as_bytes())

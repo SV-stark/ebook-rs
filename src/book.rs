@@ -873,13 +873,14 @@ impl Book {
         let width = left_section.viewport_width.unwrap_or(600.0);
         let height = left_section.viewport_height.unwrap_or(800.0);
 
+        use std::fmt::Write;
         let mut html = String::new();
         html.push_str("<div class=\"epub-fxl-spread-container\" style=\"display:flex; flex-direction:row; justify-content:center; align-items:center; width:100%; height:100vh; background-color:#0f1319;\">");
 
-        html.push_str(&format!(
-            "<div class=\"epub-fxl-page page-left\" style=\"width:{:.1}px; height:{:.1}px; overflow:hidden; box-shadow: -4px 0 16px rgba(0,0,0,0.5);\">",
-            width, height
-        ));
+        let _ = write!(
+            html,
+            "<div class=\"epub-fxl-page page-left\" style=\"width:{width:.1}px; height:{height:.1}px; overflow:hidden; box-shadow: -4px 0 16px rgba(0,0,0,0.5);\">"
+        );
         html.push_str(&left_section.processed_html);
         html.push_str("</div>");
 
@@ -887,10 +888,10 @@ impl Book {
             let r_width = right_sec.viewport_width.unwrap_or(width);
             let r_height = right_sec.viewport_height.unwrap_or(height);
 
-            html.push_str(&format!(
-                "<div class=\"epub-fxl-page page-right\" style=\"width:{:.1}px; height:{:.1}px; overflow:hidden; box-shadow: 4px 0 16px rgba(0,0,0,0.5);\">",
-                r_width, r_height
-            ));
+            let _ = write!(
+                html,
+                "<div class=\"epub-fxl-page page-right\" style=\"width:{r_width:.1}px; height:{r_height:.1}px; overflow:hidden; box-shadow: 4px 0 16px rgba(0,0,0,0.5);\">"
+            );
             html.push_str(&right_sec.processed_html);
             html.push_str("</div>");
         }
@@ -912,6 +913,9 @@ impl Book {
         let p = path.as_ref();
         let file = std::fs::File::open(p)
             .map_err(|e| EbookError::Io(format!("Failed to open file for mmap: {}", e)))?;
+        // SAFETY: The file handle `file` is opened read-only and memory-mapped
+        // solely for immutable byte reading by multi-format eBook parsers.
+        // Callers must ensure the underlying file is not truncated concurrently.
         let mmap = unsafe {
             memmap2::Mmap::map(&file)
                 .map_err(|e| EbookError::Io(format!("Failed to memory-map file: {}", e)))?
@@ -1013,25 +1017,28 @@ impl Book {
                 xml_escape(&self.opf.metadata.title),
                 xml_escape(lang)
             );
+            use std::fmt::Write as _;
             // Emit dc:creator for every author
             for creator in &self.opf.metadata.creators {
-                opf_xml.push_str(&format!(
-                    "    <dc:creator>{}</dc:creator>\n",
+                let _ = writeln!(
+                    opf_xml,
+                    "    <dc:creator>{}</dc:creator>",
                     xml_escape(creator)
-                ));
+                );
             }
             opf_xml.push_str("  </metadata>\n  <manifest>\n    <item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>\n");
 
             for section in &self.sections {
-                opf_xml.push_str(&format!(
-                    "    <item id=\"sec_{}\" href=\"section_{}.html\" media-type=\"application/xhtml+xml\"/>\n",
+                let _ = writeln!(
+                    opf_xml,
+                    "    <item id=\"sec_{}\" href=\"section_{}.html\" media-type=\"application/xhtml+xml\"/>",
                     section.index, section.index
-                ));
+                );
             }
 
             opf_xml.push_str("  </manifest>\n  <spine>\n");
             for section in &self.sections {
-                opf_xml.push_str(&format!("    <itemref idref=\"sec_{}\"/>\n", section.index));
+                let _ = writeln!(opf_xml, "    <itemref idref=\"sec_{}\"/>", section.index);
             }
             opf_xml.push_str("  </spine>\n</package>");
 
