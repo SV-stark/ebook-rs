@@ -5,6 +5,104 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2026-10-11
+
+### Fixed
+
+- **Sanitizer Bypasses Closed (`src/section.rs`)**:
+  - **Event Handler After a Closing Quote**: An attribute name beginning with `on` was only stripped when preceded by whitespace, `<` or `/`. The HTML5 tokenizer re-consumes the character after a quoted attribute value in the "before attribute name" state, so `<img src="x"onerror="alert(1)">` created a *separate* `onerror` attribute that survived verbatim. The closing quote is now treated as an attribute-name boundary.
+  - **`javascript&colon;` URI Smuggling**: `decode_html_entities_for_uri` handled `&Tab;`/`&NewLine;` but not `&colon;`, which HTML5 decodes inside attribute values, making `javascript&colon;alert(1)` a live URI. Added the reference, and derived the neutralization offset from the decoded scheme rather than a literal-colon search — `javascript&colon;` contains no `:` at all, so the fallback left `lon;alert(1)` behind.
+  - **`<meta http-equiv=refresh>` Scope**: The guard inspected only the first 60 bytes of the tag. It now scans the whole tag via `find_tag_end`, so a `<meta>` padded past 60 bytes with benign attributes cannot hide a refresh at its end.
+
+- **Plain Text Entity Decoding (`src/section.rs`, `src/dom.rs`)**:
+  Added `decode_html_entities`, the inverse of `xml_escape`, and applied it to `extract_plain_text`. FB2/PDF/ODT/DOCX/RTF/CBZ build their section HTML by escaping text nodes, so `plain_text` — and therefore search, TTS and word counts — read `&apos;Curiouser and curiouser!&apos;` verbatim. Decoding is a single left-to-right pass (`&amp;amp;` → `&amp;`, not `&`), tolerates numeric references, and leaves malformed, unknown and out-of-range references untouched.
+
+- **XML Nesting-Depth Guard Bypass (`src/dom.rs`)**: The name-start test in `xml_nesting_depth` was ASCII-only, but XML 1.0 `NameStartChar` includes non-ASCII letters and every non-ASCII UTF-8 lead byte is `>= 0x80`. An element named `<日本語>` was therefore skipped as "not a tag" instead of counted, so a document nested thousands of levels deep measured as depth 1 and was handed to `roxmltree` unchanged — a one-character bypass of the stack-overflow guard.
+
+- **Optimizer Asset Deduplication (`src/optimizer.rs`)**: `deduplicate_assets` remapped references by substituting *bare filenames*, which is only correct when two identical files share a directory. Different directories produced references to files that do not exist, and identical basenames made the substitution a no-op while the file was still deleted. Rewriting now uses full paths, is confined to attribute values (prose mentioning a filename is never touched), and also remaps CSS `url(...)` references.
+
+- **Reader Selection Bridge Disabled (`src/web_ui.rs`)**: The `postMessage` origin guard compared `e.origin` against the reader's real origin, but the book frame is served with `sandbox="allow-scripts"`, so a `srcdoc` frame has an **opaque origin** and posts with `e.origin === "null"`. Every legitimate message was rejected, killing text selection, the selection toolbar, `addHighlight()` and every DOM-selection-driven bookmark. Window identity (`e.source`) is the authoritative check.
+  `switchTab` also used the non-standard global `window.event`, which throws `ReferenceError` in Firefox and Safari and left the sidebar panels unusable.
+
+- **RTF Destination Leakage (`src/rtf.rs`)**: The `{` arm unconditionally cleared `is_destination` / `dest_name`, so a group nested inside a destination stopped being treated as one and its text was routed into the book body. Real RTFs leaked font- and style-table names (`Times New Roman;…heading 1;…`) into every section. Nested groups now inherit the parent's destination, and the destination text buffer is snapshotted per frame so a nested group flushes only its own content.
+
+- **Search Performance & Result Capping (`src/search.rs`)**:
+  - `extract_zero_alloc_snippet` called `text.is_ascii()` once per match, which is itself an O(n) scan of the whole section. With 400 KB of text and 200,000 matches that alone cost ~2 s; snippet extraction was `matches × section_length`. The flag is now computed once per section.
+  - The documented result cap was applied *between* sections, so a single large section materialized every match before truncating. The remaining budget is now threaded into the section scan.
+
+- **RAG Chunking & BM25 (`src/rag.rs`)**:
+  - `extract_elements` collected paragraph text with `descendants().filter_map(|n| n.text())`. `descendants()` includes the element itself and `Node::text()` on an element returns its first text child, so **every paragraph was emitted twice** — doubling chunk text, `token_count_estimate`, BM25 `tf`, and pushing `current_char_offset` (the chunk's CFI anchor) out by roughly 2×. Only descendant *text* nodes are now used.
+  - `doc_freq` counted chunks via `to_lowercase().contains(term)` while `tf` counted whole tokens. Substring collisions (`cat` inside `catalog`) inflated `df` by ~55×, driving the IDF toward zero. Both now use the same tokenization.
+
+- **Lazy-Mode Cache Export (`src/book.rs`)**: `export_zstd_cache` serialized `archive.files()` and `sections` without hydrating. In lazy mode `files` holds only eagerly-loaded XML and sections are never hydrated, so the restored book had `raw == ""` / `processed == ""` for every section, zero search hits, zero locations, and every non-XML asset missing. Export now hydrates via the new `EpubArchive::hydrate_into`, and `from_zstd_cache` no longer writes an empty section body over live data.
+
+- **EPUB 3 Export Missing Assets (`src/book.rs`)**: `export_epub3_bytes` wrote `section.raw_html` verbatim but never copied the source archive's assets, so the exported manifest referenced files absent from the produced ZIP. Sections are now resource-inlined, and `export_optimized_epub3_bytes` inherits the fix.
+
+- **Archive Path Fragment Stripping (`src/archive.rs`)**: `read_bytes` / `read_bytes_ref` / `contains` stripped a `#fragment` a second time *after* `normalize_path`, while `resolve_relative_path` deliberately percent-decodes `%23` into a real `#`. A legitimate path such as `OEBPS/cov#1.png` was listed by `list_files()` but reported missing, silently dropping images and covers. The full normalized key is now tried before the fragment-stripped fallback.
+
+- **HTTP Range Header Parsing (`src/archive.rs`)**: `parse_range_header` split on `-` and took at most two parts, so `bytes=0-100,200-300` became `Some((0, None))` (a multi-range request turns into "serve the whole object"), `bytes=1-2-3` was silently accepted, and an unparseable `end` degraded to "rest of file".
+
+- **Render Cache Keying (`src/book.rs`)**: `render_cache` was keyed only on the section index, and `layout`, `before_display_hooks` and `render_cache` are public fields. Mutating `book.layout.allow_scripted_content = false` directly still returned a cached rendering containing `<script>`. The cache is now keyed by the new public `RenderCacheKey` (index, `allow_scripted_content`, hook count, source length).
+
+- **Wrong Section Returned (`src/book.rs`)**: After the `find(|s| s.index == index)` lookup failed, `get_section` fell back to a positional `sections.get(index)` and returned a section whose `index` field differed, caching its rendering under the requested index. The section's own index is now used for the cache key and CFI.
+
+- **Fail-Open LCP Gate (`src/book.rs`)**: `from_zstd_cache` only rejected an LCP-protected book when `license.lcpl` was readable *and* parsed with an `<encryption>` block, unlike `from_archive_internal` which rejects on mere presence. A cache blob carrying a malformed license restored with no passphrase validation. The gate now rejects on presence of `license.lcpl` / `rights.xml`.
+
+- **Unchecked `u32` Overflow on 32-Bit Targets (`src/mobi.rs`, `src/kfx/container.rs`)**: `16 + header_len + 12`, `curr + len` (EXTH record length), `fn_offset + fn_len`, and `curr_offset + 24` all widen attacker-controlled `u32` header fields into `usize`. With `overflow-checks = true` in the release profile these are hard panics on wasm32 and i686 — both explicitly supported. All use checked arithmetic now.
+
+- **OPDS Wrong Media Type (`src/opds.rs`)**: `download_link` matched `link.media_type == mime || link.rel.contains("acquisition")`, so the disjunct short-circuited on *any* acquisition link. An entry listing both a PDF and an EPUB returned whichever came first; the caller asked for an EPUB and was handed a PDF. The exact MIME match now wins.
+
+- **SMIL Timecount Units (`src/media_overlay.rs`)**: `is_mins`/`is_hours` were derived from the raw suffix while the value was stripped with single-character `trim_end_matches`, so `min` and `ms` were never removed: `90min` parsed as `0.0` and `250ms` as `250.0` — turning a quarter-second clip into four minutes. Units are now matched by suffix. (`tests/test_blackbox_epub3_advanced.rs` had asserted the wrong `100ms == 100.0` value and has been corrected.)
+
+- **HTML Entity Double-Encoding (`src/fb2.rs`, `src/pdf.rs`)**: `plain_text` was derived from XML-escaped HTML that `extract_plain_text` never decoded, so 5,746 `&apos;` and 226 `&quot;` occurrences appeared in the plain text of the repository's own test samples. Fixed by the new `decode_html_entities` above.
+
+- **RTF Non-Contiguous Section Indices (`src/rtf.rs`)**: `flush_section` silently returns for a blank buffer, but the `"page"` arm incremented `section_index` unconditionally. `{\rtf1\ansi First\page \page Second}` yielded indices 0 and 2 with no `section_1.html`, so `sections[i].index != i` for everything after the skip. `flush_section` now reports whether it emitted.
+
+- **Fingerprint False Duplicates (`src/fingerprint.rs`)**: In the "content hashes differ" branch the score was `0.6 + 0.4 * len_similarity`, which reaches exactly `1.0` whenever the two total character counts match — a coincidence unrelated to the text being equal. Two books with the same title, author, chapter count and length but *different* content now correctly score below the duplicate threshold.
+
+- **CFI Package-Document Steps (`src/cfi.rs`)**: `resolve_dom_path` translated *every* non-indirection step into a `*:nth-child()` selector, including the steps that describe the OPF package document (`/6`). `epubcfi(/6/2!/4/2/1:42)` produced `*:nth-child(3) > *:nth-child(2) > *:nth-child(1)`, anchored in the wrong document, so no ID-less CFI the crate itself emits ever resolved. Selectors are now collected only after the indirection step, and an asserted `[id]` that is absent from the target HTML is no longer reported as the target.
+
+- **Custom Font CSS Dropped (`src/layout.rs`)**: `sanitize_css_url` rejected any URL containing `;` or `,` and anything over 4096 bytes. Every `data:font/woff2;base64,…` URI contains both and exceeds the cap, so the entire `@font-face` rule silently disappeared instead of being emitted. Only true break-out characters and a 1 MB cap remain. `active_font` also hardcoded `"sans-serif"` when the custom family sanitized away, discarding the configured `font_family`.
+
+- **MCP Prompt Injection (`src/mcp.rs`)**: `summarize_book` and `extract_entities` pass metadata through `sanitize_for_prompt`, but `generate_study_guide` interpolated `meta.title` and `meta.creators` raw, giving a book author control over the MCP client's prompts. All three now sanitize.
+
+- **MCP Wrong Chapter (`src/mcp.rs`)**: `read_section` used `matched_idx.unwrap_or(0)` when a `chapter_title` did not match, silently returning the first section under a confident "Section 0" heading. It now returns an error, and href matching compares the fragment-stripped file name instead of using `contains` (which let `chapter-1.xhtml` and `chapter-10.xhtml` cross-match).
+
+- **JSON-RPC Transport Error Codes (`src/server.rs`)**: `jsonrpc_error` computed `status as i64 - 32000`, yielding `-31601` for 401 and similar — all outside the JSON-RPC 2.0 reserved range (`-32700…-32000`). Transport rejections now use `-32600` with the HTTP status carried in the message.
+
+- **IPv6 Host Header Rejected (`src/server.rs`)**: The DNS-rebinding check used `host.split(':').next()`, which turns `Host: [::1]:8080` into `"["` — not in the allowlist — so every IPv6-literal request got a 403 and the `[::1]` / `::1` entries were unreachable. Bracketed IPv6 hosts are now parsed separately.
+
+- **Optimizer Data Loss (`src/optimizer.rs`)**: `minify_html` executed `break` on an unterminated `<!--`, discarding the entire remainder of the document. The tail is now emitted verbatim.
+  `OptimizationReport`'s `original_size_bytes` / `optimized_size_bytes` / `saved_bytes` were never written by anything in the crate, so every caller read "0 bytes → 0 bytes, saved 0". They are now populated from archive + section sizes before and after optimization.
+
+- **XHTML DOCTYPE & Escaping (`src/validator.rs`)**: The exporter prepended `<?xml …?>\n<!DOCTYPE html>` even when the section already began with `<!DOCTYPE html>`, producing **two** DOCTYPE declarations (not well-formed XML). `dc:identifier` and `dc:language` were also interpolated raw into the generated `content.opf`, so a source `&` produced an unescaped one that is a fatal XML error. Both are now `xml_escape`d and the DOCTYPE is only emitted when absent.
+
+- **PDF Temp-File Leak (`src/pdf.rs`)**: `TempPdfGuard` was installed after `write_all`/`flush`, so a failed write on a full or quota-exhausted temp volume leaked one zero-byte file per call. The guard is now installed as soon as the file exists.
+
+- **LCP Silent Key Fallback (`src/lcp.rs`)**: A `content_key` block that was present but unreadable or bad-width was silently ignored, falling back to the user key and returning garbage post-processing bytes as if they had been decrypted successfully. Failures are now returned as errors.
+
+- **Tree-sitter Offset Drift (`src/treesitter.rs`)**: `byte_offset += line_len + 1` assumed a one-byte terminator, but `str::lines()` also strips the `\r` of a `\r\n` pair, so every CRLF line shifted all later byte offsets one byte left. Only the literal `"<pre>"` was matched, skipping `<pre class="…">` blocks entirely, and the fallback `source_file` node reported a row one past the last line.
+
+- **Footnotes With Single-Quoted Attributes (`src/footnote.rs`)**: `extract_attr` only built the `attr="…"` form, so HTML5-valid single-quoted `href` / `id` attributes yielded zero footnotes. Both quoting forms are now tried.
+
+- **Citation Year Fabrication (`src/citation.rs`)**: The fallback concatenated *every* digit in the date and took the first four, so `"15/03/99"` produced the year **1503**, which was then printed by every citation style and baked into the BibTeX key. Only an unambiguous 8-digit packed form (`YYYYMMDD`) is accepted now.
+
+- **Duplicate CSS Class Attribute (`src/media_overlay.rs`)**: The annotation injected `class="media-overlay-active-target"` directly after the existing `id="…"`, so any element that already carried a `class` ended up with two; HTML5 keeps only the first, silently discarding the author's class. The new class is now merged into the existing attribute.
+
+- **Markdown Hashtag Headings (`src/txt.rs`)**: The heading branch tested only `trimmed.starts_with('#')`, so `#hashtag about cats` and `####Chapter` parsed as ATX headings — creating spurious chapter splits, bogus TOC entries, and (with a generic fallback title) replacing the book title with the hashtag. A `#` must now be followed by whitespace or end-of-line.
+
+### Added
+
+- **`decode_html_entities`** (`src/dom.rs`, re-exported at the crate root) — single-pass HTML character-reference decoding for text nodes.
+- **`RenderCacheKey`** (`src/book.rs`, re-exported at the crate root) — render-cache key that captures every input affecting a section's rendering.
+- **`EpubArchive::hydrate_into`** — materializes a lazy archive (eager files plus decompressed lazy entries) into a caller-supplied map.
+- **`tests/test_regression_fixes.rs`** — 15 integration tests, one per fixed defect, with inline test modules added to `dom`, `section`, `search`, `optimizer` and `media_overlay`.
+
+### Internal
+
+- Applied `cargo fmt` to all modified files; `cargo clippy --all-targets --all-features` is warning-free.
+- `tests/test_blackbox_epub3_advanced.rs` corrected from asserting the buggy `100ms == 100.0` SMIL conversion.
+
 ## [0.16.6] - 2026-09-12
 
 ### Changed & Improved

@@ -9,7 +9,6 @@ use crate::opf::OpfPackage;
 use crate::section::{Section, extract_plain_text};
 use ahash::AHashMap;
 use base64::Engine;
-use roxmltree::Document;
 
 /// FictionBook 2 (FB2) XML Parser.
 pub struct Fb2Book;
@@ -18,7 +17,8 @@ impl Fb2Book {
     /// Parse FB2 raw XML bytes into a `Book` struct.
     pub fn parse(bytes: &[u8]) -> Result<Book, EbookError> {
         let xml = String::from_utf8_lossy(bytes);
-        let doc = Document::parse(&xml)
+
+        let doc = crate::dom::parse_xml_document(&xml)
             .map_err(|e| EbookError::Xml(format!("FB2 XML parse error: {}", e)))?;
 
         let root = doc.root_element();
@@ -93,6 +93,18 @@ impl Fb2Book {
                     };
 
                     let clean_id = id.trim_start_matches('#').to_string();
+                    // `id` is attacker-controlled. `EpubArchive::insert` normalizes the key and
+                    // silently drops `..` segments, so an id like `../../container.xml` would
+                    // otherwise overwrite `META-INF/container.xml` in the in-memory index.
+                    // Reject any id that is not a plain filename.
+                    if clean_id.is_empty()
+                        || clean_id.contains('/')
+                        || clean_id.contains('\\')
+                        || clean_id.contains("..")
+                        || clean_id.starts_with('.')
+                    {
+                        continue;
+                    }
                     let filename = if clean_id.contains('.') {
                         clean_id.clone()
                     } else {
@@ -267,12 +279,21 @@ fn collect_descendant_text(node: &roxmltree::Node) -> String {
     buf
 }
 
+/// Maximum element nesting depth the FB2 -> HTML renderer will descend.
+///
+/// `roxmltree` imposes no nesting limit (`nodes_limit` defaults to `u32::MAX`), so a ~30 KB
+/// file of nested `<section>` elements is enough to exhaust the 2 MB stack of a
+/// `std::thread::spawn` worker. A stack overflow is a SIGSEGV: it cannot be caught by
+/// `catch_unwind` and takes the whole process down. Past the limit we render the remaining
+/// subtree's text instead of recursing, so no content is lost.
+const MAX_FB2_DEPTH: usize = 64;
+
 fn convert_fb2_section_to_html(
     sec: &roxmltree::Node,
     binary_map: &AHashMap<String, String>,
 ) -> String {
     let mut html = String::from("<div>");
-    convert_fb2_children_to_html(sec, binary_map, &mut html);
+    convert_fb2_children_to_html(sec, binary_map, &mut html, 0);
     html.push_str("</div>");
     html
 }
@@ -281,9 +302,21 @@ fn convert_fb2_children_to_html(
     parent: &roxmltree::Node,
     binary_map: &AHashMap<String, String>,
     html: &mut String,
+    depth: usize,
 ) {
     for node in parent.children() {
         if !node.is_element() {
+            continue;
+        }
+        // Depth guard applied before any arm so that *every* recursive path (including the
+        // explicit <section>/<poem>/<stanza>/<epigraph>/<cite> containers) is bounded, not
+        // just the fallback arm.
+        if depth >= MAX_FB2_DEPTH {
+            let text = collect_descendant_text(&node);
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+                html.push_str(&format!("<p>{}</p>", xml_escape(trimmed)));
+            }
             continue;
         }
         match node.tag_name().name() {
@@ -320,22 +353,22 @@ fn convert_fb2_children_to_html(
             }
             "section" => {
                 html.push_str("<section>");
-                convert_fb2_children_to_html(&node, binary_map, html);
+                convert_fb2_children_to_html(&node, binary_map, html, depth + 1);
                 html.push_str("</section>");
             }
             "poem" => {
                 html.push_str("<div class=\"poem\">");
-                convert_fb2_children_to_html(&node, binary_map, html);
+                convert_fb2_children_to_html(&node, binary_map, html, depth + 1);
                 html.push_str("</div>");
             }
             "stanza" => {
                 html.push_str("<div class=\"stanza\">");
-                convert_fb2_children_to_html(&node, binary_map, html);
+                convert_fb2_children_to_html(&node, binary_map, html, depth + 1);
                 html.push_str("</div>");
             }
             "epigraph" | "cite" => {
                 html.push_str("<blockquote>");
-                convert_fb2_children_to_html(&node, binary_map, html);
+                convert_fb2_children_to_html(&node, binary_map, html, depth + 1);
                 html.push_str("</blockquote>");
             }
             "image" => {
@@ -363,7 +396,7 @@ fn convert_fb2_children_to_html(
             }
             _ => {
                 // Fallback: render any child elements or descendant text so content is never lost
-                convert_fb2_children_to_html(&node, binary_map, html);
+                convert_fb2_children_to_html(&node, binary_map, html, depth + 1);
             }
         }
     }

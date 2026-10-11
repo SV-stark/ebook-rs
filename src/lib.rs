@@ -57,13 +57,16 @@ pub use mcp::run_mcp_server;
 pub use analytics::ReadingAnalytics;
 pub use annotations::{Annotation, AnnotationManager, AnnotationType};
 pub use archive::{EpubArchive, HttpRangeRequest};
-pub use book::Book;
+pub use book::{Book, RenderCacheKey};
 pub use cbz::CbzBook;
 pub use cfi::{Cfi, CfiDomTarget, CfiOffset, CfiPath, CfiStep};
 pub use citation::{CitationExporter, CitationStyle};
 pub use deobfuscate::FontDeobfuscator;
 pub use docx::DocxBook;
-pub use dom::{DomNode, EbookDomTree, decode_bytes_with_encoding, sanitize_and_repair_xml};
+pub use dom::{
+    DomNode, EbookDomTree, decode_bytes_with_encoding, decode_html_entities,
+    sanitize_and_repair_xml,
+};
 pub use error::EbookError;
 pub use fb2::Fb2Book;
 pub use fingerprint::{BookFingerprint, FingerprintGenerator};

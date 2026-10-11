@@ -1,7 +1,7 @@
 use ebook_rs::{Book, ReaderServer, generate_sample_epub};
 use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[cfg(feature = "mimalloc")]
 #[global_allocator]
@@ -12,10 +12,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mode = args.get(1).map_or("serve", String::as_str);
 
+    // `--auth-token <t>` (or `EBOOK_RS_AUTH_TOKEN`) protects the HTTP API.
+    // `--sandbox-root <dir>` (or `EBOOK_RS_SANDBOX_ROOT`) confines the filesystem-touching MCP
+    // tools; without it those tools are refused rather than left unrestricted.
+    let flag_value = |name: &str| -> Option<String> {
+        args.windows(2)
+            .find(|w| w[0] == name)
+            .map(|w| w[1].clone())
+            .filter(|v| !v.is_empty())
+    };
+
+    let auth_token: Option<String> = flag_value("--auth-token")
+        .or_else(|| env::var("EBOOK_RS_AUTH_TOKEN").ok())
+        .filter(|t| !t.trim().is_empty());
+
+    let sandbox_root: Option<PathBuf> = flag_value("--sandbox-root")
+        .or_else(|| env::var("EBOOK_RS_SANDBOX_ROOT").ok())
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from);
+
     match mode {
         "mcp" => {
             eprintln!("🚀 Starting ebook-rs Model Context Protocol (MCP) server on stdio...");
-            ebook_rs::run_mcp_server()?;
+            match &sandbox_root {
+                Some(root) => eprintln!("🔒 MCP filesystem tools sandboxed to {}", root.display()),
+                None => {
+                    eprintln!("⚠️  MCP filesystem tools are DISABLED (no sandbox root configured).")
+                }
+            }
+            ebook_rs::run_mcp_server(sandbox_root)?;
         }
         "parse" => {
             let path = args.get(2).ok_or("Usage: ebook-rs parse <path.epub>")?;
@@ -148,7 +173,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("✨ Spine Sections: {}", book.spine().len());
             println!("✨ Locations Generated: {}", book.locations.total_locations);
 
-            let server = ReaderServer::new(book, port);
+            // Same sandbox the MCP mode reports, so the two modes cannot claim contradictory
+            // states. `None` means "filesystem tools refused".
+            let mut server = ReaderServer::new(book, port);
+            if let Some(root) = sandbox_root.clone() {
+                server = server.with_sandbox_root(root);
+            }
+            if let Some(token) = auth_token {
+                server = server.try_with_auth_token(token)?;
+            }
             server.listen()?;
         }
     }

@@ -9,6 +9,23 @@ use crate::opf::OpfPackage;
 use crate::section::Section;
 use ahash::AHashMap;
 
+/// Whether a line is a CommonMark ATX heading.
+///
+/// A `#` must be followed by whitespace or the end of the line. Testing only
+/// `trimmed.starts_with('#')` misparsed `#hashtag about cats` as an `<h1>` — creating a spurious
+/// chapter split, a bogus TOC entry and (with a generic fallback title) replacing the book title
+/// with the hashtag.
+fn is_markdown_atx_heading(line: &str) -> bool {
+    let hashes = line.chars().take_while(|c| *c == '#').count();
+    if hashes == 0 || hashes > 6 {
+        return false;
+    }
+    match line[hashes..].chars().next() {
+        None => true,
+        Some(c) => c.is_whitespace(),
+    }
+}
+
 /// Plain Text (.txt) and Markdown (.md) document parser engine with YAML/TOML frontmatter,
 /// Obsidian-style wikilinks (`[[wikilink]]`), and GFM/Obsidian callout block support (`> [!NOTE]`).
 pub struct TxtBook;
@@ -228,7 +245,7 @@ impl TxtBook {
                 }
 
                 // Headings
-                if trimmed.starts_with('#') {
+                if is_markdown_atx_heading(trimmed) {
                     let level = trimmed.chars().take_while(|c| *c == '#').count();
                     let heading_text = trimmed.trim_start_matches('#').trim();
 

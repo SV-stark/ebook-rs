@@ -1,5 +1,4 @@
 use crate::archive::resolve_relative_path;
-use roxmltree::Document;
 use serde::{Deserialize, Serialize};
 
 /// A node in the Table of Contents tree.
@@ -122,14 +121,15 @@ pub struct PageListItem {
 /// Parse EPUB 2 NCX document (`toc.ncx`).
 pub fn parse_ncx(xml_content: &str, ncx_path: &str) -> Result<Vec<NavPoint>, String> {
     let repaired_xml;
-    let effective_xml = match Document::parse(xml_content) {
+    let effective_xml = match crate::dom::parse_xml_document(xml_content) {
         Ok(_) => xml_content,
         Err(_) => {
             repaired_xml = crate::dom::sanitize_and_repair_xml(xml_content);
             &repaired_xml
         }
     };
-    let doc = Document::parse(effective_xml).map_err(|e| format!("NCX XML parse error: {}", e))?;
+    let doc = crate::dom::parse_xml_document(effective_xml)
+        .map_err(|e| format!("NCX XML parse error: {}", e))?;
     let ncx_dir = if let Some(idx) = ncx_path.rfind('/') {
         &ncx_path[..idx]
     } else {
@@ -225,15 +225,15 @@ fn parse_ncx_navpoint(node: &roxmltree::Node, base_dir: &str, depth: usize) -> O
 /// Parse EPUB 3 Navigation Document (`nav.xhtml`).
 pub fn parse_nav_xhtml(html_content: &str, nav_path: &str) -> Result<Vec<NavPoint>, String> {
     let repaired_xml;
-    let effective_xml = match Document::parse(html_content) {
+    let effective_xml = match crate::dom::parse_xml_document(html_content) {
         Ok(_) => html_content,
         Err(_) => {
             repaired_xml = crate::dom::sanitize_and_repair_xml(html_content);
             &repaired_xml
         }
     };
-    let doc =
-        Document::parse(effective_xml).map_err(|e| format!("NAV XHTML parse error: {}", e))?;
+    let doc = crate::dom::parse_xml_document(effective_xml)
+        .map_err(|e| format!("NAV XHTML parse error: {}", e))?;
     let nav_dir = if let Some(idx) = nav_path.rfind('/') {
         &nav_path[..idx]
     } else {
@@ -269,7 +269,7 @@ pub fn parse_nav_xhtml(html_content: &str, nav_path: &str) -> Result<Vec<NavPoin
 /// Parse EPUB 3 Landmarks navigation (`<nav epub:type="landmarks">`).
 pub fn parse_landmarks(html_content: &str) -> Vec<Landmark> {
     let mut list = Vec::new();
-    if let Ok(doc) = Document::parse(html_content) {
+    if let Ok(doc) = crate::dom::parse_xml_document(html_content) {
         for node in doc.descendants() {
             if node.has_tag_name("nav") {
                 let is_landmarks = get_attr_val(&node, "type")
@@ -301,7 +301,7 @@ pub fn parse_landmarks(html_content: &str) -> Vec<Landmark> {
 /// Parse EPUB 3 Page List navigation (`<nav epub:type="page-list">`).
 pub fn parse_page_list(html_content: &str) -> Vec<PageListItem> {
     let mut list = Vec::new();
-    if let Ok(doc) = Document::parse(html_content) {
+    if let Ok(doc) = crate::dom::parse_xml_document(html_content) {
         for node in doc.descendants() {
             if node.has_tag_name("nav") {
                 let is_pagelist = get_attr_val(&node, "type")

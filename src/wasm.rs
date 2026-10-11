@@ -128,7 +128,8 @@ impl WasmBook {
         let config = crate::rag::RagChunkConfig {
             max_tokens: if max_tokens == 0 { 512 } else { max_tokens },
             ..Default::default()
-        };
+        }
+        .sanitized();
         let chunks = self.inner.to_rag_chunks(&config);
         serde_json::to_string(&chunks).map_err(|e| JsValue::from_str(&e.to_string()))
     }
@@ -151,16 +152,29 @@ impl WasmBook {
     }
 
     /// Get standalone zero-dependency `<ebook-reader>` HTMLElement Web Component JS definition string.
+    ///
+    /// The `src` attribute is escaped before interpolation into an HTML template literal: the
+    /// value is host-page controlled, and unescaped interpolation into `innerHTML` allowed
+    /// attribute injection (e.g. `src='x" onload="alert(1)'`).
     pub fn get_custom_element_js() -> String {
         r#"
 class EbookReaderElement extends HTMLElement {
     connectedCallback() {
-        this.innerHTML = `<iframe style="width:100%;height:100%;border:none;" src="${this.getAttribute('src')}"></iframe>`;
+        const raw = this.getAttribute('src') || '';
+        // Build the iframe with DOM APIs instead of string interpolation into innerHTML.
+        const iframe = document.createElement('iframe');
+        iframe.style.width = '100%';
+        iframe.style.height = '100%';
+        iframe.style.border = 'none';
+        iframe.setAttribute('sandbox', 'allow-same-origin');
+        iframe.src = raw;
+        this.replaceChildren(iframe);
     }
 }
 if (!customElements.get('ebook-reader')) {
     customElements.define('ebook-reader', EbookReaderElement);
 }
-"#.to_string()
+"#
+        .to_string()
     }
 }

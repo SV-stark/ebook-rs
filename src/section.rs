@@ -346,7 +346,12 @@ pub fn extract_plain_text(html: &str) -> String {
         }
     }
 
-    result.trim().to_string()
+    let result = result.trim();
+    // The tag stripper above only removes markup. Parsers such as FB2/PDF/ODT/DOCX/RTF build their
+    // section HTML by escaping text nodes (`'` → `&apos;`, `&` → `&amp;`, …), so without this
+    // decode step `plain_text` — and therefore search, TTS and word counts — read
+    // "&apos;Curiouser and curiouser!&apos;" verbatim.
+    crate::dom::decode_html_entities(result)
 }
 
 /// Process XHTML/HTML resources: Inline images, styles, and fonts as base64 Data URIs.
@@ -372,11 +377,15 @@ pub fn process_section_resources_with_strategy(
         ""
     };
 
-    let mut output = html.to_string();
+    // Collect every replacement as a byte range plus its new attribute text, then splice them
+    // all in a single forward pass. The previous implementation did
+    // `output = output.replace(&needle, ..)` once per match, which reallocated and rescanned the
+    // whole (and ever-growing, base64-inflated) buffer each time: O(matches x output) work, so a
+    // section with 2000 images copied terabytes from a 200 KB source file.
+    let mut replacements: Vec<(usize, usize, String)> = Vec::new();
 
     // Replace image src attributes
-    let img_src_regex = regex_find_attr(html, "src");
-    for (orig_attr, src_val) in img_src_regex {
+    for (start, end, src_val) in regex_find_attr(html, "src") {
         if src_val.starts_with("data:")
             || src_val.starts_with("http://")
             || src_val.starts_with("https://")
@@ -390,20 +399,22 @@ pub fn process_section_resources_with_strategy(
                 if let Ok(bytes) = archive.read_bytes(&res_path) {
                     let mime = EpubArchive::get_mime_type(&res_path);
                     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                    let data_uri = format!("data:{};base64,{}", mime, b64);
-                    output = output.replace(&orig_attr, &format!("src=\"{}\"", data_uri));
+                    replacements.push((
+                        start,
+                        end,
+                        format!("src=\"data:{};base64,{}\"", mime, b64),
+                    ));
                 }
             }
             AssetDeliveryStrategy::ResourceStream => {
                 let stream_url = format!("resource/{}", res_path);
-                output = output.replace(&orig_attr, &format!("src=\"{}\"", stream_url));
+                replacements.push((start, end, format!("src=\"{}\"", stream_url)));
             }
         }
     }
 
     // Replace ONLY <link href="*.css"> stylesheet links
-    let css_href_regex = regex_find_link_css(html);
-    for (orig_attr, href_val) in css_href_regex {
+    for (start, end, href_val) in regex_find_link_css(html) {
         let res_path = resolve_relative_path(section_dir, &href_val);
         match strategy {
             AssetDeliveryStrategy::InlinedBase64 => {
@@ -411,18 +422,39 @@ pub fn process_section_resources_with_strategy(
                     let processed_css = process_css_resources(&css_text, &res_path, archive);
                     let b64 =
                         base64::engine::general_purpose::STANDARD.encode(processed_css.as_bytes());
-                    let data_uri = format!("data:text/css;base64,{}", b64);
-                    output = output.replace(&orig_attr, &format!("href=\"{}\"", data_uri));
+                    replacements.push((
+                        start,
+                        end,
+                        format!("href=\"data:text/css;base64,{}\"", b64),
+                    ));
                 }
             }
             AssetDeliveryStrategy::ResourceStream => {
                 let stream_url = format!("resource/{}", res_path);
-                output = output.replace(&orig_attr, &format!("href=\"{}\"", stream_url));
+                replacements.push((start, end, format!("href=\"{}\"", stream_url)));
             }
         }
     }
 
-    output
+    if replacements.is_empty() {
+        return html.to_string();
+    }
+
+    // Splice: sort by start offset and emit untouched spans verbatim between replacements.
+    replacements.sort_by_key(|(start, _, _)| *start);
+    let mut out = String::with_capacity(html.len());
+    let mut cursor = 0usize;
+    for (start, end, replacement) in replacements {
+        // Skip overlapping/duplicate ranges; a range must begin at or after the cursor.
+        if start < cursor || end < start || end >= html.len() {
+            continue;
+        }
+        out.push_str(&html[cursor..start]);
+        out.push_str(&replacement);
+        cursor = end + 1;
+    }
+    out.push_str(&html[cursor..]);
+    out
 }
 
 fn find_ignore_case(s: &str, pat: &str) -> Option<usize> {
@@ -441,7 +473,9 @@ fn find_ignore_case(s: &str, pat: &str) -> Option<usize> {
 }
 
 /// Helper to find ONLY `<link ... href="...">` tags for CSS inlining (E5 Fix).
-fn regex_find_link_css(html: &str) -> Vec<(String, String)> {
+/// Collect `<link href="...">` stylesheet attributes as `(start, end_inclusive, value)` byte
+/// ranges into `html`, so callers can splice replacements in a single pass.
+fn regex_find_link_css(html: &str) -> Vec<(usize, usize, String)> {
     let mut list = Vec::new();
     let mut search_idx = 0;
 
@@ -454,11 +488,11 @@ fn regex_find_link_css(html: &str) -> Vec<(String, String)> {
             let abs_link = search_idx + link_idx;
             if let Some(abs_close) = find_tag_end(html, abs_link) {
                 let tag_str = &html[abs_link..=abs_close];
-                if let Some((orig_href, val)) = extract_attr(tag_str, "href") {
+                if let Some((attr_start, attr_end, val)) = extract_attr(tag_str, "href") {
                     if find_ignore_case(&val, ".css").is_some()
                         || find_ignore_case(tag_str, "rel=\"stylesheet\"").is_some()
                     {
-                        list.push((orig_href, val));
+                        list.push((abs_link + attr_start, abs_link + attr_end, val));
                     }
                 }
                 search_idx = abs_close + 1;
@@ -473,7 +507,9 @@ fn regex_find_link_css(html: &str) -> Vec<(String, String)> {
     list
 }
 
-fn extract_attr(tag_str: &str, attr: &str) -> Option<(String, String)> {
+/// Find an attribute inside a tag, returning `(attr_start, attr_end_inclusive, value)` as byte
+/// offsets relative to `tag_str`.
+fn extract_attr(tag_str: &str, attr: &str) -> Option<(usize, usize, String)> {
     let quotes = ['"', '\''];
     let prefixes = [' ', '<'];
 
@@ -493,9 +529,8 @@ fn extract_attr(tag_str: &str, attr: &str) -> Option<(String, String)> {
                             && tag_str.is_char_boundary(val_end)
                             && val_end < tag_str.len()
                         {
-                            let val = &tag_str[val_start..val_end];
-                            let orig = &tag_str[attr_start..=val_end];
-                            return Some((orig.to_string(), val.to_string()));
+                            let val = tag_str[val_start..val_end].to_string();
+                            return Some((attr_start, val_end, val));
                         }
                     }
                 }
@@ -506,7 +541,9 @@ fn extract_attr(tag_str: &str, attr: &str) -> Option<(String, String)> {
 }
 
 /// Helper to find attributes like `src="..."` or `href="..."` with word boundary checks (E4 Fix).
-fn regex_find_attr(html: &str, attr: &str) -> Vec<(String, String)> {
+///
+/// Returns `(start, end_inclusive, value)` byte ranges into `html`.
+fn regex_find_attr(html: &str, attr: &str) -> Vec<(usize, usize, String)> {
     let mut list = Vec::new();
     let pattern1 = format!(" {}=\"", attr);
     let pattern2 = format!("<{}=\"", attr);
@@ -551,9 +588,8 @@ fn regex_find_attr(html: &str, attr: &str) -> Vec<(String, String)> {
             if let Some(end) = html[val_start..].find('"') {
                 let abs_end = val_start + end;
                 if html.is_char_boundary(abs_end) {
-                    let val = &html[val_start..abs_end];
-                    let orig = &html[abs_start..=abs_end];
-                    list.push((orig.to_string(), val.to_string()));
+                    let val = html[val_start..abs_end].to_string();
+                    list.push((abs_start, abs_end, val));
                     search_idx = abs_end + 1;
                     continue;
                 }
@@ -646,7 +682,7 @@ pub fn parse_viewport_meta(html: &str) -> (Option<f64>, Option<f64>) {
             if let Some(abs_close) = find_tag_end(html, abs_idx) {
                 let tag = &html[abs_idx..=abs_close];
                 if find_ignore_case(tag, "viewport").is_some() {
-                    if let Some((_, content)) = extract_attr(tag, "content") {
+                    if let Some((_, _, content)) = extract_attr(tag, "content") {
                         let mut width = None;
                         let mut height = None;
 
@@ -702,9 +738,17 @@ pub fn sanitize_html_scripts(html: &str) -> String {
                 || starts_with_ignore_case(slice, "<applet")
                 || starts_with_ignore_case(slice, "<base")
                 || starts_with_ignore_case(slice, "<form")
-                || (starts_with_ignore_case(slice, "<meta")
-                    && (find_ignore_case(slice.get(..60).unwrap_or(slice), "http-equiv").is_some()
-                        || find_ignore_case(slice.get(..60).unwrap_or(slice), "refresh").is_some()))
+                || (starts_with_ignore_case(slice, "<meta") && {
+                    // Scan the *whole* tag, not a fixed-width prefix: a `<meta>` padded past any
+                    // byte budget with benign attributes (`name="…"`) must not be able to hide an
+                    // `http-equiv=refresh` at its end. `find_tag_end` respects quoted attributes;
+                    // an unterminated tag is dropped a few lines below anyway, so a bounded
+                    // fallback is sufficient there.
+                    let tag_scan = find_tag_end(html, i)
+                        .map_or_else(|| slice.get(..4096).unwrap_or(slice), |p| &html[i..=p]);
+                    find_ignore_case(tag_scan, "http-equiv").is_some()
+                        || find_ignore_case(tag_scan, "refresh").is_some()
+                })
             {
                 if let Some(close_tag_pos) = find_tag_end(html, i) {
                     let tag_str = &html[i..=close_tag_pos];
@@ -762,12 +806,20 @@ pub fn sanitize_html_scripts(html: &str) -> String {
     let mut idx = 0;
     let mut in_tag = false;
     let mut in_quote: Option<char> = None;
+    // Set on the iteration where a quoted attribute value closes. The HTML5 tokenizer re-consumes
+    // the following character in the "before attribute name" state, so `<img src="x"onerror=…>`
+    // really does create a *separate* `onerror` attribute despite the missing space. Treating the
+    // closing quote as an attribute-name boundary closes that bypass.
+    let mut just_closed_quote = false;
 
     while idx < output.len() {
         if !output.is_char_boundary(idx) {
             idx += 1;
             continue;
         }
+        // Consume the flag for this iteration; it is re-set below if a quote closes on `ch`.
+        let quote_was_boundary = just_closed_quote;
+        just_closed_quote = false;
         let slice = &output[idx..];
         if let Some(ch) = slice.chars().next() {
             if !in_tag && ch == '<' {
@@ -777,6 +829,7 @@ pub fn sanitize_html_scripts(html: &str) -> String {
                 if let Some(q) = in_quote {
                     if ch == q {
                         in_quote = None;
+                        just_closed_quote = true;
                     }
                 } else if ch == '"' || ch == '\'' {
                     in_quote = Some(ch);
@@ -786,8 +839,13 @@ pub fn sanitize_html_scripts(html: &str) -> String {
                 }
             }
 
-            if in_tag && (ch.is_whitespace() || ch == '<' || ch == '/') {
-                let rest = &slice[ch.len_utf8()..];
+            if in_tag && (quote_was_boundary || ch.is_whitespace() || ch == '<' || ch == '/') {
+                // Where the attribute name begins, relative to `idx`. For a whitespace / `<` /
+                // `/` separator that is just past `ch`; when the separator was a closing quote it
+                // is `ch` itself, because the HTML5 tokenizer re-consumes that character in the
+                // "before attribute name" state and the quote has already been emitted.
+                let name_offset = if quote_was_boundary { 0 } else { ch.len_utf8() };
+                let rest = &slice[name_offset..];
                 let trimmed_rest = rest.trim_start();
                 let ws_bytes = &rest[..rest.len() - trimmed_rest.len()];
 
@@ -800,9 +858,11 @@ pub fn sanitize_html_scripts(html: &str) -> String {
                     }
                     let after_attr = trimmed_rest[attr_len..].trim_start();
                     if let Some(_stripped) = after_attr.strip_prefix('=') {
-                        sanitized.push(ch);
+                        if !quote_was_boundary {
+                            sanitized.push(ch);
+                        }
                         sanitized.push_str(ws_bytes);
-                        idx += ch.len_utf8()
+                        idx += name_offset
                             + ws_bytes.len()
                             + (trimmed_rest.len() - after_attr.len())
                             + 1;
@@ -864,23 +924,20 @@ pub fn sanitize_html_scripts(html: &str) -> String {
                 window_len -= 1;
             }
             let window = &slice[..window_len];
-            let decoded_window = decode_html_entities_for_uri(window);
+            // Probe the scheme on a *normalized* view of the text. Browsers (per the WHATWG URL
+            // standard) strip ASCII tab/LF/CR from a URL before parsing its scheme, and HTML5
+            // defines the named references `&Tab;` / `&NewLine;`. Checking only the raw text or
+            // a numeric-entity-decoded copy therefore misses `java<TAB>script:`,
+            // `java&#9;script:` and `java&Tab;script:`, all of which execute.
+            let probe = normalize_uri_probe(window);
 
-            if starts_with_ignore_case(window, "javascript:") {
-                Some("javascript:".len())
-            } else if starts_with_ignore_case(window, "vbscript:") {
-                Some("vbscript:".len())
-            } else if starts_with_ignore_case(window, "data:text/html") {
-                Some("data:text/html".len())
-            } else if starts_with_ignore_case(&decoded_window, "javascript:")
-                || starts_with_ignore_case(&decoded_window, "vbscript:")
-                || starts_with_ignore_case(&decoded_window, "data:text/html")
+            if starts_with_ignore_case(&probe, "javascript:")
+                || starts_with_ignore_case(&probe, "vbscript:")
+                || starts_with_ignore_case(&probe, "data:text/html")
             {
-                if let Some(colon_pos) = window.find(':') {
-                    Some(colon_pos + 1)
-                } else {
-                    Some(window.len().min(15))
-                }
+                // Advance through the terminating `:` in the ORIGINAL text so the splice offset
+                // always lines up with `sanitized` — see `scheme_prefix_bytes`.
+                Some(scheme_prefix_bytes(window))
             } else {
                 None
             }
@@ -902,14 +959,58 @@ pub fn sanitize_html_scripts(html: &str) -> String {
     final_sanitized
 }
 
+/// Normalize text before a URI scheme check.
+///
+/// Decodes HTML entities (numeric *and* the control-character named references) and then strips
+/// the ASCII whitespace characters the WHATWG URL parser removes prior to scheme resolution.
+/// Without the strip step, `java<TAB>script:` survives a contiguous-prefix check while still
+/// executing as script in every browser.
+fn normalize_uri_probe(input: &str) -> String {
+    decode_html_entities_for_uri(input)
+        .chars()
+        .filter(|c| !matches!(c, '\t' | '\n' | '\r'))
+        .collect()
+}
+
+/// Decode HTML character references for URI scheme inspection.
+///
+/// Handles numeric references (`&#9;`, `&#x09;`) and the named references that matter for
+/// scheme smuggling (`&Tab;`, `&NewLine;`). Control characters are dropped from decoded output,
+/// except for the tab/newline names, which are emitted so [`normalize_uri_probe`] can strip them
+/// the same way a browser would.
 fn decode_html_entities_for_uri(input: &str) -> String {
+    /// Named references usable to smuggle a scheme past a contiguous-prefix check.
+    ///
+    /// `colon` is required: HTML5 decodes `&colon;` inside attribute values, so
+    /// `javascript&colon;alert(1)` is a live URI in every browser while a raw prefix check on
+    /// `javascript:` sees nothing.
+    const NAMED: &[(&str, char)] = &[
+        ("Tab", '\t'),
+        ("tab", '\t'),
+        ("NewLine", '\n'),
+        ("newline", '\n'),
+        ("colon", ':'),
+        ("Colon", ':'),
+    ];
+
     let mut out = String::with_capacity(input.len());
     let mut i = 0;
     let bytes = input.as_bytes();
 
-    while i < bytes.len() {
-        if bytes[i] == b'&' && i + 2 < bytes.len() {
-            if bytes[i + 1] == b'#' {
+    'outer: while i < bytes.len() {
+        if bytes[i] == b'&' && i + 1 < bytes.len() {
+            // Named reference (e.g. `&Tab;`, `&NewLine`).
+            for (name, ch) in NAMED {
+                if let Some(after_amp) = input[i + 1..].strip_prefix(name) {
+                    let len = name.len() + 1 + usize::from(after_amp.starts_with(';'));
+                    out.push(*ch);
+                    i += len;
+                    continue 'outer;
+                }
+            }
+
+            // Numeric reference (e.g. `&#9;`, `&#x09;`).
+            if bytes[i + 1] == b'#' && i + 2 < bytes.len() {
                 let is_hex = bytes[i + 2] == b'x' || bytes[i + 2] == b'X';
                 let start = if is_hex { i + 3 } else { i + 2 };
                 let mut end = start;
@@ -929,7 +1030,7 @@ fn decode_html_entities_for_uri(input: &str) -> String {
                                 out.push(ch);
                             }
                             i = end + 1;
-                            continue;
+                            continue 'outer;
                         }
                     }
                 }
@@ -943,4 +1044,231 @@ fn decode_html_entities_for_uri(input: &str) -> String {
         }
     }
     out
+}
+
+/// Decode the single character reference at `input[i]`, returning the character and the number of
+/// input bytes it consumed. `None` when `input[i]` is not `&` or does not start a reference.
+///
+/// Covers the same reference set as [`decode_html_entities_for_uri`], which is what a browser
+/// resolves while reading an attribute value.
+fn decode_uri_step(input: &str, i: usize) -> Option<(char, usize)> {
+    let rest = &input[i..];
+    if !rest.starts_with('&') {
+        return None;
+    }
+    let semi = rest.find(';')?;
+    if semi > 12 || i + semi + 1 > input.len() {
+        return None;
+    }
+    let name = &rest[1..semi];
+    let len = semi + 1;
+    let ch = match name {
+        "Tab" | "tab" => '\t',
+        "NewLine" | "newline" => '\n',
+        "colon" | "Colon" => ':',
+        _ => {
+            let digits = name.strip_prefix('#')?;
+            let code = if let Some(hex) = digits
+                .strip_prefix('x')
+                .or_else(|| digits.strip_prefix('X'))
+            {
+                u32::from_str_radix(hex, 16).ok()?
+            } else {
+                digits.parse::<u32>().ok()?
+            };
+            char::from_u32(code)?
+        }
+    };
+    Some((ch, len))
+}
+
+/// Byte length of the leading scheme prefix of `window`, through the `:` that ends the scheme.
+///
+/// The terminating `:` may be spelled literally *or* as a character reference (`&colon;`,
+/// `&#58;`, `&#x3a;`), so the offset cannot be recovered with a plain `find(':')`. For
+/// `javascript&colon;alert(1)` there is no literal colon at all, and falling back to a fixed
+/// byte count replaces only a prefix of the scheme while leaving `lon;…` behind.
+fn scheme_prefix_bytes(window: &str) -> usize {
+    let bytes = window.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b':' => return i + 1,
+            b'&' => match decode_uri_step(window, i) {
+                Some((ch, len)) => {
+                    let end = i + len.min(bytes.len() - i);
+                    if ch == ':' {
+                        return end;
+                    }
+                    i = end;
+                }
+                // A `&` that does not begin a character reference is kept by the URL parser, so
+                // the scheme cannot extend beyond it.
+                None => return i,
+            },
+            c if c.is_ascii_alphanumeric() || matches!(c, b'+' | b'-' | b'.') => i += 1,
+            _ => return i,
+        }
+    }
+    window.len()
+}
+
+#[cfg(test)]
+mod security_regression_tests {
+    use super::*;
+
+    /// A `javascript:` URI must be neutralized no matter how the scheme is obfuscated with
+    /// characters a browser strips or decodes before resolving it.
+    #[test]
+    fn javascript_uri_scheme_smuggling_is_neutralized() {
+        let payloads = [
+            // Plain form (baseline).
+            r#"<a href="javascript:alert(1)">x</a>"#,
+            // Case variations.
+            r#"<a href="JavaScript:alert(1)">x</a>"#,
+            r#"<a href="JAVASCRIPT:alert(1)">x</a>"#,
+            // Numeric character references for tab.
+            "<a href=\"java&#9;script:alert(1)\">x</a>",
+            "<a href=\"java&#x09;script:alert(1)\">x</a>",
+            // HTML5 named references for tab / newline.
+            "<a href=\"java&Tab;script:alert(1)\">x</a>",
+            "<a href=\"java&NewLine;script:alert(1)\">x</a>",
+            // Literal control characters, which browsers strip from URLs before scheme parsing.
+            "<a href=\"java\tscript:alert(1)\">x</a>",
+            "<a href=\"java\nscript:alert(1)\">x</a>",
+            "<a href=\"java\rscript:alert(1)\">x</a>",
+            // Other dangerous schemes.
+            r#"<a href="vbscript:msgbox(1)">x</a>"#,
+            r#"<a href="data:text/html;base64,PHNjcmlwdD4=">x</a>"#,
+        ];
+
+        for payload in payloads {
+            let out = sanitize_html_scripts(payload);
+            assert!(
+                !out.to_ascii_lowercase().contains("javascript:")
+                    && !out.to_ascii_lowercase().contains("vbscript:")
+                    && !out.to_ascii_lowercase().contains("data:text/html"),
+                "scheme survived sanitization for payload {payload:?} -> {out:?}"
+            );
+            assert!(
+                out.contains("#disabled_uri:"),
+                "payload was not neutralized at all: {payload:?} -> {out:?}"
+            );
+        }
+    }
+
+    /// A legitimate URL containing the substring "javascript" later in the path must survive.
+    #[test]
+    fn benign_urls_are_not_neutralized() {
+        for payload in [
+            r#"<a href="https://example.com/docs/javascript.html">x</a>"#,
+            r#"<img src="images/photo.png"/>"#,
+            r#"<link rel="stylesheet" href="style.css"/>"#,
+        ] {
+            let out = sanitize_html_scripts(payload);
+            assert!(
+                !out.contains("#disabled_uri:"),
+                "benign URL was wrongly neutralized: {payload:?} -> {out:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn script_and_event_handlers_are_stripped() {
+        let out = sanitize_html_scripts(
+            r#"<div onclick="steal()"><script>bad()</script><p>ok</p></div>"#,
+        );
+        assert!(!out.contains("onclick"), "{out}");
+        assert!(!out.contains("<script"), "{out}");
+        assert!(out.contains("ok"), "{out}");
+    }
+
+    /// The HTML5 tokenizer re-consumes the character after a quoted attribute value in the
+    /// "before attribute name" state, so `"x"onerror=` creates a *separate* `onerror`
+    /// attribute even with no separator. The handler must not survive.
+    #[test]
+    fn event_handler_after_closing_quote_is_stripped() {
+        for payload in [
+            r#"<img src="x"onerror="alert(1)">"#,
+            "<img src='x'onerror='alert(1)'>",
+            r#"<img src="x"onerror="alert(1)" src="y">"#,
+        ] {
+            let out = sanitize_html_scripts(payload);
+            assert!(
+                !out.to_ascii_lowercase().contains("onerror"),
+                "handler survived: {payload:?} -> {out:?}"
+            );
+        }
+        // The legitimate `src` attribute must be preserved.
+        let out = sanitize_html_scripts(r#"<img src="x"onerror="alert(1)">"#);
+        assert!(out.contains(r#"src="x""#), "{out}");
+    }
+
+    /// `&colon;` is decoded by browsers inside attribute values, so `javascript&colon;…` is a
+    /// live URI. It is also the one scheme spelling with no literal `:` in the source.
+    #[test]
+    fn colon_entity_scheme_is_neutralized() {
+        for payload in [
+            r#"<a href="javascript&colon;alert(1)">x</a>"#,
+            r#"<a href="javascript&#58;alert(1)">x</a>"#,
+            "<a href=\"javascript&#x3a;alert(1)\">x</a>",
+        ] {
+            let out = sanitize_html_scripts(payload);
+            assert!(
+                !out.to_ascii_lowercase().contains("javascript:"),
+                "scheme survived: {payload:?} -> {out:?}"
+            );
+            assert!(
+                out.contains("#disabled_uri:"),
+                "payload was not neutralized: {payload:?} -> {out:?}"
+            );
+        }
+    }
+
+    /// A `<meta http-equiv=refresh>` must be found wherever it appears in the tag, not only in a
+    /// fixed-width prefix. CSP does not apply here: meta refresh is navigation, not script.
+    #[test]
+    fn long_meta_tags_still_hide_refresh() {
+        let padding = "a".repeat(4000);
+        let payload = format!(
+            r#"<p>keep</p><meta name="{padding}" http-equiv="refresh" content="0;url=http://evil.com/">"#
+        );
+        let out = sanitize_html_scripts(&payload);
+        assert!(!out.contains("http-equiv"), "{out}");
+        assert!(!out.contains("evil.com"), "{out}");
+        assert!(out.contains("keep"), "{out}");
+    }
+
+    /// The probe offset must be computed from the decoded scheme, not from a literal colon
+    /// search: `javascript&colon;` has no `:` in the source, so `find(':')` returned `None` and
+    /// the old fixed fallback left the tail `lon;alert(1)` in place.
+    #[test]
+    fn scheme_prefix_bytes_tracks_entity_spelled_colon() {
+        // The splice must cover the whole scheme name plus its terminating `:`. For
+        // `data:text/html` the scheme name ends at the first `:`, which is already enough to kill
+        // the URI — what remains (`text/html,…`) is left behind a `#` and is inert.
+        for (window, scheme) in [
+            ("javascript:alert(1)", "javascript:"),
+            ("javascript&colon;alert(1)", "javascript&colon;"),
+            ("javascript&#58;alert(1)", "javascript&#58;"),
+            ("javascript&#x3a;alert(1)", "javascript&#x3a;"),
+            ("vbscript:msgbox(1)", "vbscript:"),
+            ("data:text/html,x", "data:"),
+            ("JAVASCRIPT:alert(1)", "JAVASCRIPT:"),
+            ("java&Tab;script:alert(1)", "java&Tab;script:"),
+            ("java&#9;script:alert(1)", "java&#9;script:"),
+        ] {
+            assert_eq!(
+                &window[..scheme_prefix_bytes(window)],
+                scheme,
+                "wrong scheme boundary in {window:?}"
+            );
+        }
+        // A `&` that does not start a reference terminates the scheme, and so does any
+        // non-scheme character (the scan stops at the `:` or the first byte that cannot be part
+        // of a scheme name).
+        assert_eq!(scheme_prefix_bytes("java& script:"), 4);
+        assert_eq!(scheme_prefix_bytes("no colon here"), 2);
+        assert_eq!(scheme_prefix_bytes("<a href="), 0);
+    }
 }

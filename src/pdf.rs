@@ -37,23 +37,65 @@ impl PdfBook {
     /// Parse raw PDF byte data into a `Book` struct.
     #[cfg(feature = "pdf")]
     pub fn parse(bytes: &[u8], title_fallback: &str) -> Result<Book, EbookError> {
-        let temp_dir = std::env::temp_dir();
-        let counter = TEMP_PDF_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let temp_path = temp_dir.join(format!(
-            "ebook_rs_temp_{}_{}_{}.pdf",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0),
-            counter
-        ));
-
-        std::fs::write(&temp_path, bytes).map_err(|e| {
-            EbookError::InvalidFormat(format!("Failed to write temporary PDF file: {}", e))
+        // `pdf_oxide` can only open a path, so the input has to be spooled to disk. Create the
+        // file with `create_new` (O_EXCL) rather than `fs::write` (O_CREAT|O_TRUNC): the name is
+        // derived from pid + timestamp + counter and is therefore predictable, so a co-tenant on
+        // a shared temp directory could pre-create it as a symlink and have an arbitrary file
+        // truncated and overwritten. Retrying with a fresh name keeps the caller's bytes private.
+        const MAX_TEMP_ATTEMPTS: u32 = 8;
+        // Installed as soon as the file exists so that *every* subsequent early return cleans it
+        // up. It used to be created after `write_all`/`flush`, so a failed write on a full or
+        // quota-exhausted temp volume leaked one zero-byte file per call.
+        let mut _guard: Option<TempPdfGuard> = None;
+        let mut temp_path = std::path::PathBuf::new();
+        let mut file = None;
+        for _ in 0..MAX_TEMP_ATTEMPTS {
+            let counter = TEMP_PDF_COUNTER.fetch_add(1, Ordering::Relaxed);
+            let candidate = std::env::temp_dir().join(format!(
+                "ebook_rs_temp_{}_{}_{}.pdf",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0),
+                counter
+            ));
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&candidate)
+            {
+                Ok(f) => {
+                    _guard = Some(TempPdfGuard(candidate.clone()));
+                    temp_path = candidate;
+                    file = Some(f);
+                    break;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => {
+                    return Err(EbookError::InvalidFormat(format!(
+                        "Failed to create temporary PDF file: {}",
+                        e
+                    )));
+                }
+            }
+        }
+        let mut file = file.ok_or_else(|| {
+            EbookError::InvalidFormat(
+                "Failed to create a unique temporary PDF file after several attempts".to_string(),
+            )
         })?;
 
-        let _guard = TempPdfGuard(temp_path.clone());
+        use std::io::Write;
+        file.write_all(bytes).map_err(|e| {
+            EbookError::InvalidFormat(format!("Failed to write temporary PDF file: {}", e))
+        })?;
+        file.flush().map_err(|e| {
+            EbookError::InvalidFormat(format!("Failed to flush temporary PDF file: {}", e))
+        })?;
+        // Keep the handle open until parsing completes so the path cannot be swapped underneath
+        // us (TOCTOU), but drop it before `open` so the parser does not fight the lock.
+        drop(file);
 
         let mut doc = pdf_oxide::PdfDocument::open(&temp_path).map_err(|e| {
             EbookError::InvalidFormat(format!("Failed to open PDF document with pdf_oxide: {}", e))

@@ -186,11 +186,29 @@ impl Cfi {
         let mut element_id = None;
         let mut selectors = Vec::new();
 
+        // Steps before the `!` indirection describe the **OPF package document** (e.g. `/6` is the
+        // spine element), not the content document being rendered. Translating them into
+        // `*:nth-child()` selectors anchored the chain in the wrong document, so every ID-less
+        // CFI the crate itself emits — `epubcfi(/6/2!/4/2/1:42)` — resolved to
+        // `*:nth-child(3) > *:nth-child(2) > *:nth-child(1)` and never matched the intended
+        // element. Only collect selectors once we are past the indirection.
+        let mut in_document = false;
         for step in &self.path.steps {
+            if step.indirection {
+                in_document = true;
+                if let Some(id) = &step.element_id {
+                    element_id = Some(id.clone());
+                    selectors.push(format!("#{}", id));
+                }
+                continue;
+            }
+            if !in_document {
+                continue;
+            }
             if let Some(id) = &step.element_id {
                 element_id = Some(id.clone());
                 selectors.push(format!("#{}", id));
-            } else if !step.indirection && step.index >= 2 {
+            } else if step.index >= 2 {
                 let child_num = step.index / 2;
                 selectors.push(format!("*:nth-child({})", child_num));
             }
@@ -207,21 +225,24 @@ impl Cfi {
             selectors.join(" > ")
         };
 
-        // Check if element_id exists in target HTML
-        if element_id.is_none() {
-            let has_step_id = self.path.steps.iter().any(|s| s.element_id.is_some());
-            if has_step_id {
-                let lower_html = html.to_lowercase();
-                for step in &self.path.steps {
-                    if let Some(id) = &step.element_id {
-                        let id_lower = id.to_lowercase();
-                        let pat_dq = format!("id=\"{id_lower}\"");
-                        let pat_sq = format!("id='{id_lower}'");
-                        if lower_html.contains(&pat_dq) || lower_html.contains(&pat_sq) {
-                            element_id = Some(id.clone());
-                            break;
-                        }
-                    }
+        // Fallback: a CFI carrying `[id]` assertions must resolve to an element that actually
+        // exists in the target HTML. Because the loop above already records `element_id` from any
+        // step carrying an assertion, this block was only ever reachable via the direct field
+        // check below; keep it that way rather than testing an impossible `is_none` state.
+        if element_id.is_none() && !self.path.steps.iter().any(|s| s.element_id.is_some()) {
+            // No assertions at all: nothing to verify.
+        } else if element_id.is_some() {
+            // Only trust the recorded id once it is present in the document.
+            if let Some(id) = &element_id {
+                let id_lower = id.to_ascii_lowercase();
+                let present = html
+                    .to_ascii_lowercase()
+                    .contains(&format!("id=\"{id_lower}\""))
+                    || html
+                        .to_ascii_lowercase()
+                        .contains(&format!("id='{id_lower}'"));
+                if !present {
+                    element_id = None;
                 }
             }
         }

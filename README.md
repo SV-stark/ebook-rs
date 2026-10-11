@@ -10,11 +10,11 @@
 [![Docs.rs](https://img.shields.io/docsrs/ebook-rs?style=flat-square&logo=docs.rs)](https://docs.rs/ebook-rs)
 [![Documentation](https://img.shields.io/badge/docs-sv--stark.github.io%2Febook--rs-0284c7?style=flat-square&logo=gitbook&logoColor=white)](https://sv-stark.github.io/ebook-rs/)
 [![CI Build Status](https://img.shields.io/github/actions/workflow/status/SV-stark/ebook-rs/ci.yml?branch=main&style=flat-square&label=build)](https://github.com/SV-stark/ebook-rs/actions)
-[![Fuzzing & Chaos Resilience](https://img.shields.io/badge/Fuzzing-0%20Panics%20%7C%20100%25%20Resilient-brightgreen?style=flat-square&logo=rust)](https://github.com/SV-stark/ebook-rs/actions)
+[![Fuzzing & Chaos Resilience](https://img.shields.io/badge/Fuzzing-Continuous%20libFuzzer%20%2B%20Chaos-informational?style=flat-square&logo=rust)](https://github.com/SV-stark/ebook-rs/actions)
 [![Rust Edition](https://img.shields.io/badge/rust-2024%20%7C%201.85%2B-informational?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/crates/l/ebook-rs.svg?style=flat-square&color=green)](LICENSE)
 
-*Pure Rust multi-format eBook engine (**EPUB 2/3, MOBI, AZW3, KFX, FB2, LIT, CBZ, PDF, ODT, DOCX, RTF, TXT & MD**) featuring Mozilla UniFFI mobile bindings, Readium CFI locators & LCP DRM, SpeechSynthesis TTS word sync, CJK vertical & RTL pagination, academic PDF reflow, lossless EPUB3 optimizer, AI RAG BM25 chunking, zero-copy search, Zstd caching, Python/WASM bindings, and native MCP server.*
+*Pure Rust multi-format eBook engine (**EPUB 2/3, MOBI, AZW3, KFX, FB2, LIT, CBZ, PDF, ODT, DOCX, RTF, TXT & MD**) featuring Mozilla UniFFI mobile bindings, Readium CFI locators & LCP DRM, SpeechSynthesis TTS word sync, CJK vertical & RTL pagination, PDF two-column reflow, lossless EPUB3 optimizer, AI RAG BM25 chunking, zero-copy search, Zstd caching, Python/WASM bindings, and a native MCP server.*
 
 </div>
 
@@ -41,17 +41,16 @@
 
 ### 📂 Format Support
 
-| Feature | 🚀 `ebook-rs` (v0.16.4) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **EPUB 2 & 3 Support** | ✅ Full OPF + NCX/NAV | ✅ Yes | ✅ Yes | ✅ Yes |
 | **EPUB 3 Fixed-Layout (FXL)** | ✅ 2-page spread renderer | ✅ Yes | ✅ Yes | ❌ No |
 | **Amazon KFX (KF10) Support** | ✅ Clean-room `b"CONT"` container | ❌ No | ✅ Yes | ❌ No |
 | **MOBI & AZW3 (KF8) Support** | ✅ Native PalmDOC LZ77 | ❌ No | ✅ Yes | ❌ No |
 | **FB2 (FictionBook 2) Support** | ✅ Native XML + xlink:href | ❌ No | ✅ Yes | ❌ No |
-| **KEPUB (Kobo EPUB) Support** | ✅ Native | ❌ No | ✅ Yes | ❌ No |
 | **LIT (Microsoft Reader) Support** | ✅ Native | ❌ No | ✅ Yes | ❌ No |
 | **CBZ (Comic Book ZIP) Support** | ✅ Native ZIP Images | ❌ No | ✅ Yes | ❌ No |
-| **PDF Support & Academic 2-Column Reflow** | ✅ `pdf_oxide` spatial reflow | ❌ No | ❌ No | ❌ No |
+| **PDF Support & Two-Column Reflow** | ✅ `pdf_oxide` + reading-order reflow | ❌ No | ❌ No | ❌ No |
 | **ODT (OpenDocument Text)** | ✅ Native XML + `content.xml` | ❌ No | ❌ No | ❌ No |
 | **DOCX (Microsoft Word)** | ✅ Native WordML + `rdocx` | ❌ No | ❌ No | ❌ No |
 | **RTF (Rich Text Format)** | ✅ Native Control Words + Unicode | ❌ No | ❌ No | ❌ No |
@@ -60,12 +59,12 @@
 
 ### 🧭 Navigation, Rendering & Security
 
-| Feature | 🚀 `ebook-rs` (v0.16.4) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **IDPF CFI Engine** | ✅ Parse / format / compare / range | ✅ Yes | ✅ Yes | ✅ Yes |
 | **CFI DOM Resolver** | ✅ `cfi.resolve_dom_path(html)` | ✅ Yes | ✅ Yes | ❌ No |
 | **Readium CFI Unified Locator** | ✅ Full model | ✅ Yes | ✅ Yes | ❌ No |
-| **Location / Reading Progress** | ✅ `locations_from_sections()` | ✅ Yes | ✅ Yes | ✅ Yes |
+| **Location / Reading Progress** | ✅ `Book::locations_from_sections()` | ✅ Yes | ✅ Yes | ✅ Yes |
 | **SpeechSynthesis TTS Word Synchronizer** | ✅ `tokenize_tts_words()` token spans | ❌ No | ❌ No | ❌ No |
 | **SMIL Media Overlays (Sync)** | ✅ NPT clock parser | ✅ Yes | ✅ Yes | ❌ No |
 | **EPUB NCX / NAV TOC Parsing** | ✅ Deep recursive nav tree | ✅ Yes | ✅ Yes | ✅ Yes |
@@ -74,16 +73,17 @@
 | **Reflow Paginator** | ✅ `ReflowPaginator::paginate_section` | ✅ Yes | ✅ Yes | ❌ No |
 | **Readium LCP DRM License Parser** | ✅ `LcpLicense` + expiry checks | ❌ No | ✅ Yes | ❌ No |
 | **Legacy Non-UTF-8 Auto-Decoding** | ✅ Auto Win-1252/Shift-JIS/GBK | ❌ No | ❌ No | ❌ No |
+| **HTML Entity Decoding** | ✅ `decode_html_entities()` single-pass | ❌ No | ❌ No | ❌ No |
 
 ### 🔍 Search, Analytics & AI RAG
 
-| Feature | 🚀 `ebook-rs` (v0.16.4) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **Model Context Protocol (MCP 2024-11-05)** | ✅ Built-in Stdio & HTTP Server | ❌ No | ❌ No | ❌ No |
 | **Okapi BM25 Relevance Scoring** | ✅ `rank_chunks_bm25()` TF-IDF | ❌ No | ❌ No | ❌ No |
 | **AI & RAG Chunking Engine** | ✅ `to_rag_chunks()` + CFI citations | ❌ No | ❌ No | ❌ No |
 | **SIMD Accelerated Full-Text Search** | ✅ SIMD + memchr match scanning | ❌ No | ✅ Basic | ❌ No |
-| **Regex Search** | ✅ `regex_search` | ❌ No | ❌ No | ❌ No |
+| **Regex Search** | ✅ `Book::search_regex()` | ❌ No | ❌ No | ❌ No |
 | **Search Context Snippets** | ✅ `<mark>` highlights + XSS guard | ❌ No | ✅ Yes | ❌ No |
 | **Readium Search JSON Export** | ✅ Readium-compliant JSON | ❌ No | ✅ Yes | ❌ No |
 | **NLP Reading Analytics** | ✅ Word count / reading time / complexity | ❌ No | ❌ No | ❌ No |
@@ -91,10 +91,10 @@
 
 ### 🌐 Interoperability, Exporters & Performance
 
-| Feature | 🚀 `ebook-rs` (v0.16.4) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
-| **Universal EPUB 3 & KFX Exporters** | ✅ `export_epub3` & `export_kfx` | ❌ No | ❌ No | ❌ No |
-| **Sub-5ms Lazy Resource Hydration** | ✅ On-demand asset inlining | ❌ No | ❌ No | ❌ No |
+| **Universal EPUB 3 & KFX Exporters** | ✅ `Book::export_epub3_bytes()` & `Book::export_kfx_bytes()` | ❌ No | ❌ No | ❌ No |
+| **Lazy On-Demand Resource Hydration** | ✅ Sections + assets loaded on access | ❌ No | ❌ No | ❌ No |
 | **Zstd Compressed State Caching** | ✅ Instant `export_zstd_cache()` | ❌ No | ❌ No | ❌ No |
 | **C / Python / Node FFI Bindings** | ✅ `ebook_rs::ffi` C ABI + PyO3 | ❌ No | ❌ No | ❌ No |
 | **Web Component Generator** | ✅ `<ebook-reader>` HTMLElement | ❌ No | ❌ No | ❌ No |
@@ -108,7 +108,7 @@
 
 Empirically measured conversion benchmark converting sample eBook corpora to **EPUB 3** on AMD Ryzen 9 / PCIe 4.0 NVMe:
 
-| Input Format | Sample Book | 🚀 `ebook-rs` (v0.16.4) | 🐍 Calibre `ebook-convert` | Speedup | Image Assets Extracted | Chapter Sections | Output Parity |
+| Input Format | Sample Book | 🚀 `ebook-rs` | 🐍 Calibre `ebook-convert` | Speedup | Image Assets Extracted | Chapter Sections | Output Parity |
 |---|---|:---:|:---:|:---:|:---:|:---:|:---:|
 | **MOBI → EPUB** | *Alice in Wonderland (MOBI)* | **0.34s** ⚡ | 2.23s | **6.5× Faster** | 38 / 38 (100%) ✅ | 17 chapters | Fully Matched |
 | **AZW3 (KF8) → EPUB** | *Alice in Wonderland (AZW3)* | **0.22s** ⚡ | 2.03s | **9.4× Faster** | 38 / 38 (100%) ✅ | 14 chapters | Fully Matched |
@@ -124,7 +124,11 @@ Empirically measured conversion benchmark converting sample eBook corpora to **E
 
 `ebook-rs` is built to be the most resilient eBook engine in existence, specifically engineered to withstand the dirty long tail of corrupted, malformed, and non-spec files found across Project Gutenberg, Archive.org, and legacy digital archives:
 
-- **100% Graceful Error Guarantees**: Parsers **never panic** or crash on unexpected, malformed, or hostile inputs. Every format boundary validates lengths and magic bytes, returning `Result<Book, EbookError>`.
+- **Graceful Error Handling**: Every format boundary validates lengths and magic bytes and returns
+  `Result<Book, EbookError>` instead of panicking. This is enforced by CI (`cargo test`) and a
+  scheduled fuzz/chaos workflow, and regression-tested in `tests/test_security_regressions.rs`.
+  See [`SECURITY.md`](SECURITY.md#threat-model) for the threat model and the known residual risks
+  (notably slow-loris, which `tiny_http` cannot fully mitigate).
 - **Continuous Coverage-Guided Fuzzing**: Continuous LLVM `libFuzzer` (`cargo-fuzz`) runs mutate raw byte streams over millions of iterations against `Book::from_bytes` and CFI locators.
 - **Mass Corpus Stress Testing**: A dedicated chaos-testing runner (`examples/corpus_stress.rs`) evaluates real-world books across all 14 supported formats, injecting byte truncations (10% to 90%), zeroed headers, and bit-flipped noise.
 
@@ -136,7 +140,12 @@ Empirically measured conversion benchmark converting sample eBook corpora to **E
 | **Header Zeroing (16 bytes)** | All formats | ⚠️ Handled | **0 Panics** | Clean `Err(InvalidFormat)` |
 | **Truncation (10%, 25%, 50%, 90%)** | All formats | ⚠️ Handled / Repaired | **0 Panics** | Clean `Err(InvalidFormat)` |
 | **Bit-Flipped Noise Injection** | All formats | ⚠️ Handled / Resilient | **0 Panics** | Clean `Err` |
+| **Structured-Adversarial Sweep** | Deep XML nesting, LCP licence dates, hostile token counts, ZIP central-directory under-declaration | ⚠️ Rejected or bounded | **0 Panics** | Clean `Err` |
 | **Coverage-Guided Fuzzing (libFuzzer)** | Arbitrary byte streams | Millions of mutations | **0 Panics** | 100% Memory-Safe |
+
+These figures are snapshots from the runs described above, not a standing guarantee — they are
+regression-tested in `tests/test_security_regressions.rs` and re-measured by the scheduled
+fuzz/chaos workflow.
 
 #### Run the Automated Gutenberg Stress Test:
 ```bash
@@ -159,7 +168,7 @@ Add `ebook-rs` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ebook-rs = "0.16.6"
+ebook-rs = "0.17.0"
 ```
 
 Or install via `cargo`:
@@ -231,12 +240,23 @@ rag_json = book.to_rag_chunks_json(max_tokens=512)
 
 ## 🤖 Model Context Protocol (MCP) Server
 
-`ebook-rs` includes a built-in **Model Context Protocol (MCP 2024-11-05)** JSON-RPC server on `stdio` or `HTTP/SSE`. Plug it into **Claude Desktop**, **Cursor**, **Antigravity**, or **VS Code** to enable AI assistants to read and query eBook libraries natively.
+`ebook-rs` includes a built-in **Model Context Protocol (MCP 2024-11-05)** JSON-RPC 2.0 server, available over **`stdio`** or as an **HTTP POST** endpoint (`/api/mcp`) on the reader server. Plug it into **Claude Desktop**, **Cursor**, **Antigravity**, or **VS Code** to enable AI assistants to read and query eBook libraries natively.
 
 ### Run Server:
 ```bash
 ebook-rs mcp
 ```
+
+The stdio server is sandboxed to the current working directory by default. To grant access to a
+specific library, pass `--sandbox-root <dir>`:
+
+```bash
+ebook-rs mcp --sandbox-root /path/to/ebooks
+```
+
+> **Security:** MCP tools that read or write files (`get_metadata`, `read_section`, `convert_ebook`,
+> ...) are **refused** unless a sandbox root is configured, and `convert_ebook` can only write inside
+> it. See [`SECURITY.md`](SECURITY.md).
 
 ### Claude Desktop / Cursor Setup (`claude_desktop_config.json`):
 ```json
@@ -271,9 +291,18 @@ ebook-rs mcp
 # Convert formats (MOBI/FB2/PDF -> EPUB / KFX / RAG JSON)
 ebook-rs convert sample.mobi output.epub
 
-# Launch local HTTP Reader web server (Port 8080)
+# Launch local HTTP Reader web server (Port 8080 via $PORT, default 8080)
 ebook-rs serve sample.epub
+
+# Protect the HTTP API with a bearer token (required for anything beyond localhost)
+ebook-rs serve sample.epub --auth-token "$EBOOK_RS_AUTH_TOKEN"
+
+# Confine MCP filesystem tools to a directory (defaults to the working directory)
+ebook-rs serve sample.epub --sandbox-root /path/to/ebooks
 ```
+
+Both flags also read from the environment: `EBOOK_RS_AUTH_TOKEN` and `EBOOK_RS_SANDBOX_ROOT`.
+`ebook-rs serve` binds to `127.0.0.1` only and **prints a warning if no auth token is set**.
 
 ---
 
@@ -305,7 +334,7 @@ For detailed function signatures, struct documentation, and module guides, refer
 - **`src/search.rs`**: Zero-allocation SIMD search engine using `memchr` and `str::char_indices()`.
 - **`src/rag.rs`**: Okapi BM25 relevance scoring and AI document chunking engine.
 - **`src/mcp.rs`**: Model Context Protocol (MCP 2024-11-05) JSON-RPC stdio & HTTP server.
-- **`src/section.rs`**: Sub-5ms lazy section hydration and Base64 asset inlining.
+- **`src/section.rs`**: Lazy on-demand section hydration and Base64 asset inlining.
 - **`src/validator.rs`**: Structural EPUB 2/3 validator and multi-threaded EPUB3/KFX exporter.
 
 ---

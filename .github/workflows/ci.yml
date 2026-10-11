@@ -24,8 +24,25 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+      # The binary and the library share an output filename on MSVC (cargo normalizes
+      # `ebook-rs` -> `ebook_rs`, colliding with the `ebook_rs` lib PDB). Building lib, bin,
+      # tests and examples in one `cargo test --all-targets` invocation could then fail
+      # intermittently with:
+      #   crate `write_fonts` required to be available in rlib format, but was not found in this form
+      # Building the binary separately keeps test compilation deterministic.
       - name: Run Tests
-        run: cargo test --all-targets --all-features
+        run: cargo test --lib --tests --all-features --no-fail-fast
+
+      - name: Build Binary
+        run: cargo build --all-features --bins
+
+      - name: Build Examples
+        run: cargo build --all-features --examples
+
+      - name: Dependency Vulnerability Audit
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
 
       - name: Random 25 Project Gutenberg Books Stress Test
         run: |

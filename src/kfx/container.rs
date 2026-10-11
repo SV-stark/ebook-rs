@@ -28,9 +28,15 @@ impl KfxContainer {
     }
 
     /// Retrieve raw byte slice for a specific index entry from the container payload.
+    ///
+    /// `offset`/`length` are raw little-endian values from the (attacker-controlled) KFX index
+    /// table. The `u64 -> usize` conversion is checked rather than `as`-cast: on 32-bit targets
+    /// (including `wasm32`, a first-class target here) a plain cast silently truncates, so a
+    /// crafted `0x1_0000_0100` becomes `0x100` and yields a wrong-but-in-bounds slice instead of
+    /// an error.
     pub fn get_entry_payload<'a>(&'a self, entry: &KfxIndexEntry) -> Option<&'a [u8]> {
-        let len = entry.length as usize;
-        let off = entry.offset as usize;
+        let len = usize::try_from(entry.length).ok()?;
+        let off = usize::try_from(entry.offset).ok()?;
         if off.checked_add(len)? <= self.payload.len() {
             Some(&self.payload[off..off + len])
         } else if off >= self.payload_start {
@@ -81,7 +87,10 @@ impl KfxContainer {
         };
 
         for _ in 0..index_count {
-            if curr_offset + 24 > bytes.len() {
+            // `index_offset` is an attacker-controlled `u32` widened to `usize`, so
+            // `curr_offset + 24` overflows — and panics under `overflow-checks = true` — on
+            // 32-bit targets such as wasm32.
+            if curr_offset.saturating_add(24) > bytes.len() {
                 break;
             }
             let entity_id = u32::from_le_bytes([

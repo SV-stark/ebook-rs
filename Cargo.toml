@@ -1,6 +1,6 @@
 [package]
 name = "ebook-rs"
-version = "0.16.6"
+version = "0.17.0"
 edition = "2024"
 rust-version = "1.85"
 authors = ["SV-Stark"]
@@ -22,8 +22,16 @@ wasm-opt = false
 [lib]
 name = "ebook_rs"
 path = "src/lib.rs"
+# `cdylib` is required by maturin (PyPI wheels) and wasm-pack (npm package), which inject
+# `--crate-type cdylib` at build time. `rlib` is required by the binary, tests and examples.
 crate-type = ["cdylib", "rlib"]
 
+# NOTE: the binary target is intentionally named `ebook-rs` (the documented CLI surface). Cargo
+# normalizes `-` to `_` when naming debug artifacts, so on MSVC this collides with the `ebook_rs`
+# lib target's PDB (`warning: output filename collision at .../ebook_rs.pdb`). Building the lib,
+# the binary and the integration tests in one `cargo` invocation can then fail intermittently with
+# `crate `write_fonts` required to be available in rlib format`. CI therefore builds the binary
+# separately from the test targets (see .github/workflows/ci.yml).
 [[bin]]
 name = "ebook-rs"
 path = "src/main.rs"

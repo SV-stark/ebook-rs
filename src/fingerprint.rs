@@ -21,16 +21,22 @@ impl BookFingerprint {
             return 1.0;
         }
 
+        // `content_hash` differs, so this is *not* the same content. The score is a similarity
+        // heuristic and must therefore stay strictly below the duplicate threshold of 0.85.
+        // Bounding it by `0.6 + 0.4 * len_similarity` let it reach exactly 1.0 whenever the two
+        // total character counts happened to match — a coincidence that says nothing about the
+        // text being equal — which made `is_duplicate_of` report two *different* books as
+        // duplicates. Keep the metadata-match band strictly above the metadata-mismatch band so
+        // the two cases stay correctly ordered.
         if self.total_sections == other.total_sections && self.total_characters > 0 {
             let char_diff = (self.total_characters as f64 - other.total_characters as f64).abs();
             let len_similarity =
                 1.0 - (char_diff / (self.total_characters.max(other.total_characters) as f64));
 
             if self.metadata_hash == other.metadata_hash {
-                return (0.6 + 0.4 * len_similarity).clamp(0.0, 1.0);
-            } else {
-                return (0.8 * len_similarity).clamp(0.0, 1.0);
+                return (0.5 + 0.2 * len_similarity).clamp(0.0, 0.7);
             }
+            return (0.4 * len_similarity).clamp(0.0, 0.4);
         }
 
         if self.metadata_hash == other.metadata_hash {

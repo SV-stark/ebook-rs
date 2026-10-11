@@ -97,35 +97,42 @@ impl LcpLicense {
 
 fn parse_iso_date_to_seconds(s: &str, is_end_of_day: bool) -> Option<i64> {
     let clean = s.trim();
+    // Safety: `rights.end` / caller-supplied dates are attacker-controlled and may contain
+    // multi-byte UTF-8. Slice with `get(..n)` so a non-char-boundary index yields `None`
+    // instead of panicking ("byte index N is not a char boundary").
     if clean.len() >= 10 {
-        let year: i32 = clean[0..4].parse().ok()?;
-        let month: u32 = clean[5..7].parse().ok()?;
-        let day: u32 = clean[8..10].parse().ok()?;
+        let year: i32 = clean.get(0..4)?.parse().ok()?;
+        let month: u32 = clean.get(5..7)?.parse().ok()?;
+        let day: u32 = clean.get(8..10)?.parse().ok()?;
+        // Reject nonsensical calendar values before they reach arithmetic below.
+        if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+            return None;
+        }
         let (hour, min, sec, offset_minutes) = if clean.len() > 10 && clean.as_bytes()[10] == b'T' {
-            let time_part = &clean[11..];
+            let time_part = clean.get(11..)?;
             let (hms, tz) = if let Some(pos) = time_part.find(&['+', '-', 'Z'][..]) {
                 (&time_part[..pos], &time_part[pos..])
             } else {
                 (time_part, "")
             };
             let parts: Vec<&str> = hms.split(':').collect();
-            let h = parts.first().and_then(|p| p.parse().ok()).unwrap_or(0);
-            let m = parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(0);
-            let s = parts
+            let h: i64 = parts.first().and_then(|p| p.parse().ok()).unwrap_or(0);
+            let m: i64 = parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(0);
+            let s: i64 = parts
                 .get(2)
                 .and_then(|p| p.split('.').next().unwrap_or("").parse().ok())
                 .unwrap_or(0);
 
-            let tz_off = if tz.starts_with('+') || tz.starts_with('-') {
-                let sign = if tz.starts_with('+') { 1 } else { -1 };
-                let tz_clean = &tz[1..];
+            let tz_off: i64 = if tz.starts_with('+') || tz.starts_with('-') {
+                let sign: i64 = if tz.starts_with('+') { 1 } else { -1 };
+                let tz_clean = tz.get(1..).unwrap_or("");
                 if let Some((th, tm)) = tz_clean.split_once(':') {
                     let h_val: i64 = th.parse().unwrap_or(0);
                     let m_val: i64 = tm.parse().unwrap_or(0);
-                    sign * (h_val * 60 + m_val)
+                    sign.saturating_mul(h_val.saturating_mul(60).saturating_add(m_val))
                 } else if tz_clean.len() == 2 {
                     let h_val: i64 = tz_clean.parse().unwrap_or(0);
-                    sign * (h_val * 60)
+                    sign.saturating_mul(h_val.saturating_mul(60))
                 } else {
                     0
                 }
@@ -139,20 +146,32 @@ fn parse_iso_date_to_seconds(s: &str, is_end_of_day: bool) -> Option<i64> {
             (0, 0, 0, 0)
         };
 
+        // Clamp to sane clock ranges and use saturating arithmetic: every field is parsed from
+        // attacker-controlled text, and `overflow-checks = true` makes a bare `*` a panic.
+        let hour = hour.clamp(0, 23);
+        let min = min.clamp(0, 59);
+        let sec = sec.clamp(0, 59);
+        let offset_minutes = offset_minutes.clamp(-14 * 60, 14 * 60);
+
         let days = days_from_civil(year, month, day);
-        let secs = days * 86400 + (hour as i64 * 3600) + (min as i64 * 60) + (sec as i64)
-            - (offset_minutes * 60);
+        let secs = days
+            .saturating_mul(86400)
+            .saturating_add(hour.saturating_mul(3600))
+            .saturating_add(min.saturating_mul(60))
+            .saturating_add(sec)
+            .saturating_sub(offset_minutes.saturating_mul(60));
         Some(secs)
     } else {
         None
     }
 }
 
+/// Days since the Unix epoch for a proleptic Gregorian date (Howard Hinnant's algorithm).
 fn days_from_civil(mut y: i32, m: u32, d: u32) -> i64 {
-    y -= (m <= 2) as i32;
+    y -= i32::from(m <= 2);
     let era = if y >= 0 { y } else { y - 399 } / 400;
     let yoe = (y - era * 400) as u32;
-    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d.saturating_sub(1);
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     (era as i64 * 146097 + doe as i64) - 719468
 }
@@ -257,23 +276,36 @@ impl LcpDecryptor {
                 .and_then(|uk| uk.get("content_key"))
             {
                 if let Some(enc_val) = content_key.get("encrypted_value").and_then(|v| v.as_str()) {
-                    if let Ok(enc_bytes) = base64::engine::general_purpose::STANDARD.decode(enc_val)
-                    {
-                        if enc_bytes.len() >= 32 {
-                            let ck_iv: [u8; 16] = enc_bytes[..16].try_into().unwrap_or([0u8; 16]);
-                            let ck_cipher = &enc_bytes[16..];
-                            let decryptor = cbc::Decryptor::<Aes256>::new(
-                                &user_key_bytes.into(),
-                                &ck_iv.into(),
-                            );
-                            let mut buf = ck_cipher.to_vec();
-                            if let Ok(decrypted) = decryptor.decrypt_padded::<Pkcs7>(&mut buf) {
-                                if decrypted.len() == 32 {
-                                    final_aes_key.copy_from_slice(decrypted);
-                                }
-                            }
-                        }
+                    // A `content_key` block that is present but cannot be decrypted into exactly
+                    // 32 bytes used to be silently ignored, falling back to the user key and
+                    // returning garbage post-processing bytes as if they had been decrypted
+                    // successfully. Surface the failure instead.
+                    let decoded = base64::engine::general_purpose::STANDARD
+                        .decode(enc_val)
+                        .map_err(|e| format!("Failed to decode LCP content_key: {e}"))?;
+                    if decoded.len() < 32 {
+                        return Err(format!(
+                            "LCP content_key is truncated: {} bytes, need at least 32",
+                            decoded.len()
+                        ));
                     }
+                    let ck_iv: [u8; 16] = decoded[..16]
+                        .try_into()
+                        .map_err(|_| "LCP content_key IV extraction failed")?;
+                    let ck_cipher = &decoded[16..];
+                    let decryptor =
+                        cbc::Decryptor::<Aes256>::new((&user_key_bytes).into(), (&ck_iv).into());
+                    let mut buf = ck_cipher.to_vec();
+                    let decrypted = decryptor.decrypt_padded::<Pkcs7>(&mut buf).map_err(|_| {
+                        "Failed to decrypt LCP content key (invalid padding)".to_string()
+                    })?;
+                    if decrypted.len() != 32 {
+                        return Err(format!(
+                            "LCP content key decrypted to {} bytes, expected 32",
+                            decrypted.len()
+                        ));
+                    }
+                    final_aes_key.copy_from_slice(decrypted);
                 }
             }
         }

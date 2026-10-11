@@ -1,7 +1,6 @@
 use crate::archive::resolve_relative_path;
 use crate::metadata::{GuideItem, ManifestItem, Metadata, PageProgressionDirection, SpineItem};
 use ahash::AHashMap;
-use roxmltree::Document;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct OpfPackage {
@@ -18,7 +17,7 @@ pub struct OpfPackage {
 
 /// Parse `META-INF/container.xml` to get the rootfile path to `.opf`.
 pub fn parse_container_xml(xml_content: &str) -> Result<String, String> {
-    let doc = Document::parse(xml_content)
+    let doc = crate::dom::parse_xml_document(xml_content)
         .map_err(|e| format!("XML parse error in container.xml: {}", e))?;
 
     for node in doc.descendants() {
@@ -35,14 +34,14 @@ pub fn parse_container_xml(xml_content: &str) -> Result<String, String> {
 /// Parse the `.opf` package file into `OpfPackage`.
 pub fn parse_opf(xml_content: &str, opf_path: &str) -> Result<OpfPackage, String> {
     let repaired_xml;
-    let effective_xml = match Document::parse(xml_content) {
+    let effective_xml = match crate::dom::parse_xml_document(xml_content) {
         Ok(_) => xml_content,
         Err(_) => {
             repaired_xml = crate::dom::sanitize_and_repair_xml(xml_content);
             &repaired_xml
         }
     };
-    let doc = Document::parse(effective_xml)
+    let doc = crate::dom::parse_xml_document(effective_xml)
         .map_err(|e| format!("XML parse error in OPF file: {}", e))?;
     let root = doc.root_element();
 

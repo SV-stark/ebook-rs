@@ -276,6 +276,126 @@ pub fn xml_escape(input: &str) -> String {
     out
 }
 
+/// Decode HTML character references that can appear in book text nodes.
+///
+/// The inverse of [`xml_escape`]. Several format parsers (FB2, PDF, ODT, DOCX, RTF, CBZ) build
+/// their section HTML by escaping text nodes, so any consumer reading `plain_text` — which
+/// [`crate::section::extract_plain_text`] derives by stripping markup from that HTML — sees the
+/// literal entities unless they are decoded back.
+///
+/// Performs a **single** left-to-right pass, so `&amp;amp;` correctly decodes to `&amp;` rather
+/// than looping. Numeric (decimal and hex) references are decoded to `char`, and references to
+/// invalid or surrogate code points are left untouched.
+///
+/// Only the subset of the HTML5 named-reference table relevant to book prose is decoded.
+/// Attribute-value-only references (`&colon;`, `&Tab;`, …) are deliberately *not* decoded here;
+/// URI scheme probing uses its own narrower decoder.
+pub fn decode_html_entities(input: &str) -> String {
+    if !input.contains('&') {
+        return input.to_string();
+    }
+    let mut out = String::with_capacity(input.len());
+    let mut i = 0;
+    while i < input.len() {
+        if input.as_bytes()[i] != b'&' {
+            let start = i;
+            while i < input.len() && input.as_bytes()[i] != b'&' {
+                i += 1;
+            }
+            out.push_str(&input[start..i]);
+            continue;
+        }
+        let rest = &input[i..];
+        // A real reference is short; bail out on an unterminated or absurdly long one instead of
+        // scanning the remainder of the document.
+        let Some(semi) = rest.find(';').filter(|&p| p <= 32) else {
+            out.push('&');
+            i += 1;
+            continue;
+        };
+        let name = &rest[1..semi];
+        if let Some(decoded) = named_html_entity(name) {
+            out.push_str(decoded);
+            i += semi + 1;
+            continue;
+        }
+        if let Some(decoded) = numeric_html_entity(name) {
+            out.push_str(&decoded);
+            i += semi + 1;
+            continue;
+        }
+        out.push('&');
+        i += 1;
+    }
+    out
+}
+
+/// Named references decoded by [`decode_html_entities`].
+fn named_html_entity(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "amp" => "&",
+        "lt" => "<",
+        "gt" => ">",
+        "quot" => "\"",
+        "apos" => "'",
+        "nbsp" => "\u{a0}",
+        "shy" => "\u{ad}",
+        "copy" => "\u{a9}",
+        "reg" => "\u{ae}",
+        "trade" => "\u{2122}",
+        "hellip" => "\u{2026}",
+        "mdash" => "\u{2014}",
+        "ndash" => "\u{2013}",
+        "lsquo" => "\u{2018}",
+        "rsquo" => "\u{2019}",
+        "ldquo" => "\u{201c}",
+        "rdquo" => "\u{201d}",
+        "laquo" => "\u{ab}",
+        "raquo" => "\u{bb}",
+        "bull" => "\u{2022}",
+        "dagger" => "\u{2020}",
+        "middot" => "\u{b7}",
+        "permil" => "\u{2030}",
+        "prime" => "\u{2032}",
+        "Prime" => "\u{2033}",
+        "deg" => "\u{b0}",
+        "plusmn" => "\u{b1}",
+        "times" => "\u{d7}",
+        "divide" => "\u{f7}",
+        "frac12" => "\u{bd}",
+        "sect" => "\u{a7}",
+        "para" => "\u{b6}",
+        "euro" => "\u{20ac}",
+        "pound" => "\u{a3}",
+        "yen" => "\u{a5}",
+        "cent" => "\u{a2}",
+        "iexcl" => "\u{a1}",
+        "iquest" => "\u{bf}",
+        "ensp" => "\u{2002}",
+        "emsp" => "\u{2003}",
+        "thinsp" => "\u{2009}",
+        "zwnj" => "\u{200c}",
+        "zwj" => "\u{200d}",
+        "lrm" => "\u{200e}",
+        "rlm" => "\u{200f}",
+        _ => return None,
+    })
+}
+
+/// Decode a numeric character reference (`#38` / `#x26`) to a `char`.
+fn numeric_html_entity(name: &str) -> Option<String> {
+    let digits = name.strip_prefix('#')?;
+    let code = if let Some(hex) = digits
+        .strip_prefix('x')
+        .or_else(|| digits.strip_prefix('X'))
+    {
+        u32::from_str_radix(hex, 16).ok()?
+    } else {
+        digits.parse::<u32>().ok()?
+    };
+    char::from_u32(code).map(|c| c.to_string())
+}
+
 fn render_node(node: &DomNode, out: &mut String) {
     match node {
         DomNode::Text(t) => out.push_str(t),
@@ -374,4 +494,257 @@ pub fn sanitize_and_repair_xml(xml: &str) -> String {
     }
 
     out
+}
+
+/// Maximum element nesting depth accepted in any XML document.
+///
+/// `roxmltree` recurses while parsing nested elements and imposes no depth limit, so a document
+/// nested a few hundred levels deep already exhausts a default thread stack. A stack overflow is a
+/// `SIGSEGV`: `catch_unwind` cannot intercept it and it takes the whole process down. Because the
+/// recursion is inside the parser, guarding our own walkers is not sufficient — the input must be
+/// rejected *before* it reaches `roxmltree`.
+pub const MAX_XML_NESTING_DEPTH: usize = 256;
+
+/// Iteratively compute the maximum element nesting depth of an XML/HTML string.
+///
+/// Returns `Err` with the observed depth if it exceeds `max_depth`. This scan is deliberately
+/// non-recursive so it is safe to run on adversarial input.
+pub fn xml_nesting_depth(input: &str) -> usize {
+    let bytes = input.as_bytes();
+    let len = bytes.len();
+    let mut i = 0usize;
+    let mut depth = 0usize;
+    let mut max_depth = 0usize;
+
+    while i < len {
+        if bytes[i] != b'<' {
+            i += 1;
+            continue;
+        }
+
+        // Skip over constructs that contain no elements.
+        if bytes.get(i + 1) == Some(&b'!') {
+            if input[i..].starts_with("<!--") {
+                i = input[i..].find("-->").map_or(len, |p| i + p + 3);
+            } else if input[i..].starts_with("<![CDATA[") {
+                i = input[i..].find("]]>").map_or(len, |p| i + p + 3);
+            } else {
+                // DOCTYPE or other declaration: skip to the next `>`.
+                i = input[i..].find('>').map_or(len, |p| i + p + 1);
+            }
+            continue;
+        }
+        if bytes.get(i + 1) == Some(&b'?') {
+            i = input[i..].find("?>").map_or(len, |p| i + p + 2);
+            continue;
+        }
+
+        let is_close = bytes.get(i + 1) == Some(&b'/');
+        let name_start = if is_close { i + 2 } else { i + 1 };
+        // `NameStartChar` in XML 1.0 includes non-ASCII letters, and every non-ASCII UTF-8 lead
+        // byte is >= 0x80. Restricting this test to ASCII names made the entire guard skippable by
+        // naming an element `<日本語>`: the tag would be skipped as "not a tag" instead of counted,
+        // so a document nested thousands of levels deep measured as depth 1 and was handed to
+        // `roxmltree` unchanged.
+        if !matches!(bytes.get(name_start), Some(c) if c.is_ascii_alphabetic() || *c == b'_' || *c == b':' || *c >= 0x80)
+        {
+            i += 1;
+            continue;
+        }
+
+        // Find the end of this tag, respecting quoted attribute values.
+        let mut j = name_start;
+        let mut quote: Option<u8> = None;
+        let mut self_closing = false;
+        while j < len {
+            let c = bytes[j];
+            match quote {
+                Some(q) => {
+                    if c == q {
+                        quote = None;
+                    }
+                }
+                None => match c {
+                    b'"' | b'\'' => quote = Some(c),
+                    b'>' => {
+                        self_closing = j > 0 && bytes[j - 1] == b'/';
+                        break;
+                    }
+                    _ => {}
+                },
+            }
+            j += 1;
+        }
+        if j >= len {
+            // Unterminated tag: nothing more to count.
+            break;
+        }
+
+        if is_close {
+            depth = depth.saturating_sub(1);
+        } else if !self_closing {
+            depth += 1;
+            max_depth = max_depth.max(depth);
+        }
+        i = j + 1;
+    }
+
+    max_depth
+}
+
+/// Reject XML whose element nesting exceeds [`MAX_XML_NESTING_DEPTH`].
+///
+/// Must be called before `roxmltree` sees the input; see that constant for why.
+pub fn check_xml_nesting_depth(input: &str) -> Result<(), String> {
+    let depth = xml_nesting_depth(input);
+    if depth > MAX_XML_NESTING_DEPTH {
+        return Err(format!(
+            "XML element nesting depth {} exceeds the safety limit of {}",
+            depth, MAX_XML_NESTING_DEPTH
+        ));
+    }
+    Ok(())
+}
+
+/// Parse XML with a node-count limit and a pre-scan nesting-depth guard.
+///
+/// This is the single entry point every roxmltree call site in this crate should use.
+pub fn parse_xml_document(input: &str) -> Result<roxmltree::Document<'_>, String> {
+    check_xml_nesting_depth(input)?;
+    let opts = roxmltree::ParsingOptions {
+        nodes_limit: MAX_XML_NODES,
+        ..roxmltree::ParsingOptions::default()
+    };
+    roxmltree::Document::parse_with_options(input, opts).map_err(|e| e.to_string())
+}
+
+/// Maximum XML node count accepted in any document.
+pub const MAX_XML_NODES: u32 = 4_000_000;
+
+#[cfg(test)]
+mod entity_tests {
+    use super::*;
+
+    #[test]
+    fn decodes_common_entities() {
+        assert_eq!(decode_html_entities("a &amp; b"), "a & b");
+        assert_eq!(decode_html_entities("&lt;img&gt;"), "<img>");
+        assert_eq!(decode_html_entities("&quot;q&quot;"), "\"q\"");
+        assert_eq!(decode_html_entities("it&apos;s"), "it's");
+        assert_eq!(decode_html_entities("&nbsp;"), "\u{a0}");
+        assert_eq!(decode_html_entities("plain text"), "plain text");
+    }
+
+    /// A single left-to-right pass: `&amp;amp;` decodes to `&amp;`, not to `&`.
+    #[test]
+    fn decoding_is_not_recursive() {
+        assert_eq!(decode_html_entities("&amp;amp;"), "&amp;");
+        assert_eq!(decode_html_entities("&amp;lt;"), "&lt;");
+    }
+
+    #[test]
+    fn decodes_numeric_references() {
+        assert_eq!(decode_html_entities("&#65;"), "A");
+        assert_eq!(decode_html_entities("&#x41;"), "A");
+        assert_eq!(decode_html_entities("&#X41;"), "A");
+        assert_eq!(decode_html_entities("&#233;"), "\u{e9}");
+        assert_eq!(decode_html_entities("&#x2014;"), "\u{2014}");
+    }
+
+    /// Malformed references are left verbatim rather than dropped or panicking.
+    #[test]
+    fn malformed_references_are_left_alone() {
+        assert_eq!(decode_html_entities("a & b"), "a & b");
+        assert_eq!(decode_html_entities("5 &lt 6"), "5 &lt 6");
+        assert_eq!(decode_html_entities("&unknown;"), "&unknown;");
+        // No terminating semicolon within a sane distance.
+        assert_eq!(
+            decode_html_entities("&amp1234567890123456789012345;"),
+            "&amp1234567890123456789012345;"
+        );
+        // Surrogate / out-of-range code points decode to nothing, not to a panic.
+        assert_eq!(decode_html_entities("&#xD800;"), "&#xD800;");
+        assert_eq!(decode_html_entities("&#1114112;"), "&#1114112;");
+    }
+
+    /// Attribute-value-only references must NOT be decoded in text nodes.
+    #[test]
+    fn attribute_only_references_are_not_decoded() {
+        assert_eq!(
+            decode_html_entities("javascript&colon;x"),
+            "javascript&colon;x"
+        );
+    }
+
+    /// Char-boundary safety: the scanner must never slice inside a multi-byte character.
+    #[test]
+    fn decoding_is_char_boundary_safe() {
+        assert_eq!(decode_html_entities("日本語&amp;中文"), "日本語&中文");
+        assert_eq!(decode_html_entities("&日本語;"), "&日本語;");
+        assert_eq!(decode_html_entities("a&日b"), "a&日b");
+    }
+}
+
+#[cfg(test)]
+mod nesting_tests {
+    use super::*;
+
+    #[test]
+    fn depth_scan_counts_nesting() {
+        assert_eq!(xml_nesting_depth("<a><b><c/></b></a>"), 2);
+        assert_eq!(xml_nesting_depth("<a/>"), 0);
+        assert_eq!(xml_nesting_depth("plain text"), 0);
+        // Comments/CDATA/PIs must not count as elements.
+        // Comments/CDATA/PIs must not count as elements, and self-closing tags must not
+        // increase the depth.
+        assert_eq!(xml_nesting_depth("<!-- <a><b> --><c/>"), 0);
+        assert_eq!(xml_nesting_depth("<a><![CDATA[<b><c>]]></a>"), 1);
+        assert_eq!(xml_nesting_depth("<?xml version=\"1.0\"?><a/>"), 0);
+        assert_eq!(xml_nesting_depth("<?xml version=\"1.0\"?><a><b/></a>"), 1);
+        // `>` inside a quoted attribute must not terminate the tag early: if it did, the trailing
+        // `">` would be treated as a bogus tag and `<b/>` would be miscounted.
+        assert_eq!(xml_nesting_depth(r#"<a t=">"><b/></a>"#), 1);
+        assert_eq!(xml_nesting_depth(r#"<a t=">"><b><c/></b></a>"#), 2);
+    }
+
+    #[test]
+    fn guard_rejects_deep_documents() {
+        let deep = format!("{}{}{}", "<a>".repeat(1000), "</a>".repeat(1000), "");
+        assert!(check_xml_nesting_depth(&deep).is_err());
+        let shallow = "<a><b><c/></b></a>";
+        assert!(check_xml_nesting_depth(shallow).is_ok());
+    }
+
+    #[test]
+    fn parsing_deep_document_does_not_overflow() {
+        let depth = 20_000;
+        let deep = format!(
+            "<FictionBook>{}{}</FictionBook>",
+            "<a>".repeat(depth),
+            "</a>".repeat(depth)
+        );
+        // Must be rejected by the guard rather than overflowing the stack.
+        assert!(parse_xml_document(&deep).is_err());
+    }
+
+    /// The name-start test in `xml_nesting_depth` must accept non-ASCII letters. XML 1.0
+    /// `NameStartChar` includes them, and every non-ASCII UTF-8 lead byte is >= 0x80, so an
+    /// element named `<日本語>` used to be skipped as "not a tag" instead of counted — making the
+    /// guard skippable by naming a hostile element with one non-ASCII character.
+    #[test]
+    fn depth_scan_counts_non_ascii_element_names() {
+        assert_eq!(xml_nesting_depth("<日本語><中文/></日本語>"), 1);
+        // A hostile document built from non-ASCII names must be measured as deep, not shallow.
+        let deep = format!(
+            "<日本語>{}{}</日本語>",
+            "<中文>".repeat(5000),
+            "</中文>".repeat(5000)
+        );
+        assert!(
+            xml_nesting_depth(&deep) > MAX_XML_NESTING_DEPTH,
+            "non-ASCII nesting was not counted: {}",
+            xml_nesting_depth(&deep)
+        );
+        assert!(check_xml_nesting_depth(&deep).is_err());
+    }
 }

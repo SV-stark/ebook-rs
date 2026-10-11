@@ -66,11 +66,25 @@ impl RtfBook {
         let mut section_index = 0;
         let mut img_counter = 0;
 
+        // The RTF parser is the only format parser with no input size cap, and it materializes a
+        // `Vec<char>` (4 bytes per character) on top of the caller's byte slice and `text`. Bound
+        // the accepted input so peak memory stays proportional to a sane document.
+        const MAX_RTF_INPUT_BYTES: usize = 256 * 1024 * 1024;
+        if text.len() > MAX_RTF_INPUT_BYTES {
+            return Err(EbookError::InvalidFormat(format!(
+                "RTF document exceeds the {} byte input limit",
+                MAX_RTF_INPUT_BYTES
+            )));
+        }
+
         let chars: Vec<char> = text.chars().collect();
         let len = chars.len();
         let mut i = 0;
 
-        let mut state_stack: Vec<RtfState> = vec![RtfState::default()];
+        // `(saved state, saved destination text)` pairs. The destination text is snapshotted per
+        // frame so a nested group inside a destination flushes only its *own* content, and the
+        // parent's accumulated text survives to be flushed at the parent's `}`.
+        let mut state_stack: Vec<(RtfState, String)> = vec![(RtfState::default(), String::new())];
         let mut cur_state = RtfState::default();
 
         let mut dest_buffer = String::new();
@@ -112,7 +126,10 @@ impl RtfBook {
                              spine: &mut Vec<SpineItem>,
                              toc: &mut Vec<NavPoint>| {
             if cur_txt.trim().is_empty() && !sections.is_empty() {
-                return;
+                // Nothing worth emitting. The caller must know, otherwise it advances the section
+                // counter past a gap and every later section keeps an index that no longer equals
+                // its position (`Section 3` for the third section, no `section_1.html`, …).
+                return false;
             }
             let href = format!("section_{}.html", sec_idx);
             let full_html = format!("<div class=\"rtf-section\">\n{}\n</div>", cur_html);
@@ -149,6 +166,8 @@ impl RtfBook {
                 full_path: href,
                 subitems: Vec::new(),
             });
+
+            true
         };
 
         while i < len {
@@ -160,9 +179,13 @@ impl RtfBook {
                         &mut cur_run,
                         &cur_state,
                     );
-                    state_stack.push(cur_state.clone());
-                    cur_state.is_destination = false;
-                    cur_state.dest_name.clear();
+                    // A group nested inside a destination stays *inside* that destination.
+                    // Resetting the destination flags here meant that, for example, every
+                    // `<fonttbl>` / `<stylesheet>` sub-group stopped being treated as metadata and
+                    // its text (font names, style names, …) was routed straight into the book body.
+                    // `state_stack` already restores the parent's flags on `}`, so the nested
+                    // frame just needs the parent's current flags preserved.
+                    state_stack.push((cur_state.clone(), std::mem::take(&mut dest_buffer)));
                     i += 1;
                 }
                 '}' => {
@@ -202,8 +225,11 @@ impl RtfBook {
                         dest_buffer.clear();
                     }
 
-                    if let Some(prev) = state_stack.pop() {
+                    if let Some((prev, prev_dest)) = state_stack.pop() {
                         cur_state = prev;
+                        // `dest_buffer` was taken when this frame was opened, so the parent's
+                        // snapshot is unconditionally the right value to resume with.
+                        dest_buffer = prev_dest;
                     }
                     i += 1;
                 }
@@ -381,7 +407,7 @@ impl RtfBook {
                                 &cur_state,
                             );
                             if !cur_state.is_destination && !in_pict && !current_text.is_empty() {
-                                flush_section(
+                                let emitted = flush_section(
                                     section_index,
                                     &current_html,
                                     &current_text,
@@ -389,7 +415,9 @@ impl RtfBook {
                                     &mut spine,
                                     &mut toc,
                                 );
-                                section_index += 1;
+                                // Advance only when a section was actually written, so indices
+                                // stay contiguous with `sections.iter().position()`.
+                                section_index += usize::from(emitted);
                                 current_html.clear();
                                 current_text.clear();
                             }
@@ -538,7 +566,9 @@ impl RtfBook {
             &mut cur_run,
             &cur_state,
         );
-        flush_section(
+        // The final unconditional flush always emits (the guard inside is bypassed when no
+        // section exists yet), so the returned `bool` is irrelevant here.
+        let _ = flush_section(
             section_index,
             &current_html,
             &current_text,

@@ -13,13 +13,18 @@ pub struct ZipEntryLocation {
 
 impl ZipEntryLocation {
     /// Generate HTTP Range header for fetching this entry over HTTP.
+    ///
+    /// Every offset here is read verbatim from the (untrusted) ZIP central directory, including
+    /// the ZIP64 extra field, so the arithmetic is saturating: the release profile sets
+    /// `overflow-checks = true`, meaning a bare `+` on a crafted `u64::MAX` field would panic.
     pub fn to_http_range_header(&self) -> (String, String) {
-        // Range header spanning local header offset + entry payload
-        let end_byte = self.local_header_offset
-            + 30
-            + self.file_name.len() as u64
-            + self.extra_field_len.max(1024)
-            + self.compressed_size;
+        // Range header spanning local header offset + entry payload.
+        let end_byte = self
+            .local_header_offset
+            .saturating_add(30)
+            .saturating_add(self.file_name.len() as u64)
+            .saturating_add(self.extra_field_len.max(1024))
+            .saturating_add(self.compressed_size);
         (
             "Range".to_string(),
             format!("bytes={}-{}", self.local_header_offset, end_byte),
@@ -70,7 +75,13 @@ impl ZipHeaderReader {
             tail_bytes[eocd_idx + 15],
         ]) as usize;
 
-        let mut entries = Vec::with_capacity(entry_count);
+        // Do not trust the declared entry count for pre-allocation: `find_eocd` scans backwards
+        // for the first EOCD signature, which can be a false positive inside compressed data or a
+        // comment, so a crafted 64-byte tail could otherwise force a 65 535-entry allocation
+        // before a single entry is validated. Each entry needs at least 46 bytes, so the tail
+        // length is a hard upper bound.
+        let max_possible_entries = tail_bytes.len().saturating_sub(eocd_idx) / 46;
+        let mut entries = Vec::with_capacity(entry_count.min(max_possible_entries));
         let cd_start = eocd_idx.saturating_sub(cd_size);
 
         let mut pos = cd_start;

@@ -173,8 +173,11 @@ fn extract_year(date_str: Option<&str>) -> Option<String> {
             return Some(token.to_string());
         }
     }
+    // The old fallback concatenated *every* digit in the string and took the first four, so a
+    // date like "15/03/99" (tokens `15`, `03`, `99`) produced the year 1503. Only accept an
+    // 8-digit packed form (YYYYMMDD), where the concatenation is unambiguous.
     let digits: String = d.chars().filter(|c| c.is_ascii_digit()).collect();
-    if digits.len() >= 4 {
+    if digits.len() == 8 {
         Some(digits[..4].to_string())
     } else {
         None

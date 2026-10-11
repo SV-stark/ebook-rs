@@ -1,4 +1,4 @@
-use crate::archive::EpubArchive;
+use crate::archive::{DecompressionBudget, EpubArchive};
 use crate::book::Book;
 use crate::deobfuscate::FontDeobfuscator;
 use crate::error::EbookError;
@@ -8,7 +8,6 @@ use crate::nav::NavPoint;
 use crate::opf::OpfPackage;
 use crate::section::Section;
 use ahash::AHashMap;
-use roxmltree::Document;
 use std::io::Read;
 
 /// Microsoft Word (.docx) Office Open XML document parser engine.
@@ -49,17 +48,21 @@ impl DocxBook {
         let mut epub_archive = EpubArchive::empty();
 
         // 2. Extract embedded images from word/media/*
+        // Charged against *actual* decompressed bytes: the central-directory sizes are
+        // attacker-controlled, so a per-entry `take()` alone permits ~1000:1 amplification.
+        const MAX_DOCX_MEDIA_TOTAL: u64 = 256 * 1024 * 1024;
+        let mut budget = DecompressionBudget::new(MAX_DOCX_MEDIA_TOTAL, MAX_DOCX_MEDIA_SIZE);
         for i in 0..archive.len() {
             if let Ok(mut file) = archive.by_index(i) {
                 let name = file.name().to_string();
                 if name.starts_with("word/media/") && !name.ends_with('/') {
+                    // Reject entry names that escape the archive root once normalized.
+                    let norm = crate::archive::normalize_path(&name);
+                    if norm != name.trim_start_matches('/') {
+                        continue;
+                    }
                     let mut img_data = Vec::new();
-                    if file
-                        .by_ref()
-                        .take(MAX_DOCX_MEDIA_SIZE)
-                        .read_to_end(&mut img_data)
-                        .is_ok()
-                    {
+                    if budget.read_capped(&mut file, &mut img_data).is_ok() {
                         let relative_name = name.strip_prefix("word/").unwrap_or(&name);
                         epub_archive.insert(relative_name, img_data);
                     }
@@ -80,7 +83,7 @@ impl DocxBook {
                 .read_to_string(&mut core_xml)
                 .is_ok()
             {
-                if let Ok(doc) = Document::parse(&core_xml) {
+                if let Ok(doc) = crate::dom::parse_xml_document(&core_xml) {
                     for node in doc.descendants() {
                         if node.is_element() {
                             let tag = node.tag_name().name();
@@ -119,7 +122,7 @@ impl DocxBook {
                 .read_to_string(&mut rels_xml)
                 .is_ok()
             {
-                if let Ok(doc) = Document::parse(&rels_xml) {
+                if let Ok(doc) = crate::dom::parse_xml_document(&rels_xml) {
                     for node in doc.descendants() {
                         if node.is_element() && node.tag_name().name() == "Relationship" {
                             if let (Some(id), Some(target)) =
@@ -134,7 +137,7 @@ impl DocxBook {
         }
 
         // 5. Parse document.xml DOM
-        let doc = Document::parse(&document_xml)
+        let doc = crate::dom::parse_xml_document(&document_xml)
             .map_err(|e| EbookError::Xml(format!("Failed to parse DOCX document.xml: {}", e)))?;
 
         let mut sections = Vec::new();

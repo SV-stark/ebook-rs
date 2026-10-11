@@ -198,7 +198,8 @@ pub unsafe extern "C" fn ebook_rs_to_rag_chunks_json(
         let config = RagChunkConfig {
             max_tokens: if max_tokens == 0 { 512 } else { max_tokens },
             ..Default::default()
-        };
+        }
+        .sanitized();
         let chunks = book.to_rag_chunks(&config);
         match serde_json::to_string(&chunks) {
             Ok(json) => alloc_c_string(json),

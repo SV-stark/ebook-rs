@@ -22,7 +22,7 @@ impl FontDeobfuscator {
     /// Parse `META-INF/encryption.xml` if present in archive.
     pub fn parse_encryption_xml(xml_content: &str) -> Self {
         let mut encrypted_fonts = AHashMap::new();
-        if let Ok(doc) = roxmltree::Document::parse(xml_content) {
+        if let Ok(doc) = crate::dom::parse_xml_document(xml_content) {
             for node in doc.descendants() {
                 if node.has_tag_name("EncryptedData") {
                     let mut algo = String::new();

@@ -139,6 +139,9 @@ impl RenditionLayout {
     }
 
     /// Generate dynamic CSS rules to inject into section HTML.
+    ///
+    /// Every interpolated value is either drawn from a fixed enum or sanitized, so the result
+    /// cannot escape the `<style>` element it is embedded in.
     pub fn to_css_override(&self) -> String {
         let (bg, fg, link) = match self.theme {
             Theme::Light => ("#ffffff", "#1e293b", "#2563eb"),
@@ -148,25 +151,49 @@ impl RenditionLayout {
             Theme::HighContrast => ("#000000", "#ffffff", "#ffff00"),
         };
 
-        let font_rule =
-            if let (Some(fam), Some(url)) = (&self.custom_font_family, &self.custom_font_url) {
+        // Sanitize both the family and the URL. `set_custom_font` sanitizes on the way in, but
+        // these are public fields and can also arrive via `Deserialize` (e.g. a zstd cache).
+        let custom_family = self
+            .custom_font_family
+            .as_deref()
+            .map(sanitize_font_stack)
+            .filter(|f| !f.is_empty());
+        let custom_url = self
+            .custom_font_url
+            .as_deref()
+            .map(sanitize_css_url)
+            .filter(|u| !u.is_empty());
+
+        let font_rule = match (custom_family.as_deref(), custom_url.as_deref()) {
+            (Some(fam), Some(url)) => {
                 format!(
                     r#"
                 @font-face {{
-                    font-family: '{}';
-                    src: url('{}');
+                    font-family: '{fam}';
+                    src: url('{url}');
                 }}
-                "#,
-                    fam, url
+                "#
                 )
-            } else {
-                "".to_string()
-            };
+            }
+            _ => String::new(),
+        };
 
-        let active_font = self
-            .custom_font_family
-            .as_deref()
-            .unwrap_or(&self.font_family);
+        let active_font = {
+            // Fall through the whole chain: configured custom family -> configured base family
+            // -> sans-serif. Hard-coding the last step when the custom family was present but
+            // sanitized away discarded the user's real `font_family`.
+            let s = sanitize_font_stack(
+                self.custom_font_family
+                    .as_deref()
+                    .filter(|f| !sanitize_font_stack(f).is_empty())
+                    .unwrap_or(&self.font_family),
+            );
+            if s.is_empty() {
+                "sans-serif".to_string()
+            } else {
+                s
+            }
+        };
 
         let mode_css = match self.writing_mode {
             WritingMode::HorizontalLtr => "direction: ltr;",
@@ -245,4 +272,55 @@ impl RenditionLayout {
 
         Some((scale, css_transform))
     }
+}
+
+/// Sanitize a font-family value for safe interpolation into a CSS declaration.
+///
+/// `RenditionLayout::font_family` is a public field and ends up inside a `body { ... }` rule
+/// that the reader injects as an inline `<style>`. Without filtering, a value such as
+/// `x; } </style><script>...</script>` breaks out of the style element -- and the reader CSP
+/// allows `style-src 'unsafe-inline'`, making this a script-injection primitive.
+fn sanitize_font_stack(input: &str) -> String {
+    const MAX_LEN: usize = 200;
+    let filtered: String = input
+        .chars()
+        .take(MAX_LEN)
+        .filter(|c| c.is_alphanumeric() || matches!(c, ' ' | '-' | '_' | ',' | '\'' | '.'))
+        .collect();
+    let trimmed = filtered.trim();
+    if trimmed.is_empty() || trimmed.contains('{') || trimmed.contains('}') {
+        String::new()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Sanitize a font `src` value for interpolation into `url('...')`.
+///
+/// Only characters that could terminate the `url('…')` token or start another declaration are
+/// rejected. `;` and `,` are safe inside a quoted URL, and rejecting them silently dropped every
+/// `data:font/woff2;base64,…` URI — which is the documented shape of `custom_font_url` — so the
+/// entire `@font-face` rule disappeared instead of being emitted.
+fn sanitize_css_url(input: &str) -> String {
+    // Base64 font payloads are large; a 4 KB cap discarded every real one.
+    const MAX_LEN: usize = 1024 * 1024;
+    let trimmed = input.trim();
+    if trimmed.len() > MAX_LEN {
+        return String::new();
+    }
+    // Reject anything that could terminate the `url('...')` string or start another declaration.
+    if trimmed.contains('\'')
+        || trimmed.contains('"')
+        || trimmed.contains('{')
+        || trimmed.contains('}')
+        || trimmed.contains('<')
+        || trimmed.contains('>')
+        || trimmed.contains('\\')
+        || trimmed.contains('\n')
+        || trimmed.contains('\r')
+        || trimmed.to_ascii_lowercase().starts_with("javascript:")
+    {
+        return String::new();
+    }
+    trimmed.to_string()
 }

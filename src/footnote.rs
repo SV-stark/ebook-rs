@@ -155,14 +155,19 @@ fn extract_footnote_target(html: &str, target_id: &str) -> Option<(String, Strin
 }
 
 fn extract_attr(tag_str: &str, attr: &str) -> Option<(String, String)> {
-    let pattern = format!("{}=\"", attr);
-    if let Some(start) = find_ignore_case(tag_str, &pattern) {
-        let val_start = start + pattern.len();
-        if tag_str.is_char_boundary(val_start) {
-            if let Some(end) = tag_str[val_start..].find('"') {
-                let val = &tag_str[val_start..val_start + end];
-                let orig = &tag_str[start..=val_start + end];
-                return Some((orig.to_string(), val.to_string()));
+    // Both quoting forms are HTML5-valid. Only the double-quoted form used to be matched, so
+    // `<a epub:type='noteref' href='#fn1'>` produced zero footnotes even though the target
+    // element's `id='…'` was found by `extract_footnote_target`.
+    for quote in ['"', '\''] {
+        let pattern = format!("{}={}", attr, quote);
+        if let Some(start) = find_ignore_case(tag_str, &pattern) {
+            let val_start = start + pattern.len();
+            if tag_str.is_char_boundary(val_start) {
+                if let Some(end) = tag_str[val_start..].find(quote) {
+                    let val = &tag_str[val_start..val_start + end];
+                    let orig = &tag_str[start..=val_start + end];
+                    return Some((orig.to_string(), val.to_string()));
+                }
             }
         }
     }

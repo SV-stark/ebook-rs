@@ -359,9 +359,9 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
     <div class="main-container">
         <sidebar id="sidebar">
             <div class="sidebar-tabs">
-                <button class="tab-btn active" onclick="switchTab('tab-toc')">Contents</button>
-                <button class="tab-btn" onclick="switchTab('tab-search')">Search</button>
-                <button class="tab-btn" onclick="switchTab('tab-annotations')">Annotations</button>
+                <button class="tab-btn active" onclick="switchTab('tab-toc', event)">Contents</button>
+                <button class="tab-btn" onclick="switchTab('tab-search', event)">Search</button>
+                <button class="tab-btn" onclick="switchTab('tab-annotations', event)">Annotations</button>
             </div>
             <div id="tab-toc" class="tab-content active">
                 <div id="toc-list">Loading contents...</div>
@@ -420,10 +420,13 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
             sidebar.classList.toggle('open');
         });
 
-        function switchTab(tabId) {
+        function switchTab(tabId, ev) {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            event.target.classList.add('active');
+            // `event.target` (the legacy global) only exists in Chromium; in Firefox and Safari
+            // `event` is undefined here and the handler threw, leaving every sidebar panel
+            // unusable. Take the event as an explicit argument instead.
+            if (ev && ev.target) ev.target.classList.add('active');
             document.getElementById(tabId).classList.add('active');
             if (tabId === 'tab-annotations') refreshAnnotations();
         }
@@ -448,20 +451,25 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
             }
         }
 
-        function renderToc(items, container = document.getElementById('toc-list')) {
+        // Depth-limited: a maliciously deep or self-referential TOC would otherwise blow the
+        // browser stack. `depth` increases strictly, so the recursion always terminates.
+        const MAX_TOC_DEPTH = 32;
+        function renderToc(items, container = document.getElementById('toc-list'), depth = 0) {
+            if (!Array.isArray(items) || depth > MAX_TOC_DEPTH) return;
             container.innerHTML = '';
             items.forEach(item => {
+                if (!item || typeof item !== 'object') return;
                 const div = document.createElement('div');
                 div.className = 'toc-item';
-                div.innerText = item.label;
+                div.innerText = String(item.label ?? '');
                 div.onclick = () => {
                     if (item.href) loadSectionByHref(item.href);
                 };
                 container.appendChild(div);
-                if (item.subitems && item.subitems.length > 0) {
+                if (Array.isArray(item.subitems) && item.subitems.length > 0) {
                     const subContainer = document.createElement('div');
                     subContainer.className = 'toc-sub';
-                    renderToc(item.subitems, subContainer);
+                    renderToc(item.subitems, subContainer, depth + 1);
                     container.appendChild(subContainer);
                 }
             });
@@ -754,17 +762,43 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
             // Handled via window message event listener
         }
 
+        // The book frame is served with `sandbox="allow-scripts"` (no `allow-same-origin`), which
+        // is what makes its untrusted content safe to host. A `srcdoc` frame under that sandbox
+        // has an **opaque origin**, so every message it posts arrives with `e.origin === "null"`.
+        // Comparing that against the reader's real origin therefore rejects every legitimate
+        // message and silently kills text selection, the selection toolbar, `addHighlight()` and
+        // every bookmark driven by DOM selection.
+        //
+        // The authoritative check is window identity below: only a message whose `e.source` is
+        // one of *our own* iframes is accepted, and that window reference cannot be forged by any
+        // frame we did not create.
         window.addEventListener('message', (e) => {
+            const frames = document.querySelectorAll('iframe');
+            let fromReaderFrame = false;
+            for (const f of frames) {
+                if (e.source === f.contentWindow) { fromReaderFrame = true; break; }
+            }
+            if (!fromReaderFrame) return;
+
             if (e.data && e.data.type === 'selection') {
-                selectedText = e.data.text;
+                // Coerce to finite numbers: these values are interpolated into inline styles.
+                const top_ = Number(e.data.top);
+                const left = Number(e.data.left);
+                const width = Number(e.data.width);
+                if (!Number.isFinite(top_) || !Number.isFinite(left) || !Number.isFinite(width)) return;
+                const startOffset = Number(e.data.startOffset);
+                const endOffset = Number(e.data.endOffset);
+                if (!Number.isFinite(startOffset) || !Number.isFinite(endOffset)) return;
+
+                selectedText = String(e.data.text ?? '');
                 const spineStep = (currentSpineIndex + 1) * 2;
-                const startCfi = `/6/${spineStep}!/4/2/1:${e.data.startOffset}`;
-                const endCfi = `/6/${spineStep}!/4/2/1:${e.data.endOffset}`;
+                const startCfi = `/6/${spineStep}!/4/2/1:${Math.max(0, Math.trunc(startOffset))}`;
+                const endCfi = `/6/${spineStep}!/4/2/1:${Math.max(0, Math.trunc(endOffset))}`;
                 selectedCfiRange = `epubcfi(${startCfi},${endCfi})`;
 
                 selectionToolbar.style.display = 'flex';
-                selectionToolbar.style.top = `${e.data.top - 40}px`;
-                selectionToolbar.style.left = `${e.data.left + (e.data.width / 2) - 60}px`;
+                selectionToolbar.style.top = `${top_ - 40}px`;
+                selectionToolbar.style.left = `${left + (width / 2) - 60}px`;
             } else if (e.data && e.data.type === 'selection_clear') {
                 selectionToolbar.style.display = 'none';
             }

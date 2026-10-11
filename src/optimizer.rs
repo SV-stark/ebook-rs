@@ -44,7 +44,18 @@ pub struct EpubOptimizer;
 impl EpubOptimizer {
     /// Optimize a loaded `Book` instance in-place with the specified options.
     pub fn optimize(book: &mut Book, options: &EpubOptimizerOptions) -> OptimizationReport {
-        let mut report = OptimizationReport::default();
+        let mut report = OptimizationReport {
+            original_size_bytes: 0,
+            optimized_size_bytes: 0,
+            saved_bytes: 0,
+            deduplicated_assets_count: 0,
+            purged_css_rules_count: 0,
+        };
+
+        // Measure the input first: `saved_bytes` and friends were never written by anything in
+        // the crate, so every caller reading this report showed "0 bytes -> 0 bytes, saved 0"
+        // no matter how much the optimizer actually removed.
+        report.original_size_bytes = Self::total_size(book);
 
         // 1. Gather all referenced classes, IDs, and element tag names for CSS Purging
         let mut used_classes = AHashSet::new();
@@ -107,7 +118,27 @@ impl EpubOptimizer {
         }
 
         book.invalidate_render_cache();
+        // Recomputed after every stage so the figures reflect the bytes actually removed
+        // (including asset deduplication, which shrinks the archive rather than the HTML).
+        report.optimized_size_bytes = Self::total_size(book);
+        report.saved_bytes = report
+            .original_size_bytes
+            .saturating_sub(report.optimized_size_bytes);
         report
+    }
+
+    /// Total on-disk footprint of a book: every archive entry plus the rendered section HTML.
+    ///
+    /// Both halves are counted because HTML minification changes one and asset deduplication
+    /// changes the other.
+    fn total_size(book: &Book) -> usize {
+        let archive: usize = book.archive.files().values().map(Vec::len).sum();
+        let sections: usize = book
+            .sections
+            .iter()
+            .map(|s| s.raw_html.len() + s.processed_html.len())
+            .sum();
+        archive + sections
     }
 
     /// Minify HTML content by removing HTML comments and collapsing redundant whitespace.
@@ -124,6 +155,10 @@ impl EpubOptimizer {
                 if let Some(end_idx) = html[i + 4..].find("-->") {
                     i += 4 + end_idx + 3;
                 } else {
+                    // Unterminated comment: `break` here silently discarded the entire remainder
+                    // of the document. Emit the rest verbatim instead — a stray `<!--` in book
+                    // HTML must not cost the reader the rest of the section.
+                    out.push_str(&html[i..]);
                     break;
                 }
                 continue;
@@ -399,24 +434,153 @@ impl EpubOptimizer {
             }
         }
 
-        // Remap section HTML src / href references and remove duplicate files from archive
+        // Remap references to each removed asset and then drop it from the archive.
         if !path_redirects.is_empty() {
-            for section in sections {
-                for (old_path, new_path) in &path_redirects {
-                    let old_filename = old_path.split('/').next_back().unwrap_or(old_path);
-                    let new_filename = new_path.split('/').next_back().unwrap_or(new_path);
-                    section.raw_html = section.raw_html.replace(old_filename, new_filename);
+            let redirects: Vec<(String, String)> = path_redirects.into_iter().collect();
+            for section in sections.iter_mut() {
+                for (old_path, new_path) in &redirects {
+                    section.raw_html = remap_asset_reference(&section.raw_html, old_path, new_path);
                     section.processed_html =
-                        section.processed_html.replace(old_filename, new_filename);
+                        remap_asset_reference(&section.processed_html, old_path, new_path);
                 }
             }
-            for old_path in path_redirects.keys() {
+            remap_css_asset_references(archive, &redirects);
+            for (old_path, _) in &redirects {
                 archive.remove(old_path);
             }
         }
 
         dedup_count
     }
+}
+
+/// Rewrite references to `old_path` in HTML so they point at `new_path`.
+///
+/// Substitution is done on the **full path**, and only at positions that lie inside an HTML tag
+/// — i.e. in an attribute value, including an inline `style="…url(…)…"`. The previous
+/// implementation replaced bare filenames, which silently produced references to files that do
+/// not exist whenever two identical assets live in different directories, and was a no-op while
+/// still deleting the file when their basenames happened to match.
+fn remap_asset_reference(html: &str, old_path: &str, new_path: &str) -> String {
+    // Guard against one common case where a `#fragment`-style suffix follows the value.
+    let inside_tag = tag_membership(html);
+    remap_paths(html, old_path, new_path, |_, i| {
+        inside_tag.get(i).copied().unwrap_or(false)
+    })
+}
+
+/// Rewrite `url(...)` references in a CSS stylesheet so they point at `new_path`.
+///
+/// CSS has no tag context, so a reference is only rewritten when it sits inside a `url(...)`
+/// token; arbitrary text that happens to contain the path is left alone.
+fn remap_css_url_reference(css: &str, old_path: &str, new_path: &str) -> String {
+    remap_paths(css, old_path, new_path, |text, i| {
+        let before = text[..i].trim_end();
+        let before = before.trim_end_matches(['"', '\'']);
+        before.to_ascii_lowercase().ends_with("url(")
+    })
+}
+
+/// Core substring rewriter: every whole-token occurrence of `old_path` that `allowed` accepts at
+/// its start offset is replaced with `new_path`.
+fn remap_paths(
+    text: &str,
+    old_path: &str,
+    new_path: &str,
+    allowed: impl Fn(&str, usize) -> bool,
+) -> String {
+    if old_path.is_empty() || old_path == new_path || !text.contains(old_path) {
+        return text.to_string();
+    }
+    // Bytes that can terminate a path value in an attribute value or a `url(...)` token.
+    const BREAK: &[u8] = b"\"')? #>;,&\t\r\n";
+    let old = old_path.as_bytes();
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < text.len() {
+        if bytes[i..].starts_with(old) {
+            let next = i + old.len();
+            let next_ok = next == bytes.len() || BREAK.contains(&bytes[next]);
+            if next_ok && allowed(text, i) {
+                out.push_str(new_path);
+                i = next;
+                continue;
+            }
+        }
+        let n = text[i..].chars().next().map_or(1, char::len_utf8);
+        out.push_str(&text[i..i + n]);
+        i += n;
+    }
+    out
+}
+
+/// `mask[i]` is true when byte `i` of `text` lies inside an HTML tag, quote-aware.
+///
+/// Used to confine path rewriting to attribute values, so prose that merely mentions a filename
+/// is never rewritten.
+fn tag_membership(text: &str) -> Vec<bool> {
+    let bytes = text.as_bytes();
+    let mut mask = vec![false; bytes.len()];
+    let mut in_tag = false;
+    let mut quote: Option<u8> = None;
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if !in_tag {
+            if b == b'<' {
+                in_tag = true;
+                quote = None;
+            }
+        } else if let Some(q) = quote {
+            if b == q {
+                quote = None;
+            }
+        } else if b == b'"' || b == b'\'' {
+            quote = Some(b);
+        } else if b == b'>' {
+            in_tag = false;
+        }
+        // The `<` itself starts the tag, so it is part of it.
+        mask[i] = in_tag;
+        i += 1;
+    }
+    mask
+}
+
+/// Rewrite CSS `url(...)` references inside archive stylesheets.
+///
+/// Section HTML can reference an asset through CSS rather than through an attribute, so without
+/// this step purging a duplicate stylesheet leaves every declaration pointing at a deleted file.
+/// Unreadable or non-UTF-8 stylesheets are left untouched.
+fn remap_css_asset_references(archive: &mut EpubArchive, redirects: &[(String, String)]) -> usize {
+    if redirects.is_empty() {
+        return 0;
+    }
+    let css_paths: Vec<String> = archive
+        .list_files()
+        .into_iter()
+        .filter(|p| {
+            let lower = p.to_lowercase();
+            lower.ends_with(".css")
+        })
+        .collect();
+
+    let mut remapped = 0;
+    for path in css_paths {
+        let Ok(text) = archive.read_string(&path) else {
+            continue;
+        };
+        let mut updated = text.clone();
+        for (old_path, new_path) in redirects {
+            updated = remap_css_url_reference(&updated, old_path, new_path);
+        }
+        if updated != text {
+            archive.insert(path, updated.into_bytes());
+            remapped += 1;
+        }
+    }
+    remapped
 }
 
 /// Helper to extract class names, ID attributes, and tag names from HTML.
@@ -479,5 +643,90 @@ fn extract_dom_identifiers(
         } else {
             break;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Deduplication used to substitute the *basename*, so two identical images in different
+    /// directories produced an `src` pointing at a file that does not exist, and identical
+    /// basenames made the substitution a no-op while the file was still deleted.
+    #[test]
+    fn remap_asset_reference_rewrites_full_paths() {
+        let html = r#"<img src="images/logo.png"><img src="cover.png" href="x">"#;
+        let out = remap_asset_reference(html, "images/logo.png", "cover.png");
+        assert_eq!(
+            out,
+            r#"<img src="cover.png"><img src="cover.png" href="x">"#
+        );
+        // Unquoted and single-quoted forms.
+        assert_eq!(
+            remap_asset_reference("<img src=images/logo.png>", "images/logo.png", "cover.png"),
+            "<img src=cover.png>"
+        );
+        assert_eq!(
+            remap_asset_reference(
+                "<img src=@'images/logo.png'@>".replace('@', "").as_str(),
+                "images/logo.png",
+                "cover.png"
+            ),
+            "<img src='cover.png'>"
+        );
+        // Inline CSS url().
+        assert_eq!(
+            remap_asset_reference(
+                r#"<div style="background:url(images/logo.png)"></div>"#,
+                "images/logo.png",
+                "cover.png"
+            ),
+            r#"<div style="background:url(cover.png)"></div>"#
+        );
+        assert_eq!(
+            remap_asset_reference(
+                r#"<div style="background:url('images/logo.png')"></div>"#,
+                "images/logo.png",
+                "cover.png"
+            ),
+            r#"<div style="background:url('cover.png')"></div>"#
+        );
+        // Text content that merely contains the path must not be touched.
+        assert_eq!(
+            remap_asset_reference(
+                "<p>See images/logo.png for details</p>",
+                "images/logo.png",
+                "cover.png"
+            ),
+            "<p>See images/logo.png for details</p>"
+        );
+        // A prefix of the path must not be partially rewritten.
+        assert_eq!(
+            remap_asset_reference(
+                r#"<img src="images/logo.png.bak">"#,
+                "images/logo.png",
+                "cover.png"
+            ),
+            r#"<img src="images/logo.png.bak">"#
+        );
+    }
+
+    /// An unterminated `<!--` used to `break` out of the loop, silently throwing away the rest
+    /// of the document.
+    #[test]
+    fn minify_html_keeps_tail_of_unterminated_comment() {
+        let out = EpubOptimizer::minify_html(
+            "<p>keep this</p><!-- unterminated comment <p>secret tail</p>",
+        );
+        assert!(out.contains("keep this"), "{out}");
+        assert!(out.contains("secret tail"), "tail was discarded: {out}");
+    }
+
+    #[test]
+    fn minify_html_still_removes_comments() {
+        assert_eq!(
+            EpubOptimizer::minify_html("<p>a</p><!-- gone --><p>b</p>"),
+            "<p>a</p><p>b</p>"
+        );
     }
 }

@@ -188,7 +188,12 @@ impl CbzBook {
         window: usize,
     ) -> Vec<(usize, String, Vec<u8>)> {
         let mut result = Vec::new();
-        let end = (current_index + window).min(book.sections.len());
+        // `saturating_add`: `window` is caller-supplied, and the release profile sets
+        // `overflow-checks = true`, so `current_index + window` with `window == usize::MAX` would
+        // panic instead of clamping.
+        let end = current_index
+            .saturating_add(window)
+            .min(book.sections.len());
 
         for idx in current_index..end {
             if let Some(sec) = book.sections.get(idx) {

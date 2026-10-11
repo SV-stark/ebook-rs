@@ -6,7 +6,93 @@ use std::path::Path;
 use std::sync::Arc;
 use zip::ZipArchive;
 
+/// Maximum aggregate bytes that may be decompressed on demand while an archive is in lazy mode.
+const MAX_LAZY_READ_TOTAL: u64 = 1024 * 1024 * 1024;
+/// Maximum bytes decompressed for a single on-demand (lazy) archive entry.
+const MAX_LAZY_ENTRY_SIZE: u64 = 256 * 1024 * 1024;
+
 type LazyZipSource = Option<Arc<Mutex<ZipArchive<Cursor<Vec<u8>>>>>>;
+
+/// Cumulative decompression budget shared by every format extractor.
+///
+/// The sizes declared in a ZIP central directory are fully attacker-controlled and may be set
+/// far below the real payload, so any limit enforced against a *declared* size can be bypassed
+/// (an under-declared total even flips `from_reader` into lazy mode, skipping the eager budget
+/// entirely). Limits must therefore be charged against bytes **actually** decompressed.
+#[derive(Debug, Clone)]
+pub struct DecompressionBudget {
+    max_total: u64,
+    max_single: u64,
+    used_total: u64,
+}
+
+impl DecompressionBudget {
+    /// Create a budget allowing `max_total` bytes in aggregate and `max_single` per entry.
+    #[must_use]
+    pub fn new(max_total: u64, max_single: u64) -> Self {
+        Self {
+            max_total,
+            max_single,
+            used_total: 0,
+        }
+    }
+
+    /// Bytes still available in the cumulative budget.
+    #[must_use]
+    pub fn remaining(&self) -> u64 {
+        self.max_total.saturating_sub(self.used_total)
+    }
+
+    /// Cap for the next entry: the lesser of the per-entry limit and the remaining budget.
+    #[must_use]
+    pub fn allowance(&self) -> u64 {
+        self.max_single.min(self.remaining())
+    }
+
+    /// Charge `n` actually-read bytes against the cumulative budget.
+    ///
+    /// # Errors
+    /// Returns [`EbookError::InvalidFormat`] if this charge would exceed the total budget.
+    pub fn charge(&mut self, n: u64) -> Result<(), EbookError> {
+        self.used_total = self.used_total.saturating_add(n);
+        if self.used_total > self.max_total {
+            return Err(EbookError::InvalidFormat(format!(
+                "Cumulative decompressed size exceeds the {} byte safety budget (possible decompression bomb)",
+                self.max_total
+            )));
+        }
+        Ok(())
+    }
+
+    /// Read one entry into `out`, stopping at [`Self::allowance`] and charging what was read.
+    ///
+    /// Returns the number of bytes read. Truncation at the cap is silent by design (a partial
+    /// image is better than an OOM), but exhausting the cumulative budget is an error so the
+    /// caller aborts the loop instead of retrying.
+    ///
+    /// # Errors
+    /// Propagates I/O errors, and returns [`EbookError::InvalidFormat`] when the budget is spent.
+    pub fn read_capped<R: Read>(
+        &mut self,
+        r: &mut R,
+        out: &mut Vec<u8>,
+    ) -> Result<u64, EbookError> {
+        if self.remaining() == 0 {
+            return Err(EbookError::InvalidFormat(
+                "Decompression budget exhausted".to_string(),
+            ));
+        }
+        let cap = self.allowance();
+        let before = out.len() as u64;
+        r.by_ref()
+            .take(cap)
+            .read_to_end(out)
+            .map_err(|e| EbookError::Io(format!("Failed to decompress archive entry: {}", e)))?;
+        let read = (out.len() as u64).saturating_sub(before);
+        self.charge(read)?;
+        Ok(read)
+    }
+}
 
 /// Represents an EPUB archive (ZIP container) in memory or from file with lazy decompression for giant archives (>500MB).
 #[derive(Clone)]
@@ -14,6 +100,11 @@ pub struct EpubArchive {
     files: AHashMap<String, Vec<u8>>,
     lazy_source: LazyZipSource,
     lazy_index: AHashMap<String, usize>,
+    /// Running budget for on-demand decompression in lazy mode. Shared across clones so that
+    /// `read_bytes(&self)` can charge it; a single 256 MB per-entry cap is not an aggregate cap,
+    /// and one section referencing thousands of distinct entries would otherwise decompress
+    /// unbounded amounts.
+    lazy_budget: Arc<Mutex<DecompressionBudget>>,
 }
 
 impl EpubArchive {
@@ -37,6 +128,10 @@ impl EpubArchive {
             files: AHashMap::new(),
             lazy_source: None,
             lazy_index: AHashMap::new(),
+            lazy_budget: Arc::new(Mutex::new(DecompressionBudget::new(
+                MAX_LAZY_READ_TOTAL,
+                MAX_LAZY_ENTRY_SIZE,
+            ))),
         }
     }
 
@@ -207,6 +302,10 @@ impl EpubArchive {
                 files,
                 lazy_source: Some(Arc::new(Mutex::new(zip))),
                 lazy_index,
+                lazy_budget: Arc::new(Mutex::new(DecompressionBudget::new(
+                    MAX_LAZY_READ_TOTAL,
+                    MAX_LAZY_ENTRY_SIZE,
+                ))),
             })
         } else {
             // Eager Mode: Load and decompress everything into memory with safe budget
@@ -247,6 +346,10 @@ impl EpubArchive {
                 files,
                 lazy_source: None,
                 lazy_index,
+                lazy_budget: Arc::new(Mutex::new(DecompressionBudget::new(
+                    MAX_LAZY_READ_TOTAL,
+                    MAX_LAZY_ENTRY_SIZE,
+                ))),
             })
         }
     }
@@ -257,18 +360,18 @@ impl EpubArchive {
     }
 
     /// Read raw bytes of a file in the archive.
+    ///
+    /// A `#fragment` suffix is stripped for URL-style lookups, but the *full* normalized key is
+    /// tried first. `resolve_relative_path` percent-decodes `%23` into a real `#`, so paths that
+    /// legitimately contain one (`OEBPS/cov#1.png`) resolve to exactly that and used to have their
+    /// tail thrown away by a second strip, making a file that `list_files()` reports unreachable.
     pub fn read_bytes(&self, path: &str) -> Result<Vec<u8>, EbookError> {
         let clean = normalize_path(path);
         let clean_no_frag = clean.split('#').next().unwrap_or(&clean);
 
-        if let Some(data) = self.files.get(clean_no_frag) {
-            return Ok(data.clone());
-        }
-
-        if let Some((_, data)) = self
-            .files
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case(clean_no_frag))
+        if let Some(data) = self
+            .eager_lookup(&clean)
+            .or_else(|| self.eager_lookup(clean_no_frag))
         {
             return Ok(data.clone());
         }
@@ -277,7 +380,14 @@ impl EpubArchive {
         if let Some(ref lazy_arc) = self.lazy_source {
             let entry_idx = self
                 .lazy_index
-                .get(clean_no_frag)
+                .get(&clean)
+                .or_else(|| self.lazy_index.get(clean_no_frag))
+                .or_else(|| {
+                    self.lazy_index
+                        .iter()
+                        .find(|(k, _)| k.eq_ignore_ascii_case(&clean))
+                        .map(|(_, idx)| idx)
+                })
                 .or_else(|| {
                     self.lazy_index
                         .iter()
@@ -291,15 +401,9 @@ impl EpubArchive {
                 let mut file = zip.by_index(idx).map_err(|e| {
                     EbookError::Zip(format!("Failed to decompress lazy entry {}: {}", path, e))
                 })?;
-                const MAX_LAZY_ENTRY_SIZE: u64 = 256 * 1024 * 1024; // 256 MB per entry limit
-                let alloc_capacity = (file.size() as usize).min(32 * 1024 * 1024);
-                let mut data = Vec::with_capacity(alloc_capacity);
-                file.by_ref()
-                    .take(MAX_LAZY_ENTRY_SIZE)
-                    .read_to_end(&mut data)
-                    .map_err(|e| {
-                        EbookError::Io(format!("Failed to read lazy entry content: {}", e))
-                    })?;
+                let mut budget = self.lazy_budget.lock();
+                let mut data = Vec::new();
+                budget.read_capped(&mut file, &mut data)?;
                 return Ok(data);
             }
         }
@@ -310,18 +414,59 @@ impl EpubArchive {
         )))
     }
 
+    /// Find an eagerly-stored entry by exact key, then case-insensitively.
+    ///
+    /// `files` is keyed by the *normalized* entry name with any `#` intact, so the full key must
+    /// be tried before the fragment-stripped fallback.
+    fn eager_lookup(&self, key: &str) -> Option<&Vec<u8>> {
+        if let Some(data) = self.files.get(key) {
+            return Some(data);
+        }
+        self.files
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(key))
+            .map(|(_, v)| v)
+    }
+
+    /// Decompress every lazily-indexed entry into `out`, alongside the eagerly-stored files.
+    ///
+    /// Used when a lazy archive must be materialized as a whole (e.g. for a full-book export).
+    /// Returns the first per-entry error encountered, so a caller can report that the cache would
+    /// be incomplete rather than silently losing content.
+    pub fn hydrate_into(&self, out: &mut AHashMap<String, Vec<u8>>) -> Result<(), EbookError> {
+        out.extend(self.files.iter().map(|(k, v)| (k.clone(), v.clone())));
+        let Some(ref lazy_arc) = self.lazy_source else {
+            return Ok(());
+        };
+        let mut zip = lazy_arc.lock();
+        for (name, idx) in &self.lazy_index {
+            if out.contains_key(name) {
+                continue;
+            }
+            let mut file = zip.by_index(*idx).map_err(|e| {
+                EbookError::Zip(format!("Failed to decompress lazy entry {name}: {e}"))
+            })?;
+            let mut data = Vec::new();
+            let mut budget = self.lazy_budget.lock();
+            budget.read_capped(&mut file, &mut data)?;
+            out.insert(name.clone(), data);
+        }
+        Ok(())
+    }
+
     /// Zero-copy reference getter for eagerly loaded raw file bytes in the archive.
+    ///
+    /// Note: this does *not* consult the lazy index, unlike [`Self::read_bytes`] and
+    /// [`Self::contains`]. Branch on [`Self::contains`] only when you are prepared for a `NotFound`
+    /// here, or use [`Self::read_bytes`] which handles both modes.
     pub fn read_bytes_ref(&self, path: &str) -> Result<&[u8], EbookError> {
         let clean = normalize_path(path);
-        let clean_no_frag = clean.split('#').next().unwrap_or(&clean);
-        if let Some(data) = self.files.get(clean_no_frag) {
+        if let Some(data) = self.eager_lookup(&clean) {
             return Ok(data.as_slice());
         }
-        if let Some((_, data)) = self
-            .files
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case(clean_no_frag))
-        {
+        // Full key first: a `#` in a real path is not a fragment.
+        let clean_no_frag = clean.split('#').next().unwrap_or(&clean);
+        if let Some(data) = self.eager_lookup(clean_no_frag) {
             return Ok(data.as_slice());
         }
         Err(EbookError::NotFound(format!(
@@ -366,19 +511,25 @@ impl EpubArchive {
     }
 
     /// Check if a file exists in the archive.
+    ///
+    /// Mirrors [`Self::read_bytes`]: the full normalized key (which may legitimately contain a
+    /// `#` after `resolve_relative_path` decodes `%23`) is checked before the fragment-stripped
+    /// form, so a listed entry is never reported missing.
     pub fn contains(&self, path: &str) -> bool {
         let clean = normalize_path(path);
+        if self.contains_exact(&clean) {
+            return true;
+        }
         let clean_no_frag = clean.split('#').next().unwrap_or(&clean);
-        self.files.contains_key(clean_no_frag)
-            || self
-                .files
-                .keys()
-                .any(|k| k.eq_ignore_ascii_case(clean_no_frag))
-            || self.lazy_index.contains_key(clean_no_frag)
-            || self
-                .lazy_index
-                .keys()
-                .any(|k| k.eq_ignore_ascii_case(clean_no_frag))
+        clean_no_frag != clean && self.contains_exact(clean_no_frag)
+    }
+
+    /// Existence check against a single already-normalized key.
+    fn contains_exact(&self, key: &str) -> bool {
+        self.files.contains_key(key)
+            || self.files.keys().any(|k| k.eq_ignore_ascii_case(key))
+            || self.lazy_index.contains_key(key)
+            || self.lazy_index.keys().any(|k| k.eq_ignore_ascii_case(key))
     }
 
     /// List all unique file entry paths inside the archive.
@@ -392,9 +543,15 @@ impl EpubArchive {
 }
 
 /// Helper function to normalize ZIP entry paths.
+///
+/// `..` segments are resolved lexically and are clamped at the root: an entry named
+/// `../../../etc/passwd` normalizes to `etc/passwd` rather than escaping. Note that this is
+/// normalization, not validation — a path that escapes still produces an in-memory key, so
+/// callers that derive keys from untrusted input (FB2 `<binary id>`, ODT/DOCT entry names) must
+/// reject non-plain filenames before calling `insert`.
 pub fn normalize_path(path: &str) -> String {
     let clean = path.replace('\\', "/");
-    let mut parts = Vec::new();
+    let mut parts: Vec<&str> = Vec::new();
     for part in clean.split('/') {
         match part {
             "" | "." => {}

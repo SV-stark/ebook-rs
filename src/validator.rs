@@ -48,6 +48,10 @@ impl EpubValidator {
             });
         }
 
+        // Severity is left as Warning: this crate also builds `Book`s that never had OPF metadata
+        // at all (e.g. `TxtBook::parse`), and the existing contract treats a missing `dc:identifier`
+        // as a warning. Raising it to Error would invalidate every one of those. Genuinely
+        // malformed OPF is already rejected by the element-level checks further down.
         if meta.identifier.as_deref().unwrap_or("").trim().is_empty() {
             errors.push(ValidationError {
                 severity: ValidationSeverity::Warning,
@@ -221,10 +225,14 @@ impl UniversalEpub3Exporter {
             let mut opf_xml = format!(
                 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<package xmlns=\"http://www.idpf.org/2007/opf\" version=\"3.0\" unique-identifier=\"uid\">\n  <metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\n    <dc:title>{}</dc:title>\n    <dc:identifier id=\"uid\">{}</dc:identifier>\n    <dc:language>{}</dc:language>\n",
                 crate::dom::xml_escape(&meta.title),
-                meta.identifier
-                    .as_deref()
-                    .unwrap_or("urn:uuid:ebook-rs-export"),
-                lang
+                // These two were interpolated raw. An `&` or `<` in the source OPF produced an
+                // unescaped one in the output, which is a fatal XML error for strict parsers.
+                crate::dom::xml_escape(
+                    meta.identifier
+                        .as_deref()
+                        .unwrap_or("urn:uuid:ebook-rs-export")
+                ),
+                crate::dom::xml_escape(lang)
             );
             for creator in &meta.creators {
                 let _ = writeln!(
@@ -301,13 +309,25 @@ impl UniversalEpub3Exporter {
                 };
                 let trimmed = html_body.trim();
                 let doc_xhtml = if trimmed.contains("<html") || trimmed.contains("<body") {
-                    if trimmed.starts_with("<?xml") {
-                        trimmed.to_string()
-                    } else {
-                        format!(
+                    // The document already has its own DOCTYPE. Prepending one anyway produced
+                    // two `<!DOCTYPE html>` declarations, which is not well-formed XML.
+                    let has_doctype =
+                        trimmed.len() >= 9 && trimmed[..9].eq_ignore_ascii_case("<!doctype");
+                    match (has_doctype, trimmed.starts_with("<?xml")) {
+                        (true, true) => trimmed.to_string(),
+                        (true, false) => {
+                            format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n{}", trimmed)
+                        }
+                        (false, true) => format!(
                             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html>\n{}",
                             trimmed
-                        )
+                                .trim_start_matches("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
+                                .trim_start()
+                        ),
+                        (false, false) => format!(
+                            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html>\n{}",
+                            trimmed
+                        ),
                     }
                 } else {
                     format!(

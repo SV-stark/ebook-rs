@@ -1,20 +1,144 @@
-use roxmltree::Document;
 use serde::{Deserialize, Serialize};
+
+/// Rewrite a matched `id="…"` span into full karaoke-annotation attributes.
+///
+/// Looks at the enclosing tag first: if it already declares a `class`, the highlight class is
+/// appended inside that attribute rather than emitted as a second, ignored one.
+fn rewrite_overlay_tag(
+    html: &mut String,
+    target: &str,
+    cue: &WebAudioCue,
+    quote: char,
+    elem_id: &str,
+) {
+    let Some(id_at) = html.find(target) else {
+        return;
+    };
+    // Walk back to the tag that owns this attribute.
+    let tag_start = html[..id_at].rfind('<').unwrap_or(0);
+    let tag_end = {
+        let bytes = html.as_bytes();
+        let mut i = id_at;
+        let mut q: Option<u8> = None;
+        while i < bytes.len() {
+            let b = bytes[i];
+            match q {
+                Some(open) => {
+                    if b == open {
+                        q = None;
+                    }
+                }
+                None => {
+                    if b == b'"' || b == b'\'' {
+                        q = Some(b);
+                    } else if b == b'>' {
+                        break;
+                    }
+                }
+            }
+            i += 1;
+        }
+        i.min(html.len())
+    };
+    let tag = &html[tag_start..tag_end];
+    let id_attr = format!("id={quote}{elem_id}{quote}");
+
+    let data = format!(
+        " data-audio-src=\"{}\" data-clip-begin=\"{:.3}\" data-clip-end=\"{:.3}\"",
+        cue.audio_src, cue.clip_begin, cue.clip_end
+    );
+
+    // Case-insensitive lookup of an existing `class` attribute on this tag.
+    let class_value = find_attribute(tag, "class");
+
+    let rewritten = match class_value {
+        Some((start, quote_ch)) => {
+            let close = tag[start..]
+                .find(quote_ch)
+                .map(|p| start + p)
+                .unwrap_or(tag.len());
+            let mut merged = String::with_capacity(tag.len() + 32);
+            merged.push_str(&tag[..close]);
+            if !merged.ends_with(' ') {
+                merged.push(' ');
+            }
+            merged.push_str("media-overlay-active-target");
+            merged.push_str(&tag[close..]);
+            merged
+        }
+        None => {
+            let at = tag.find(&id_attr).unwrap_or(0);
+            let insert_at = at + id_attr.len();
+            format!(
+                "{}{} class=\"media-overlay-active-target\"",
+                &tag[..insert_at],
+                data
+            ) + &tag[insert_at..]
+        }
+    };
+    html.replace_range(tag_start..tag_end, "");
+    html.insert_str(tag_start, &rewritten);
+}
+
+/// Find an attribute's value span inside a single tag's text.
+///
+/// Returns the offset just past the opening quote and the quote character used, so the caller can
+/// locate the closing quote. Matching is ASCII case-insensitive, like HTML attribute names.
+fn find_attribute(tag: &str, name: &str) -> Option<(usize, char)> {
+    let bytes = tag.as_bytes();
+    let lower = tag.to_ascii_lowercase();
+    let needle = format!("{name}=");
+    let mut from = 0;
+    while let Some(rel) = lower[from..].find(&needle) {
+        let at = from + rel;
+        // Must be preceded by whitespace, the tag name, or a `/`.
+        let boundary =
+            at == 0 || matches!(bytes[at - 1], b' ' | b'\t' | b'\r' | b'\n' | b'/' | b'<');
+        if boundary {
+            let after = at + needle.len();
+            if let Some(ch) = tag[after..].chars().next() {
+                if ch == '"' || ch == '\'' {
+                    return Some((after + ch.len_utf8(), ch));
+                }
+            }
+        }
+        from = at + needle.len();
+    }
+    None
+}
 
 /// Normal Play Time (NPT) clock helper for SMIL time strings (e.g., "00:01:23.45", "83.45s", "1:23.45").
 pub struct SmilClock;
 
 impl SmilClock {
     /// Parse SMIL NPT time string into seconds as f64.
+    ///
+    /// SMIL 3.0 timecount values are `h`, `min`, `s` and `ms`. The unit suffix used to be
+    /// detected by inspecting the *raw* last character while the value was stripped with
+    /// `trim_end_matches('s' | 'h' | 'm')`; a single-character strip cannot remove `min` or `ms`,
+    /// so `90min` left `90mi` unparseable (→ `0.0`) and `250ms` left `250m` (→ `250.0`, i.e. a
+    /// quarter-second clip became four minutes). Match on the suffix instead.
     pub fn parse_npt_seconds(npt_str: &str) -> f64 {
         let trimmed = npt_str.trim().trim_start_matches("npt=");
-        let is_hours = trimmed.ends_with('h');
-        let is_mins = trimmed.ends_with('m');
-        let clean = trimmed
-            .trim_end_matches('s')
-            .trim_end_matches('h')
-            .trim_end_matches('m');
 
+        if let Some(rest) = trimmed.strip_suffix("ms") {
+            return rest.trim().parse::<f64>().unwrap_or(0.0) / 1000.0;
+        }
+        if let Some(rest) = trimmed.strip_suffix("min") {
+            return rest.trim().parse::<f64>().unwrap_or(0.0) * 60.0;
+        }
+        if let Some(rest) = trimmed.strip_suffix('h') {
+            return rest.trim().parse::<f64>().unwrap_or(0.0) * 3600.0;
+        }
+        if let Some(rest) = trimmed.strip_suffix("s") {
+            return rest.trim().parse::<f64>().unwrap_or(0.0);
+        }
+        // A bare `m` suffix is minutes (`1.5m`); `min` and `ms` are already handled above.
+        if let Some(rest) = trimmed.strip_suffix('m') {
+            return rest.trim().parse::<f64>().unwrap_or(0.0) * 60.0;
+        }
+
+        let clean = trimmed.trim_end_matches('s');
         if clean.contains(':') {
             let parts: Vec<&str> = clean.split(':').collect();
             match parts.len() {
@@ -32,14 +156,7 @@ impl SmilClock {
                 _ => 0.0,
             }
         } else {
-            let val = clean.parse::<f64>().unwrap_or(0.0);
-            if is_hours {
-                val * 3600.0
-            } else if is_mins {
-                val * 60.0
-            } else {
-                val
-            }
+            clean.parse::<f64>().unwrap_or(0.0)
         }
     }
 
@@ -118,7 +235,7 @@ pub struct MediaOverlayPackage {
 impl MediaOverlayPackage {
     /// Parse SMIL XML content into a `MediaOverlayPackage`.
     pub fn parse_smil(xml_content: &str, smil_path: &str) -> Result<Self, String> {
-        let doc = Document::parse(xml_content)
+        let doc = crate::dom::parse_xml_document(xml_content)
             .map_err(|e| format!("XML parse error in SMIL file {}: {}", smil_path, e))?;
 
         let smil_dir = if let Some(idx) = smil_path.rfind('/') {
@@ -250,7 +367,12 @@ impl MediaOverlayPackage {
         }
     }
 
-    /// Annotate raw HTML with Web Audio API karaoke attributes (`data-audio-src`, `data-clip-begin`, `data-clip-end`, `data-overlay-active`).
+    /// Annotate raw HTML with Web Audio API karaoke attributes (`data-audio-src`, `data-clip-begin`,
+    /// `data-clip-end`, `data-overlay-active`).
+    ///
+    /// A highlight class is only injected when the matched tag does not already declare one.
+    /// HTML5 honours the *first* `class` attribute on an element, so emitting a second one after
+    /// the `id` silently discarded the author's own class list.
     pub fn annotate_html_with_media_overlays(&self, html: &str) -> String {
         let cues = self.to_karaoke_cues();
         if cues.is_empty() {
@@ -260,18 +382,12 @@ impl MediaOverlayPackage {
         let mut output = html.to_string();
         for cue in cues {
             if let Some(ref elem_id) = cue.element_id {
-                let target_pattern_1 = format!("id=\"{}\"", elem_id);
-                let target_pattern_2 = format!("id='{}'", elem_id);
-
-                let replacement = format!(
-                    "id=\"{}\" data-audio-src=\"{}\" data-clip-begin=\"{:.3}\" data-clip-end=\"{:.3}\" class=\"media-overlay-active-target\"",
-                    elem_id, cue.audio_src, cue.clip_begin, cue.clip_end
-                );
-
-                if output.contains(&target_pattern_1) {
-                    output = output.replace(&target_pattern_1, &replacement);
-                } else if output.contains(&target_pattern_2) {
-                    output = output.replace(&target_pattern_2, &replacement);
+                for quote in ['"', '\''] {
+                    let target_pattern = format!("id={quote}{elem_id}{quote}");
+                    if !output.contains(&target_pattern) {
+                        continue;
+                    }
+                    rewrite_overlay_tag(&mut output, &target_pattern, &cue, quote, elem_id);
                 }
             }
         }
@@ -339,5 +455,63 @@ impl MediaOverlayPackage {
     pub fn to_smil_json(&self) -> Result<String, String> {
         serde_json::to_string_pretty(self)
             .map_err(|e| format!("Failed to serialize SMIL Media Overlay to JSON: {}", e))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn two_cue_package() -> MediaOverlayPackage {
+        let smil = r#"<?xml version="1.0"?>
+<smil xmlns="http://www.w3.org/ns/SMIL" version="3.0"><body><seq id="s1"><par id="p1"><text src="page.xhtml#p1"/><audio src="a.mp3" clipBegin="0:00:01.500" clipEnd="0:00:05.200"/></par></seq></body></smil>"#;
+        MediaOverlayPackage::parse_smil(smil, "OEBPS/media/ch1.smil").unwrap()
+    }
+
+    /// The class used to be emitted a second time right after the `id` attribute, and HTML5 keeps
+    /// only the first `class` on an element, so the author's own class was silently dropped.
+    #[test]
+    fn highlight_class_merges_into_an_existing_class_attribute() {
+        let p = two_cue_package();
+        let html = r#"<div class="chapter"><p id="p1" class="intro">First</p></div>"#;
+        let out = p.annotate_html_with_media_overlays(html);
+        assert!(
+            out.contains(r#"class="intro media-overlay-active-target""#),
+            "author class was dropped: {out}"
+        );
+        assert_eq!(out.matches("media-overlay-active-target").count(), 1);
+        // The sibling element's own class must be left alone.
+        assert!(out.contains(r#"<div class="chapter">"#), "{out}");
+    }
+
+    #[test]
+    fn highlight_class_is_added_when_absent() {
+        let p = two_cue_package();
+        let html = r#"<p id="p1">First</p>"#;
+        let out = p.annotate_html_with_media_overlays(html);
+        assert!(
+            out.contains(r#"class="media-overlay-active-target""#),
+            "{out}"
+        );
+        assert_eq!(out.matches("media-overlay-active-target").count(), 1);
+        assert!(out.contains(r#"id="p1""#), "{out}");
+    }
+
+    /// SMIL 3.0 timecount units are `h`, `min`, `s` and `ms`. A single-character suffix strip
+    /// cannot remove `min` or `ms`, so `90min` used to parse as `0.0` and `250ms` as `250.0`
+    /// (a quarter-second clip became four minutes).
+    #[test]
+    fn smil_clock_parses_all_timecount_units() {
+        assert_eq!(SmilClock::parse_npt_seconds("10s"), 10.0);
+        assert_eq!(SmilClock::parse_npt_seconds("2.5s"), 2.5);
+        assert_eq!(SmilClock::parse_npt_seconds("100ms"), 0.1);
+        assert_eq!(SmilClock::parse_npt_seconds("250ms"), 0.25);
+        assert_eq!(SmilClock::parse_npt_seconds("90min"), 5400.0);
+        assert_eq!(SmilClock::parse_npt_seconds("1.5m"), 90.0);
+        assert_eq!(SmilClock::parse_npt_seconds("2h"), 7200.0);
+        assert_eq!(SmilClock::parse_npt_seconds("01:30"), 90.0);
+        assert_eq!(SmilClock::parse_npt_seconds("01:02:03"), 3723.0);
+        // Unparseable values degrade to zero rather than panicking.
+        assert_eq!(SmilClock::parse_npt_seconds("not-a-time"), 0.0);
     }
 }

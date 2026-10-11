@@ -1,4 +1,4 @@
-use crate::archive::EpubArchive;
+use crate::archive::{DecompressionBudget, EpubArchive};
 use crate::book::Book;
 use crate::deobfuscate::FontDeobfuscator;
 use crate::error::EbookError;
@@ -8,7 +8,6 @@ use crate::nav::NavPoint;
 use crate::opf::OpfPackage;
 use crate::section::Section;
 use ahash::AHashMap;
-use roxmltree::Document;
 use std::io::Read;
 
 /// OpenDocument Text (.odt) document parser engine.
@@ -38,17 +37,30 @@ impl OdtBook {
         let mut creator = String::new();
 
         let mut epub_archive = EpubArchive::empty();
-        for i in 0..archive.len() {
+        // Entry-count and *actual-bytes* caps. The central-directory sizes are attacker
+        // controlled, so charging real decompressed bytes is what actually bounds memory.
+        const MAX_ODT_ENTRIES: usize = 50_000;
+        const MAX_ODT_MEDIA_TOTAL: u64 = 256 * 1024 * 1024;
+        const MAX_ODT_MEDIA_SINGLE: u64 = 64 * 1024 * 1024;
+        let entry_count = archive.len();
+        if entry_count > MAX_ODT_ENTRIES {
+            return Err(EbookError::InvalidFormat(format!(
+                "ODT archive exceeds maximum entry limit ({} > {})",
+                entry_count, MAX_ODT_ENTRIES
+            )));
+        }
+        let mut budget = DecompressionBudget::new(MAX_ODT_MEDIA_TOTAL, MAX_ODT_MEDIA_SINGLE);
+        for i in 0..entry_count {
             if let Ok(mut file) = archive.by_index(i) {
                 let name = file.name().to_string();
                 if name.starts_with("Pictures/") && !name.ends_with('/') {
+                    // Reject entry names that escape the archive root once normalized.
+                    let norm = crate::archive::normalize_path(&name);
+                    if norm != name.trim_start_matches('/') {
+                        continue;
+                    }
                     let mut img_data = Vec::new();
-                    if file
-                        .by_ref()
-                        .take(64 * 1024 * 1024)
-                        .read_to_end(&mut img_data)
-                        .is_ok()
-                    {
+                    if budget.read_capped(&mut file, &mut img_data).is_ok() {
                         epub_archive.insert(&name, img_data);
                     }
                 }
@@ -63,7 +75,7 @@ impl OdtBook {
                 .read_to_string(&mut meta_xml)
                 .is_ok()
             {
-                if let Ok(doc) = Document::parse(&meta_xml) {
+                if let Ok(doc) = crate::dom::parse_xml_document(&meta_xml) {
                     for node in doc.descendants() {
                         if node.is_element() {
                             if node.tag_name().name() == "title" {
@@ -87,7 +99,7 @@ impl OdtBook {
             }
         }
 
-        let doc = Document::parse(&content_xml)
+        let doc = crate::dom::parse_xml_document(&content_xml)
             .map_err(|e| format!("Failed to parse ODT content.xml XML: {}", e))?;
 
         let mut sections = Vec::new();

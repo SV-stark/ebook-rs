@@ -9,12 +9,26 @@ use crate::opf::OpfPackage;
 use crate::section::{Section, extract_plain_text};
 use ahash::AHashMap;
 
+/// Maximum output size of [`decompress_palmdoc`].
+///
+/// A single input byte can emit up to 8 output bytes (`0x01..=0x08`), and the LZ77 branch can
+/// expand further, so this is a real bound rather than a formality.
+pub const MAX_PALMDOC_OUTPUT: usize = 256 * 1024 * 1024;
+
 /// PalmDOC LZ77 Decompressor.
+///
+/// Output is truncated at [`MAX_PALMDOC_OUTPUT`] to bound memory: the compressed text region of
+/// a MOBI is attacker-controlled and this function is part of the public API.
 pub fn decompress_palmdoc(data: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(data.len() * 2);
+    // Cap the pre-allocation too: `data.len() * 2` is itself an overflow risk for large inputs.
+    let init_cap = data.len().saturating_mul(2).min(8 * 1024 * 1024);
+    let mut out = Vec::with_capacity(init_cap);
     let mut i = 0;
 
     while i < data.len() {
+        if out.len() >= MAX_PALMDOC_OUTPUT {
+            break;
+        }
         let byte = data[i];
         i += 1;
 
@@ -147,9 +161,15 @@ impl MobiBook {
         if rec0.len() >= 40 && &rec0[16..20] == b"MOBI" {
             let header_len = u32::from_be_bytes([rec0[20], rec0[21], rec0[22], rec0[23]]) as usize;
 
-            // Always probe for EXTH by magic bytes — some AZW3 files have flags=0 and version=0
-            // but still contain a valid EXTH block immediately after the MOBI header.
-            if header_len > 0 && rec0.len() >= 16 + header_len + 12 {
+            // `header_len` is an attacker-controlled `u32` widened to `usize`. On 32-bit targets
+            // (wasm32, i686 — both supported here) `16 + header_len + 12` overflows, and the
+            // release profile sets `overflow-checks = true`, so that is a hard panic rather than
+            // a wrap. Use checked arithmetic so the record is simply rejected instead.
+            let header_end = rec0
+                .len()
+                .checked_sub(16 + 12)
+                .filter(|end| *end >= header_len);
+            if header_len > 0 && rec0.len() >= 40 && header_end.is_some() {
                 let exth_offset = 16 + header_len;
                 if exth_offset + 4 <= rec0.len() && &rec0[exth_offset..exth_offset + 4] == b"EXTH" {
                     let count = u32::from_be_bytes([
@@ -177,7 +197,11 @@ impl MobiBook {
                             rec0[curr + 7],
                         ]) as usize;
 
-                        if len >= 8 && curr + len <= rec0.len() {
+                        // `curr + len` widens an attacker-controlled `u32` past `usize::MAX` on a
+                        // 32-bit target, which panics under `overflow-checks = true`. Checked
+                        // arithmetic keeps the loop bounded instead.
+                        let val_end = curr.checked_add(len);
+                        if len >= 8 && val_end.is_some_and(|end| end <= rec0.len()) {
                             let val_bytes = &rec0[curr + 8..curr + len];
                             let val_str = String::from_utf8_lossy(val_bytes).trim().to_string();
 
@@ -225,7 +249,11 @@ impl MobiBook {
                 let fn_offset =
                     u32::from_be_bytes([rec0[84], rec0[85], rec0[86], rec0[87]]) as usize;
                 let fn_len = u32::from_be_bytes([rec0[88], rec0[89], rec0[90], rec0[91]]) as usize;
-                if fn_offset > 0 && fn_len > 0 && fn_offset + fn_len <= rec0.len() {
+                // Both fields are attacker-controlled `u32`s widened to `usize`; `fn_offset +
+                // fn_len` overflows (and panics under `overflow-checks = true`) when each is
+                // close to `usize::MAX`, which is reachable on 32-bit targets.
+                let fn_end = fn_offset.checked_add(fn_len);
+                if fn_len > 0 && fn_end.is_some_and(|end| end <= rec0.len()) {
                     let full_name = String::from_utf8_lossy(&rec0[fn_offset..fn_offset + fn_len])
                         .trim()
                         .to_string();
@@ -573,34 +601,94 @@ fn extract_mobi_images_and_populate_archive(
         return html.to_string();
     }
 
-    let mut output = html.to_string();
+    // Single-pass substitution. The previous implementation ran nine whole-string `replace()`
+    // calls per image; with up to 65 534 image records over a multi-MB HTML body that is
+    // O(images x html_len) allocations and copies (tens of GB of churn from a ~20 MB file).
+    //
+    // All nine patterns are digit runs anchored by a fixed prefix, so one forward scan that parses
+    // the run and looks it up in `image_map` is exactly equivalent and linear. Anchoring on the
+    // marker (and, for `src`, on the `.jpg"` suffix) keeps the padded and unpadded forms
+    // unambiguous: `recindex="1"` cannot match inside `recindex="00001"`.
+    const RECINDEX: &str = "recindex=\"";
+    const KINDLE: &str = "kindle:embed:";
+    const SRC: &str = "src=\"";
 
-    // Sort image entries in DESCENDING numerical order so that multi-digit indices are replaced before single-digit indices
-    let mut sorted_entries: Vec<(usize, String)> = image_map.into_iter().collect();
-    sorted_entries.sort_by_key(|b| std::cmp::Reverse(b.0));
+    let bytes = html.as_bytes();
+    let mut out = String::with_capacity(html.len());
+    let mut i = 0usize;
+    while i < html.len() {
+        let rest = &html[i..];
 
-    for (img_num, rel_path) in sorted_entries {
-        let rec_str1 = format!("recindex=\"{}\"", img_num);
-        let rec_str2 = format!("recindex=\"{:05}\"", img_num);
-        output = output.replace(&rec_str1, &format!("src=\"{}\"", rel_path));
-        output = output.replace(&rec_str2, &format!("src=\"{}\"", rel_path));
+        let kind = if rest.starts_with(RECINDEX) {
+            0u8
+        } else if rest.starts_with(KINDLE) {
+            1u8
+        } else if rest.starts_with(SRC) {
+            2u8
+        } else {
+            // Not a marker: copy one whole char so we never split a UTF-8 sequence.
+            let ch = rest.chars().next().unwrap_or(' ');
+            out.push(ch);
+            i += ch.len_utf8();
+            continue;
+        };
+        let marker_len = match kind {
+            0 => RECINDEX.len(),
+            1 => KINDLE.len(),
+            _ => SRC.len(),
+        };
 
-        let kindle_str1 = format!("kindle:embed:{:04}", img_num);
-        let kindle_str2 = format!("kindle:embed:{:05}", img_num);
-        let kindle_str3 = format!("kindle:embed:{}", img_num);
-        output = output.replace(&kindle_str1, &rel_path);
-        output = output.replace(&kindle_str2, &rel_path);
-        output = output.replace(&kindle_str3, &rel_path);
+        // Read the digit run (bounded so an absurd literal cannot cost more than 10 bytes).
+        let digits_start = i + marker_len;
+        let mut digits_end = digits_start;
+        while digits_end < bytes.len()
+            && bytes[digits_end].is_ascii_digit()
+            && digits_end - digits_start < 10
+        {
+            digits_end += 1;
+        }
 
-        let file_str1 = format!("src=\"{:05}.jpg\"", img_num);
-        let file_str2 = format!("src=\"{:04}.jpg\"", img_num);
-        let file_str3 = format!("src=\"{}.jpg\"", img_num);
-        output = output.replace(&file_str1, &format!("src=\"{}\"", rel_path));
-        output = output.replace(&file_str2, &format!("src=\"{}\"", rel_path));
-        output = output.replace(&file_str3, &format!("src=\"{}\"", rel_path));
+        if digits_end == digits_start {
+            out.push_str(&rest[..marker_len]);
+            i += marker_len;
+            continue;
+        }
+
+        // Each marker has its own terminator; validate it before trusting the parsed number.
+        let (terminator, replacement) = match kind {
+            0 => ("\"", "src"),
+            1 => ("", ""),
+            _ => (".jpg\"", "src"),
+        };
+        if !html[digits_end..].starts_with(terminator) {
+            out.push_str(&rest[..marker_len]);
+            i += marker_len;
+            continue;
+        }
+
+        let Ok(num) = html[digits_start..digits_end].parse::<usize>() else {
+            out.push_str(&rest[..marker_len]);
+            i += marker_len;
+            continue;
+        };
+
+        let Some(rel_path) = image_map.get(&num) else {
+            out.push_str(&rest[..marker_len]);
+            i += marker_len;
+            continue;
+        };
+
+        if replacement == "src" {
+            out.push_str("src=\"");
+            out.push_str(rel_path);
+            out.push('"');
+        } else {
+            out.push_str(rel_path);
+        }
+        i = digits_end + terminator.len();
     }
 
-    output
+    out
 }
 
 fn detect_image_mime(bytes: &[u8]) -> Option<&'static str> {

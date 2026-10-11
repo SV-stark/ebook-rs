@@ -1,6 +1,6 @@
-# 📚 EBook-RS API Reference & Complete Documentation (v0.16.2)
+# 📚 EBook-RS API Reference & Complete Documentation (v0.17.0)
 
-`ebook-rs` (v0.16.2) is a multi-format pure Rust eBook engine supporting **EPUB 2**, **EPUB 3**, **Amazon KFX (Kindle Format 10)**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **KEPUB (Kobo EPUB)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT (OpenDocument Text)**, **DOCX (Microsoft Word)**, **RTF (Rich Text Format)**, **Plain Text (.txt)**, and **Markdown (.md)** formats with **Mozilla UniFFI Mobile SDK (Swift/Kotlin)**, **Lossless EPUB 3 Optimizer & Minifier**, **CJK Vertical Writing & RTL Reflow Pagination**, **Web Audio API Karaoke Synchronization**, **Lazy Archive Streaming for Giant Files (>500MB)**, **Markdown Frontmatter, Wikilinks & Callouts**, **Model Context Protocol (MCP 2024-11-05) Server**, **Okapi BM25 RAG Relevance Scoring**, **Zero-Allocation Full-Text Search**, **Academic PDF Two-Column Spatial Reflow**, **Multi-Threaded Parallel ZIP Exporting**, **CBZ Comic Pre-fetching & Manga Spread Mode**, **Native PyO3 Python Wheel Bindings**, **100% Clean-Room Amazon KFX Subsystem**, **Native AI/RAG Document Chunking**, **C FFI ABI Bindings**, **WASM Web Component Renderer**, **RTL & Vertical CJK Modes**, **Hardened Sanitizer & Boundary Parsers**, **SpeechSynthesis TTS Word Synchronizer**, **Legacy Non-UTF-8 Charset Decoding**, **Automatic Language Detection**, **Zstd Compressed State Caching**, **Universal EPUB 3 Exporter**, **Zero-Copy mmap**, **Lightweight DOM AST Tree**, **Fuzzy XML Recovery**, **CFI**, and **Readium LCP/Locator** support.
+`ebook-rs` (v0.17.0) is a multi-format pure Rust eBook engine supporting **EPUB 2**, **EPUB 3**, **Amazon KFX (Kindle Format 10)**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT (OpenDocument Text)**, **DOCX (Microsoft Word)**, **RTF (Rich Text Format)**, **Plain Text (.txt)**, and **Markdown (.md)** formats with **Mozilla UniFFI Mobile SDK (Swift/Kotlin)**, **Lossless EPUB 3 Optimizer & Minifier**, **CJK Vertical Writing & RTL Reflow Pagination**, **Web Audio API Karaoke Synchronization**, **Lazy Archive Streaming for Giant Files (>500MB)**, **Markdown Frontmatter, Wikilinks & Callouts**, **Model Context Protocol (MCP 2024-11-05) Server**, **Okapi BM25 RAG Relevance Scoring**, **Zero-Allocation Full-Text Search**, **PDF Two-Column Reading-Order Reflow**, **Multi-Threaded Parallel ZIP Exporting**, **CBZ Comic Pre-fetching & Manga Spread Mode**, **Native PyO3 Python Wheel Bindings**, **100% Clean-Room Amazon KFX Subsystem**, **Native AI/RAG Document Chunking**, **C FFI ABI Bindings**, **WASM Web Component Renderer**, **RTL & Vertical CJK Modes**, **Hardened Sanitizer & Boundary Parsers**, **SpeechSynthesis TTS Word Synchronizer**, **Legacy Non-UTF-8 Charset Decoding**, **Automatic Language Detection**, **Zstd Compressed State Caching**, **Universal EPUB 3 Exporter**, **Zero-Copy mmap**, **Lightweight DOM AST Tree**, **Fuzzy XML Recovery**, **CFI**, and **Readium LCP/Locator** support.
 
 ---
 
@@ -25,6 +25,7 @@
 18. [Zero-Copy Memory-Mapped I/O (`Book::from_mmap`)](#18-zero-copy-memory-mapped-io-bookfrom_mmap)
 19. [Lightweight DOM AST Tree (`EbookDomTree`, `DomNode`)](#19-lightweight-dom-ast-tree-ebookdomtree-domnode)
 20. [Fuzzy XML / HTML Recovery Parser (`sanitize_and_repair_xml`)](#20-fuzzy-xml--html-recovery-parser-sanitize_and_repair_xml)
+20b. [HTML Character Reference Decoding (`decode_html_entities`)](#20b-html-character-reference-decoding-decode_html_entities)
 21. [Legacy Non-UTF-8 Charset Decoding (`decode_bytes_with_encoding`)](#21-legacy-non-utf-8-charset-decoding-decode_bytes_with_encoding)
 22. [Automatic Language Detection (`book.detect_language()`)](#22-automatic-language-detection-bookdetect_language)
 23. [Zstd Compressed State Caching (`export_zstd_cache`, `from_zstd_cache`)](#23-zstd-compressed-state-caching-export_zstd_cache-from_zstd_cache)
@@ -32,7 +33,7 @@
 25. [Multi-Threaded Parallel ZIP Exporter (`UniversalEpub3Exporter`)](#25-multi-threaded-parallel-zip-exporter-universalepub3exporter)
 26. [CBZ Comic Pre-fetching & 2-Page Manga Spread Mode (`CbzBook`)](#26-cbz-comic-pre-fetching--2-page-manga-spread-mode-cbzbook)
 27. [Native PyO3 Python Bindings (`pip install ebook-rs`)](#27-native-pyo3-python-bindings-pip-install-ebook-rs)
-28. [Academic PDF Two-Column Spatial Reflowing Engine (`reflow_two_column_markdown`)](#28-academic-pdf-two-column-spatial-reflowing-engine-reflow_two_column_markdown)
+28. [PDF Two-Column Reading-Order Reflow (`reflow_two_column_markdown`)](#28-pdf-two-column-reading-order-reflow-reflow_two_column_markdown)
 29. [Mozilla UniFFI Mobile & Native Bindings (`UniBook`, `UniSearchResult`)](#29-mozilla-uniffi-mobile--native-bindings-unibook-unisearchresult)
 30. [Lossless EPUB 3 Optimizer & Minifier (`EpubOptimizer`, `EpubOptimizerOptions`)](#30-lossless-epub-3-optimizer--minifier-epuboptimizer-epuboptimizeroptions)
 31. [CJK Vertical Writing & RTL Reflow Pagination (`ReflowPaginator`, `WritingMode`)](#31-cjk-vertical-writing--rtl-reflow-pagination-reflowpaginator-writingmode)
@@ -48,18 +49,94 @@
 
 `Book` is the unified entry point struct for opening, inspecting, searching, and rendering eBooks across all formats.
 
-### Opening eBooks (EPUB, MOBI, AZW3, FB2, KEPUB, LIT, CBZ, DOCX, RTF)
+### Opening eBooks (EPUB, MOBI, AZW3, FB2, LIT, CBZ, DOCX, RTF)
 
 ```rust
 use ebook_rs::Book;
 
-// Auto-detects and loads EPUB, MOBI, AZW3, FB2, KEPUB, LIT, CBZ, DOCX, or RTF from file path
+// Auto-detects and loads EPUB, MOBI, AZW3, FB2, LIT, CBZ, DOCX, or RTF from file path
 let mut book = Book::from_file("sample.docx")?;
 
 // Load from in-memory byte slice (e.g. HTTP download or WASM Uint8Array)
 let bytes: Vec<u8> = std::fs::read("sample.rtf")?;
 let mut book = Book::from_bytes(&bytes)?;
 ```
+
+### Render Cache (`book.render_cache`, `RenderCacheKey`)
+
+`get_section` memoizes its rendered output in `book.render_cache`. Entries are keyed by
+`RenderCacheKey`, which packs the section index together with every input that affects the output:
+`layout.allow_scripted_content` (the script-stripping gate), the number of registered
+`before_display_hooks`, and the source HTML length. Keying on the index alone returned a stale
+rendering whenever any of those inputs changed — flipping the public `layout` field back to
+`allow_scripted_content = false` still served HTML containing `<script>`. The cache is bounded to
+64 entries, evicting the oldest.
+
+```rust
+use ebook_rs::{Book, RenderCacheKey};
+
+let book = Book::from_file("sample.epub")?;
+
+// Keying the cache on the render inputs makes the entry order-insensitive:
+let key = RenderCacheKey {
+    index: 0,
+    allow_scripted_content: book.layout.allow_scripted_content,
+    hook_count: book.before_display_hooks.len(),
+    source_len: book.sections[0].raw_html.len(),
+};
+assert!(book.render_cache.lock().get(&key).is_none()); // not yet rendered
+```
+
+---
+
+## 1b. Locations & Reading Progress (`locations_from_sections`)
+
+Build a Readium-style location map from the spine sections **without mutating the book**. Lazy
+sections are hydrated on a clone, so the map reflects fully-rendered plain text while `self`
+(including its `locations` field and render cache) is left untouched.
+
+```rust
+use ebook_rs::{Book, Locations};
+
+fn build(book: &Book) -> Locations {
+    // 1000 characters per location (the same default as `Locations::default()`).
+    let locations = book.locations_from_sections(1000);
+    println!("{} locations over {} characters",
+        locations.total_locations, locations.total_characters);
+    locations
+}
+```
+
+To regenerate and *store* the map on the book instead, use the mutating
+`Book::generate_locations(chunk_size)`.
+
+**Related:** `book.locations` holds the map computed at load time; `Locations::new`,
+`add_spine_section`, and `finalize` are public for custom chunking strategies.
+
+---
+
+## 1c. Universal Exporters (`export_epub3_bytes`, `export_kfx_bytes`)
+
+Any loaded format can be re-exported as a standards-clean EPUB 3 archive or an Amazon KFX (KF10)
+container. Both are symmetric methods on `Book`:
+
+```rust
+use ebook_rs::Book;
+
+fn export(book: &Book) -> Result<(), Box<dyn std::error::Error>> {
+    let epub = book.export_epub3_bytes()?;   // EPUB 2/3, MOBI, AZW3, FB2, LIT, CBZ,
+    let kfx  = book.export_kfx_bytes()?;    // PDF, ODT, DOCX, RTF, TXT, MD -> EPUB 3 / KF10
+
+    std::fs::write("output.epub", epub)?;
+    std::fs::write("output.kfx", kfx)?;
+    Ok(())
+}
+```
+
+`export_kfx_bytes` produces a clean-room `CONT`-magic container; it is not a byte-for-byte
+reproduction of Amazon's KF10 obfuscation, which is undocumented. For a minified,
+asset-deduplicated, CSS-purged EPUB use `export_optimized_epub3_bytes`. `export_zstd_cache` /
+`from_zstd_cache` round-trip the parsed state as a Zstd-compressed buffer.
 
 ---
 
@@ -68,8 +145,8 @@ let mut book = Book::from_bytes(&bytes)?;
 | Extension | Format Name | Auto-Detected Header Magic | Inlining & Media |
 |---|---|---|---|
 | `.epub` | EPUB 2 & EPUB 3 | `PK\x03\x04` | Full Base64 Data URIs / Resource Stream |
-| `.kepub` | Kobo EPUB | `PK\x03\x04` | KoboSpan DOM Aware |
-| `.mobi` | Mobipocket / PalmDOC | `BOOKMOBI` / `TEXtREDR` | PalmDOC LZ77 Decompressor |
+| `.kepub` | Kobo EPUB | `PK\x03\x04` | Parsed as EPUB (see note) |
+| `.mobi` | Mobipocket / PalmDOC | `BOOKMOBI` / `TEXtRECD` at PDB offset 60 | PalmDOC LZ77 Decompressor |
 | `.azw3` | Kindle Format 8 (KF8) | `BOOKMOBI` PDB Header | HTML5 / CSS3 Extracted |
 | `.fb2` | FictionBook 2 XML | `<FictionBook>` XML | Embedded Base64 Images |
 | `.lit` | Microsoft Reader | `ITOLITLS` Header | Multi-section HTML Conversion |
@@ -80,6 +157,14 @@ let mut book = Book::from_bytes(&bytes)?;
 | `.rtf` | Rich Text Format | `{\rtf` Header | Control Words, Nested Groups & Embedded Pictures |
 | `.txt` | Plain Text | UTF-8 Text | Paragraph HTML Formatting |
 | `.md` | Markdown Document | UTF-8 (`# Heading`) | Heading-based Sectioning & TOC |
+
+Detection is by **magic bytes / container probing**, not by file extension — the extension column
+is informational only. ZIP-based formats are disambiguated by probing for `META-INF/container.xml`
+(EPUB), `word/document.xml` (DOCX), then `content.xml` / `meta.xml` (ODT), falling back to CBZ.
+
+**KEPUB note:** `.kepub` files are ordinary ZIP containers and are handled by the EPUB path above.
+There is **no KoboSpan-specific DOM handling** — the `kobospan:` custom elements are not
+transformed. If your KEPUB depends on KoboSpan markup for layout, convert it to EPUB first.
 
 ---
 
@@ -410,7 +495,7 @@ let tts_html = book.get_tts_section_html(0)?;
 
 ## 17. Universal EPUB 3 Exporter (`book.export_epub3_bytes()`)
 
-Convert ANY parsed eBook format (MOBI, AZW3, FB2, KEPUB, LIT, CBZ, PDF, ODT, DOCX, RTF, TXT, MD) into a clean, compliant EPUB 3 ZIP archive buffer:
+Convert ANY parsed eBook format (MOBI, AZW3, FB2, LIT, CBZ, PDF, ODT, DOCX, RTF, TXT, MD) into a clean, compliant EPUB 3 ZIP archive buffer:
 
 ```rust
 use ebook_rs::Book;
@@ -461,6 +546,31 @@ use ebook_rs::sanitize_and_repair_xml;
 let broken_xml = "<package><title>AT&T & R&D Guide</title></package>";
 let repaired = sanitize_and_repair_xml(broken_xml);
 ```
+
+---
+
+## 20b. HTML Character Reference Decoding (`decode_html_entities`)
+
+Inverse of `xml_escape`. Several format parsers (FB2, PDF, ODT, DOCX, RTF, CBZ) build their section
+HTML by escaping text nodes, so plain text derived from that HTML would otherwise contain literal
+`&apos;` / `&amp;` entities. Decoding is a **single** left-to-right pass, so `&amp;amp;` correctly
+decodes to `&amp;` rather than looping:
+
+```rust
+use ebook_rs::decode_html_entities;
+
+assert_eq!(decode_html_entities("it&apos;s &quot;quoted&quot;"), "it's \"quoted\"");
+assert_eq!(decode_html_entities("a &amp; b"), "a & b");
+assert_eq!(decode_html_entities("&#65;&#x42;"), "AB");
+assert_eq!(decode_html_entities("&amp;amp;"), "&amp;");
+
+// Malformed, unknown, and out-of-range references are left verbatim rather than dropped.
+assert_eq!(decode_html_entities("5 &lt 6"), "5 &lt 6");
+assert_eq!(decode_html_entities("&#xD800;"), "&#xD800;");
+```
+
+Attribute-value-only references (`&colon;`, `&Tab;`, …) are deliberately **not** decoded here; URI
+scheme probing uses its own narrower decoder.
 
 ---
 
@@ -576,7 +686,7 @@ chunks_json = book.to_rag_chunks_json()
 
 ---
 
-## 28. Academic PDF Two-Column Spatial Reflowing Engine (`reflow_two_column_markdown`)
+## 28. PDF Two-Column Reading-Order Reflow (`reflow_two_column_markdown`)
 
 Detects multi-column line patterns and spatial column dividers in IEEE, ArXiv, and ACM academic paper PDFs, sorting Left-Column paragraphs top-to-bottom followed by Right-Column paragraphs top-to-bottom into continuous single-column EPUB sections:
 

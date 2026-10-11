@@ -1,7 +1,6 @@
 use crate::book::Book;
 use crate::cfi::Cfi;
 use crate::section::Section;
-use roxmltree::Document;
 use serde::{Deserialize, Serialize};
 
 /// Configuration options for the AI / RAG document chunking engine.
@@ -28,6 +27,32 @@ impl Default for RagChunkConfig {
             include_cfi: true,
             min_chunk_size: 50,
         }
+    }
+}
+
+impl RagChunkConfig {
+    /// Hard upper bound on `max_tokens` (1M tokens ~ 4M characters).
+    pub const MAX_TOKENS: usize = 1_000_000;
+    /// Hard upper bound on `overlap_tokens`.
+    pub const MAX_OVERLAP_TOKENS: usize = 250_000;
+    /// Hard upper bound on `min_chunk_size`.
+    pub const MAX_MIN_CHUNK_SIZE: usize = 1_000_000;
+
+    /// Clamp every field into a range that cannot overflow or exhaust memory.
+    ///
+    /// Every binding surface (MCP, Python, WASM, C-FFI, CLI) accepts these values from an
+    /// untrusted caller. `max_tokens * 4` is a bare multiply, and the release profile sets
+    /// `overflow-checks = true`, so an unbounded `max_tokens` is a remotely reachable panic.
+    /// Call this at every boundary; `chunk_section` applies it again as a backstop.
+    #[must_use]
+    pub fn sanitized(mut self) -> Self {
+        self.max_tokens = self.max_tokens.clamp(1, Self::MAX_TOKENS);
+        self.overlap_tokens = self
+            .overlap_tokens
+            .min(Self::MAX_OVERLAP_TOKENS)
+            .min(self.max_tokens.saturating_sub(1));
+        self.min_chunk_size = self.min_chunk_size.min(Self::MAX_MIN_CHUNK_SIZE);
+        self
     }
 }
 
@@ -62,9 +87,26 @@ pub struct RagChunker;
 impl RagChunker {
     /// Chunk an entire book into AI-ready semantic RAG chunks.
     pub fn chunk_book(book: &Book, config: &RagChunkConfig) -> Vec<RagChunk> {
+        let config = config.clone().sanitized();
+        let config = &config;
         let meta = book.metadata();
         let book_title = meta.title.clone();
         let book_author = meta.creators.join(", ");
+        // Build the href -> title lookup once. Cloning the whole TOC per section (as this
+        // previously did) was O(spine * toc) in both time and allocations.
+        let toc_titles: Vec<(String, String)> = book
+            .toc()
+            .iter()
+            .map(|t| (t.href.clone(), t.label.clone()))
+            .collect();
+        let title_for = |href: &str| -> String {
+            toc_titles
+                .iter()
+                .find(|(h, _)| h.contains(href))
+                .map(|(_, label)| label.clone())
+                .unwrap_or_default()
+        };
+
         #[cfg(feature = "parallel")]
         {
             use rayon::prelude::*;
@@ -72,12 +114,14 @@ impl RagChunker {
                 .into_par_iter()
                 .filter_map(|idx| {
                     book.get_section(idx).ok().map(|sec| {
-                        let chapter_title = book
-                            .toc()
-                            .iter()
-                            .find(|t| t.href.contains(&sec.href))
-                            .map(|t| t.label.clone())
-                            .unwrap_or_else(|| format!("Section {}", idx + 1));
+                        let chapter_title = {
+                            let t = title_for(&sec.href);
+                            if t.is_empty() {
+                                format!("Section {}", idx + 1)
+                            } else {
+                                t
+                            }
+                        };
 
                         Self::chunk_section(
                             &sec,
@@ -98,12 +142,14 @@ impl RagChunker {
             let mut all_chunks = Vec::new();
             for idx in 0..book.spine().len() {
                 if let Ok(sec) = book.get_section(idx) {
-                    let chapter_title = book
-                        .toc()
-                        .iter()
-                        .find(|t| t.href.contains(&sec.href))
-                        .map(|t| t.label.clone())
-                        .unwrap_or_else(|| format!("Section {}", idx + 1));
+                    let chapter_title = {
+                        let t = title_for(&sec.href);
+                        if t.is_empty() {
+                            format!("Section {}", idx + 1)
+                        } else {
+                            t
+                        }
+                    };
 
                     let section_chunks = Self::chunk_section(
                         &sec,
@@ -129,8 +175,11 @@ impl RagChunker {
         book_author: &str,
         config: &RagChunkConfig,
     ) -> Vec<RagChunk> {
-        let max_chars = config.max_tokens * 4;
-        let overlap_chars = config.overlap_tokens * 4;
+        // Backstop: never trust the caller's config, even if a boundary forgot to clamp.
+        let config = config.clone().sanitized();
+        let config = &config;
+        let max_chars = config.max_tokens.saturating_mul(4);
+        let overlap_chars = config.overlap_tokens.saturating_mul(4);
         let mut chunks = Vec::new();
 
         // Extract heading stack and paragraphs from raw HTML
@@ -164,6 +213,9 @@ impl RagChunker {
         let mut current_chunk_text = String::new();
         let mut current_char_offset = 0;
         let mut chunk_start_offset = 0;
+        // Running character count of `current_chunk_text`, maintained incrementally so the
+        // hot loop never re-walks the accumulated buffer.
+        let mut current_chunk_len = 0usize;
         let current_headings: Vec<String> = if !chapter_title.is_empty() {
             vec![chapter_title.to_string()]
         } else {
@@ -174,11 +226,12 @@ impl RagChunker {
             let p_char_len = para.chars().count();
             if current_chunk_text.is_empty() {
                 chunk_start_offset = current_char_offset;
+                current_chunk_len = 0;
             }
 
-            let cur_char_len = current_chunk_text.chars().count();
+            let cur_char_len = current_chunk_len;
             if !current_chunk_text.is_empty()
-                && cur_char_len + p_char_len > max_chars
+                && cur_char_len.saturating_add(p_char_len) > max_chars
                 && cur_char_len >= config.min_chunk_size
             {
                 let cfi = if config.include_cfi {
@@ -201,24 +254,31 @@ impl RagChunker {
                     book_author: book_author.to_string(),
                 });
 
-                // Apply overlap
-                let total_chars = current_chunk_text.chars().count();
-                let keep_char_idx = total_chars.saturating_sub(overlap_chars);
+                // Apply overlap: retain the trailing `overlap_chars` characters as the seed for
+                // the next chunk. `current_chunk_len` is tracked incrementally, so this no longer
+                // walks the whole accumulated buffer on every paragraph (was quadratic).
+                let keep_char_idx = cur_char_len.saturating_sub(overlap_chars);
                 let keep_start = current_chunk_text
                     .char_indices()
                     .nth(keep_char_idx)
                     .map(|(idx, _)| idx)
                     .unwrap_or(current_chunk_text.len());
                 current_chunk_text = current_chunk_text[keep_start..].to_string();
-                chunk_start_offset =
-                    current_char_offset.saturating_sub(current_chunk_text.chars().count());
+                current_chunk_len = cur_char_len.saturating_sub(keep_char_idx);
+                // The next chunk starts `keep_char_idx` characters into the chunk just emitted.
+                // `current_char_offset` tracks the buffer's end, which a prefix trim leaves
+                // unchanged, so subtracting the retained length yields the correct new start.
+                chunk_start_offset = current_char_offset.saturating_sub(current_chunk_len);
             }
 
+            let mut added = p_char_len;
             if !current_chunk_text.is_empty() && !current_chunk_text.ends_with('\n') {
                 current_chunk_text.push('\n');
+                added += 1;
             }
             current_chunk_text.push_str(para);
-            current_char_offset += p_char_len + 1;
+            current_chunk_len = current_chunk_len.saturating_add(added);
+            current_char_offset = current_char_offset.saturating_add(added);
         }
 
         // Flush final chunk
@@ -261,7 +321,7 @@ impl RagChunker {
         let mut headings = Vec::new();
         let mut paragraphs = Vec::new();
 
-        if let Ok(doc) = Document::parse(raw_html) {
+        if let Ok(doc) = crate::dom::parse_xml_document(raw_html) {
             for node in doc.descendants() {
                 if node.is_element() {
                     let name = node.tag_name().name().to_lowercase();
@@ -272,8 +332,13 @@ impl RagChunker {
                         }
                     } else if matches!(name.as_str(), "p" | "div" | "blockquote" | "li" | "section")
                     {
+                        // `descendants()` yields the element *itself* plus its descendants, and
+                        // `Node::text()` on an element returns the element's first text child, so
+                        // iterating `descendants().filter_map(|n| n.text())` emitted every
+                        // paragraph's text twice. Take the descendant *text* nodes only.
                         let text: String = node
                             .descendants()
+                            .filter(|n| n.is_text())
                             .filter_map(|n| n.text())
                             .collect::<Vec<_>>()
                             .join(" ");
@@ -308,12 +373,27 @@ impl RagChunker {
             .sum::<usize>() as f32
             / num_docs.max(1.0);
 
-        // Compute Inverse Document Frequency (IDF) for query terms
+        // Compute Inverse Document Frequency (IDF) for query terms.
+        //
+        // `doc_freq` must count chunks containing the term as a *token*, matching how `tf` is
+        // computed below. Counting raw substrings instead inflated `df` for any term that also
+        // occurs inside a longer word ("cat" inside "catalog"), which drove the IDF toward zero
+        // and made every matching chunk score almost identically.
+        let token_sets: Vec<Vec<String>> = chunks
+            .iter()
+            .map(|c| {
+                c.text
+                    .to_lowercase()
+                    .split_whitespace()
+                    .map(|s| s.trim_matches(|ch: char| !ch.is_alphanumeric()).to_string())
+                    .collect()
+            })
+            .collect();
         let mut idf_map = ahash::AHashMap::new();
         for term in &query_terms {
-            let doc_freq = chunks
+            let doc_freq = token_sets
                 .iter()
-                .filter(|c| c.text.to_lowercase().contains(term))
+                .filter(|tokens| tokens.iter().any(|t| t == term))
                 .count() as f32;
             let idf = ((num_docs - doc_freq + 0.5) / (doc_freq + 0.5) + 1.0).ln();
             idf_map.insert(term.clone(), idf.max(0.0));

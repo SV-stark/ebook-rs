@@ -24,11 +24,21 @@ pub struct OpdsEntry {
 
 impl OpdsEntry {
     /// Find acquisition download link for EPUB or CBZ format.
+    ///
+    /// The exact MIME match wins. The `rel.contains("acquisition")` disjunct used to short-circuit
+    /// first, so an entry listing several acquisition links (a PDF and an EPUB, as bilingual
+    /// catalogs commonly do) returned whichever came first in the feed — the caller asked for an
+    /// EPUB and was handed a PDF.
     pub fn download_link(&self, target_mime: Option<&str>) -> Option<&OpdsLink> {
         let mime = target_mime.unwrap_or("application/epub+zip");
         self.links
             .iter()
-            .find(|link| link.media_type == mime || link.rel.contains("acquisition"))
+            .find(|link| link.media_type == mime)
+            .or_else(|| {
+                self.links
+                    .iter()
+                    .find(|link| link.rel.contains("acquisition"))
+            })
     }
 }
 
@@ -46,7 +56,7 @@ pub struct OpdsFeed {
 impl OpdsFeed {
     /// Parse OPDS 1.2 Atom XML Feed.
     pub fn parse_atom_xml(xml: &str) -> Result<Self, String> {
-        let doc = roxmltree::Document::parse(xml)
+        let doc = crate::dom::parse_xml_document(xml)
             .map_err(|e| format!("Failed to parse OPDS Atom XML feed: {}", e))?;
 
         let root = doc.root_element();

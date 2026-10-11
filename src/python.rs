@@ -151,7 +151,10 @@ impl PyBook {
             overlap_tokens: overlap_tokens.unwrap_or(64),
             preserve_headings: true,
             ..Default::default()
-        };
+        }
+        // Python callers are untrusted: clamp before `RagChunker` multiplies `max_tokens * 4`
+        // (the release profile sets `overflow-checks = true`, so that would be a hard panic).
+        .sanitized();
         let chunks = py.detach(|| self.inner.to_rag_chunks(&config));
         serde_json::to_string(&chunks).map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
@@ -201,6 +204,9 @@ impl PyBook {
     }
 
     /// Search full-text content of the book for a query string.
+    ///
+    /// The result count is capped (see [`SearchEngine::DEFAULT_MAX_RESULTS`]) so a broad query
+    /// cannot build an unbounded result set across the FFI boundary.
     pub fn search(&self, py: Python<'_>, query: &str) -> PyResult<String> {
         let q = query.to_string();
         let results = py.detach(|| self.inner.search(&q));

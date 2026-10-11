@@ -16,6 +16,27 @@ use std::sync::Arc;
 
 pub type BeforeDisplayHook = Arc<dyn Fn(&mut String, &str) + Send + Sync>;
 
+/// Key for an entry in [`Book::render_cache`].
+///
+/// The rendered output of a section does not depend on its index alone: it also depends on
+/// `layout.allow_scripted_content` (which gates script stripping), on how many
+/// `before_display_hooks` are registered, and on the section's source HTML. Keying the cache on
+/// the index alone meant that anything which changed those inputs without going through the
+/// setter methods was served a stale rendering — flipping the public `layout` field back to
+/// `allow_scripted_content = false` still returned HTML containing `<script>`, because the entry
+/// written while the flag was `true` was still keyed by the index.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RenderCacheKey {
+    /// Spine index of the section this rendering belongs to.
+    pub index: usize,
+    /// Value of `Book::layout.allow_scripted_content` when the rendering was produced.
+    pub allow_scripted_content: bool,
+    /// Number of `before_display_hooks` that were applied.
+    pub hook_count: usize,
+    /// Length of the section's `raw_html`, so a changed source never hits a stale entry.
+    pub source_len: usize,
+}
+
 /// Main Book Core API engine.
 pub struct Book {
     pub archive: EpubArchive,
@@ -30,8 +51,11 @@ pub struct Book {
     pub font_deobfuscator: FontDeobfuscator,
     pub before_display_hooks: Vec<BeforeDisplayHook>,
     pub media_overlays: AHashMap<String, crate::media_overlay::MediaOverlayPackage>,
-    pub render_cache: parking_lot::Mutex<AHashMap<usize, String>>,
+    pub render_cache: parking_lot::Mutex<AHashMap<RenderCacheKey, String>>,
 }
+
+/// Maximum number of rendered sections retained in [`Book::render_cache`].
+const MAX_RENDER_CACHE_ENTRIES: usize = 64;
 
 impl Clone for Book {
     fn clone(&self) -> Self {
@@ -54,7 +78,7 @@ impl Clone for Book {
 }
 
 impl Book {
-    /// Load an EPUB, KEPUB, MOBI, AZW3, FB2, LIT, CBZ, or CBR book from a file path.
+    /// Load an EPUB, MOBI, AZW3, FB2, LIT, CBZ, PDF, ODT, DOCX, RTF, TXT, or MD book from a file path.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, EbookError> {
         let p = path.as_ref();
         let bytes = std::fs::read(p).map_err(|e| {
@@ -67,7 +91,8 @@ impl Book {
         Self::from_bytes_with_title(&bytes, filename)
     }
 
-    /// Open an EPUB, KEPUB, MOBI, AZW3, FB2, LIT, CBZ, or CBR ebook from an in-memory byte slice.
+    /// Open an EPUB, MOBI, AZW3, FB2, LIT, CBZ, PDF, ODT, DOCX, RTF, TXT, or MD ebook from a
+    /// in-memory byte slice. Format is detected from magic bytes / container probing.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, EbookError> {
         Self::from_bytes_with_title(bytes, "eBook")
     }
@@ -487,12 +512,24 @@ impl Book {
     /// This enables sub-millisecond instant caching and restoration of parsed books.
     #[cfg(feature = "zstd")]
     pub fn export_zstd_cache(&self) -> Result<Vec<u8>, String> {
-        let mut sections = self.sections.clone();
+        // Serialize a *hydrated* snapshot. In lazy mode `archive.files()` holds only the eagerly
+        // loaded XML metadata and `sections` are never hydrated, so exporting as-is produced a
+        // cache describing a book with no body content and no assets: the restored book had
+        // `raw == ""` / `processed == ""` for every section, zero search hits, zero locations and
+        // every non-XML asset missing.
+        let mut sections = self.get_all_sections_hydrated();
         for sec in &mut sections {
             if sec.processed_html == sec.raw_html {
                 sec.processed_html.clear();
             }
         }
+        let mut archive_files = self.archive.files().clone();
+        // Lazily-decompressed entries live outside `files`; decompress them so the cache is
+        // self-contained. A book in lazy mode cannot be exported cheaply, but it can at least be
+        // exported *correctly*.
+        self.archive
+            .hydrate_into(&mut archive_files)
+            .map_err(|e| format!("Cannot export lazy-mode archive to cache: {e}"))?;
         let cache = BookCacheState {
             opf: self.opf.clone(),
             toc: self.toc.clone(),
@@ -501,7 +538,7 @@ impl Book {
             sections,
             locations: self.locations.clone(),
             layout: self.layout.clone(),
-            archive_files: self.archive.files().clone(),
+            archive_files,
             annotations: self.annotations.clone(),
             media_overlays: self.media_overlays.clone(),
         };
@@ -513,8 +550,24 @@ impl Book {
     /// Deserializes and restores a `Book` state from a `zstd`-compressed byte buffer (`&[u8]`).
     #[cfg(feature = "zstd")]
     pub fn from_zstd_cache(zstd_bytes: &[u8]) -> Result<Self, String> {
-        let json_bytes = zstd::decode_all(zstd_bytes)
+        // `zstd::decode_all` grows its output without any bound, so a few hundred KB of
+        // compressed zeros would expand to tens of GB. Decompress incrementally against an
+        // explicit ceiling instead, matching the hand-rolled limits used for ZIP entries.
+        const MAX_CACHE_DECODED_SIZE: usize = 512 * 1024 * 1024;
+        use std::io::Read as _;
+        let mut json_bytes = Vec::new();
+        let decoder = zstd::Decoder::new(zstd_bytes)
             .map_err(|e| format!("Zstd decompression failed: {}", e))?;
+        let mut limited = decoder.take(MAX_CACHE_DECODED_SIZE as u64 + 1);
+        limited
+            .read_to_end(&mut json_bytes)
+            .map_err(|e| format!("Zstd decompression failed: {}", e))?;
+        if json_bytes.len() > MAX_CACHE_DECODED_SIZE {
+            return Err(format!(
+                "Zstd cache exceeds the {} byte decoded-size safety limit",
+                MAX_CACHE_DECODED_SIZE
+            ));
+        }
         let mut cache: BookCacheState = serde_json::from_slice(&json_bytes)
             .map_err(|e| format!("Failed to deserialize Book state from JSON: {}", e))?;
 
@@ -529,20 +582,32 @@ impl Book {
             archive.insert(path, bytes.clone());
         }
         for sec in &cache.sections {
+            // Do not write an empty section body over live data: a section with no source HTML
+            // would otherwise insert an empty entry at a path the archive already has.
+            if sec.raw_html.is_empty() {
+                continue;
+            }
             if !archive.files().contains_key(&sec.full_path) {
                 archive.insert(&sec.full_path, sec.raw_html.as_bytes().to_vec());
             }
         }
 
-        // B6 Fix: Enforce Readium LCP DRM protection check on restored cache
-        if archive.contains("META-INF/license.lcpl") {
-            if let Ok(license_str) = archive.read_string("META-INF/license.lcpl") {
-                if let Ok(lcp) = crate::lcp::LcpLicense::parse(&license_str) {
-                    if lcp.encryption.is_some() {
-                        return Err("Readium LCP protected eBook requires passphrase validation"
-                            .to_string());
-                    }
-                }
+        // B6 Fix: Enforce Readium LCP DRM protection check on restored cache.
+        //
+        // Reject on *presence* of a license file, exactly like `from_archive_internal`. The old
+        // check only fired when the license was readable *and* parsed with an `<encryption>`
+        // block, so a cache blob carrying a malformed or unreadable `license.lcpl`/`rights.xml`
+        // restored successfully with no passphrase validation at all.
+        if archive.contains("META-INF/license.lcpl") || archive.contains("META-INF/rights.xml") {
+            let parsed = archive
+                .read_string("META-INF/license.lcpl")
+                .ok()
+                .and_then(|s| crate::lcp::LcpLicense::parse(&s).ok());
+            let protected = parsed.as_ref().is_some_and(|l| l.encryption.is_some());
+            if parsed.is_none() || protected {
+                return Err(
+                    "Readium LCP protected eBook requires passphrase validation".to_string()
+                );
             }
         }
 
@@ -679,13 +744,29 @@ impl Book {
             .iter()
             .find(|s| s.index == index)
             .cloned()
-            .or_else(|| self.sections.get(index).cloned())
+            .or_else(|| {
+                // Positional fallback for books whose stored `index` fields do not match their
+                // positions (e.g. a restored zstd cache). The dictionary lookup above is
+                // authoritative: when it fails, `sections[index]` is a *different* section and
+                // its `index` field is used from here on, so the CFI we emit and the cache key
+                // both describe the section that was actually returned.
+                let sec = self.sections.get(index)?.clone();
+                Some(sec)
+            })
             .ok_or_else(|| format!("Section index out of bounds: {}", index))?;
+        let effective_index = section.index;
 
         // On-demand lazy hydration if raw_html has not yet been loaded
         Self::hydrate_section_data(&self.archive, &mut section);
 
-        if let Some(cached) = self.render_cache.lock().get(&index) {
+        let cache_key = RenderCacheKey {
+            index: effective_index,
+            allow_scripted_content: self.layout.allow_scripted_content,
+            hook_count: self.before_display_hooks.len(),
+            source_len: section.raw_html.len(),
+        };
+
+        if let Some(cached) = self.render_cache.lock().get(&cache_key) {
             section.processed_html = cached.clone();
             return Ok(section);
         }
@@ -722,9 +803,19 @@ impl Book {
             hook(&mut section.processed_html, &section.full_path);
         }
 
-        self.render_cache
-            .lock()
-            .insert(index, section.processed_html.clone());
+        // Bounded render cache. Entries hold base64-inlined asset data URIs (roughly a third
+        // larger than the source HTML), so an unbounded map plus walking every section index
+        // retained an entire inflated book for the process lifetime. At the cap the oldest entry
+        // is evicted, which bounds memory without needing an eviction policy.
+        {
+            let mut cache = self.render_cache.lock();
+            if cache.len() >= MAX_RENDER_CACHE_ENTRIES {
+                if let Some(oldest) = cache.keys().min().copied() {
+                    cache.remove(&oldest);
+                }
+            }
+            cache.insert(cache_key, section.processed_html.clone());
+        }
 
         Ok(section)
     }
@@ -754,20 +845,53 @@ impl Book {
     }
 
     /// Perform full-text search across all spine sections (hydrating lazy sections if needed).
+    ///
+    /// Applies [`SearchEngine::DEFAULT_MAX_RESULTS`]. Use [`Self::search_limited`] to choose a
+    /// different cap.
     pub fn search(&self, query: &str) -> Vec<SearchResult> {
+        self.search_limited(query, None)
+    }
+
+    /// Full-text search with an explicit cap on returned matches.
+    ///
+    /// The cap is enforced during the scan, so a highly common query cannot force allocation of
+    /// the full (potentially millions strong) match set.
+    pub fn search_limited(&self, query: &str, max_results: Option<usize>) -> Vec<SearchResult> {
         let sections = self.get_all_sections_hydrated();
-        SearchEngine::search(&sections, query, false)
+        SearchEngine::search_limited(&sections, query, false, max_results)
+    }
+
+    /// Build a Readium-style location map from this book's spine sections, without mutating the
+    /// book.
+    ///
+    /// This is the non-mutating counterpart to [`Self::generate_locations`]: it hydrates lazy
+    /// sections on a clone, so the returned map reflects fully-rendered plain text while `self`
+    /// (including its `locations` field and render cache) is left untouched.
+    ///
+    /// `chunk_size` is the number of characters per location; the default of 1000 matches
+    /// [`Locations::default`].
+    ///
+    /// # Examples
+    /// ```
+    /// # use ebook_rs::Book;
+    /// # fn demo(book: &Book) -> usize {
+    /// let locations = book.locations_from_sections(1000);
+    /// locations.total_locations
+    /// # }
+    /// ```
+    pub fn locations_from_sections(&self, chunk_size: usize) -> Locations {
+        let sections = self.get_all_sections_hydrated();
+        let mut locations = Locations::new(if chunk_size == 0 { 1000 } else { chunk_size });
+        for section in &sections {
+            locations.add_spine_section(section.index, &section.plain_text);
+        }
+        locations.finalize();
+        locations
     }
 
     /// Re-generate locations with custom character chunk size (hydrating lazy sections if needed).
     pub fn generate_locations(&mut self, chunk_size: usize) {
-        self.hydrate_all_sections();
-        let mut new_locations = Locations::new(chunk_size);
-        for section in &self.sections {
-            new_locations.add_spine_section(section.index, &section.plain_text);
-        }
-        new_locations.finalize();
-        self.locations = new_locations;
+        self.locations = self.locations_from_sections(chunk_size);
     }
 
     /// Generate a Readium-compliant unified Locator object for a spine index and character offset (Readium Locator Model).
@@ -811,6 +935,19 @@ impl Book {
     pub fn search_regex(&self, pattern: &str) -> Result<Vec<crate::search::SearchResult>, String> {
         let sections = self.get_all_sections_hydrated();
         crate::search::SearchEngine::search_regex(&sections, pattern)
+    }
+
+    /// Regex search with an explicit cap on returned matches.
+    ///
+    /// # Errors
+    /// Returns an error if `pattern` is not a valid regular expression.
+    pub fn search_regex_limited(
+        &self,
+        pattern: &str,
+        max_results: Option<usize>,
+    ) -> Result<Vec<crate::search::SearchResult>, String> {
+        let sections = self.get_all_sections_hydrated();
+        crate::search::SearchEngine::search_regex_limited(&sections, pattern, max_results)
     }
 
     /// Perform structural validation on this Book instance (EpubValidator).
@@ -923,7 +1060,8 @@ impl Book {
         Self::from_bytes(&mmap)
     }
 
-    /// Export any loaded eBook (EPUB, MOBI, AZW3, FB2, KEPUB, LIT, CBZ, PDF, ODT, TXT, MD) as a clean, compliant EPUB 3 ZIP archive buffer.
+    /// Export any loaded eBook (EPUB, MOBI, AZW3, FB2, LIT, CBZ, PDF, ODT, TXT, MD) as a clean,
+    /// compliant EPUB 3 ZIP archive buffer.
     pub fn export_epub3_bytes(&self) -> Result<Vec<u8>, String> {
         use std::io::Write;
         use zip::write::FileOptions;
@@ -964,6 +1102,21 @@ impl Book {
                     &section.processed_html
                 } else {
                     &section.raw_html
+                };
+
+                // Inline the section's assets (images, fonts, stylesheets) as data URIs. Writing
+                // the raw source instead produced an EPUB whose manifest still referenced
+                // `style.css`, fonts and images that were never copied into the new archive, so
+                // the export parsed cleanly but rendered unstyled with broken images.
+                let inlined = crate::section::process_section_resources(
+                    html_source,
+                    &section.full_path,
+                    &self.archive,
+                );
+                let html_source = if inlined.trim().is_empty() {
+                    html_source
+                } else {
+                    &inlined
                 };
 
                 let trimmed = html_source.trim();
@@ -1050,6 +1203,24 @@ impl Book {
         }
 
         Ok(zip_buf)
+    }
+
+    /// Export this loaded eBook as an Amazon KFX (KF10) container byte buffer.
+    ///
+    /// Symmetric counterpart to [`Self::export_epub3_bytes`]. Produces a clean-room
+    /// `CONT`-magic container; it is not a byte-for-byte reproduction of Amazon's KF10
+    /// obfuscation, which is undocumented.
+    ///
+    /// # Examples
+    /// ```
+    /// # use ebook_rs::Book;
+    /// # fn demo(book: &Book) -> Result<Vec<u8>, String> {
+    /// let kfx = book.export_kfx_bytes()?;
+    /// # Ok(kfx)
+    /// # }
+    /// ```
+    pub fn export_kfx_bytes(&self) -> Result<Vec<u8>, String> {
+        crate::UniversalKfxExporter::export(self)
     }
 
     /// Export loaded eBook as a minified, asset-deduplicated, and CSS-purged EPUB 3 archive.

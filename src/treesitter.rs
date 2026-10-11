@@ -67,8 +67,18 @@ impl SyntaxHighlightEngine {
 
         let mut byte_offset = 0;
         for (line_idx, line) in lines.iter().enumerate() {
+            // A line's content length. The terminator is accounted for separately below: for a
+            // CRLF pair it is two bytes, but a fixed `+ 1` assumed one, drifting every later
+            // offset one byte left.
             let line_len = line.len();
             let trimmed = line.trim();
+            // `str::lines()` strips the terminator, so read it back from the original text. A lone
+            // `\n` is one byte and a `\r\n` pair is two; `lines()` also strips the `\r` of a CRLF
+            // pair, which is what made a fixed `+ 1` drift every later offset.
+            let term_len = code[byte_offset + line_len..]
+                .bytes()
+                .take_while(|b| *b == b'\n' || *b == b'\r')
+                .count();
 
             let line_mismatch = {
                 let mut l_stack = Vec::new();
@@ -146,16 +156,22 @@ impl SyntaxHighlightEngine {
                 });
             }
 
-            byte_offset += line_len + 1;
+            // `str::lines()` strips the `\r` of a `\r\n` pair, so `line_len` is one byte short for
+            // every such line. Advancing by `line_len + 1` therefore drifted every subsequent
+            // offset one byte left.
+            byte_offset += line_len + term_len;
         }
 
         if nodes.is_empty() {
+            let row = lines.len().saturating_sub(1);
+            let col = lines.last().map_or(0, |l| l.chars().count());
             nodes.push(SyntaxNodeInfo {
                 kind: "source_file".to_string(),
                 start_byte: 0,
                 end_byte: code.len(),
+                // Using `lines.len()` here reported a row one past the last line of the file.
                 start_position: (0, 0),
-                end_position: (lines.len(), lines.last().map(|l| l.len()).unwrap_or(0)),
+                end_position: (row, col),
                 is_named: true,
                 has_error: has_syntax_mismatch,
             });
@@ -173,10 +189,16 @@ impl SyntaxHighlightEngine {
             let html = &section.raw_html;
             let mut search_idx = 0;
 
-            while let Some(start_tag) = html[search_idx..].find("<pre>") {
+            while let Some(start_tag) = html[search_idx..].find("<pre") {
                 let abs_start = search_idx + start_tag;
-                if let Some(end_tag) = html[abs_start..].find("</pre>") {
-                    let abs_end = abs_start + end_tag + 6;
+                // A `<pre>` tag may carry attributes (`<pre class="source">`), so advance to the
+                // real `>` of the opening tag instead of assuming it ends at `<pre>`.
+                let Some(open_end_rel) = html[abs_start..].find('>') else {
+                    break;
+                };
+                let content_start = abs_start + open_end_rel + 1;
+                if let Some(end_tag) = html[content_start..].find("</pre>") {
+                    let abs_end = content_start + end_tag + 6;
                     let block_raw = &html[abs_start..abs_end];
 
                     let lang = extract_class_lang(block_raw).unwrap_or_else(|| "text".to_string());
