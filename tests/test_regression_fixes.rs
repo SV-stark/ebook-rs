@@ -375,3 +375,144 @@ fn render_cache_tracks_script_gate() {
         "cached rendering served past a script-policy change"
     );
 }
+
+// ---------------------------------------------------------------------------
+// DOM parser: boolean attributes and valued attributes in tags.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn dom_tag_parts_parses_boolean_and_valued_attributes() {
+    let html = r#"<input disabled class="btn-primary" required type='text' checked />"#;
+    let doc = ebook_rs::dom::EbookDomTree::parse(html);
+    let inputs = doc.find_elements_by_tag("input");
+    assert_eq!(inputs.len(), 1);
+    let ebook_rs::dom::DomNode::Element { attributes, .. } = inputs[0] else {
+        panic!("expected Element node");
+    };
+    assert!(attributes.contains_key("disabled"), "missing disabled attr");
+    assert_eq!(
+        attributes.get("class").map(|s| s.as_str()),
+        Some("btn-primary")
+    );
+    assert!(attributes.contains_key("required"), "missing required attr");
+    assert_eq!(attributes.get("type").map(|s| s.as_str()), Some("text"));
+    assert!(attributes.contains_key("checked"), "missing checked attr");
+}
+
+// ---------------------------------------------------------------------------
+// Section URI sanitizer: literal tab/newline in scheme prefix.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn scheme_prefix_consumes_literal_whitespace_in_scheme() {
+    let mut book = book_from_txt("# T\n\nhi");
+    book.sections.clear();
+    book.sections.push(ebook_rs::section::Section {
+        index: 0,
+        idref: "s0".into(),
+        href: "s0.xhtml".into(),
+        full_path: "OEBPS/s0.xhtml".into(),
+        raw_html: "<a href=\"java\tscript:alert(1)\">click</a>".into(),
+        processed_html: "<a href=\"java\tscript:alert(1)\">click</a>".into(),
+        plain_text: "click".into(),
+        plain_text_lower: "click".into(),
+        char_count: 5,
+        viewport_width: None,
+        viewport_height: None,
+    });
+    let sanitized = book.get_section(0).unwrap();
+    assert!(
+        sanitized.processed_html.contains("#disabled_uri:alert(1)"),
+        "scheme with literal tab was not properly neutralized: {}",
+        sanitized.processed_html
+    );
+}
+
+// ---------------------------------------------------------------------------
+// RAG Chunker: <hr> is not a heading, and container blocks are not duplicated.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn rag_extract_elements_avoids_hr_and_duplicate_containers() {
+    let html = r#"
+        <section>
+            <h1>Chapter Title</h1>
+            <hr />
+            <div class="content">
+                <p>First paragraph.</p>
+                <p>Second paragraph.</p>
+            </div>
+        </section>
+    "#;
+    let sec = ebook_rs::section::Section {
+        index: 0,
+        idref: "s0".into(),
+        href: "s0.xhtml".into(),
+        full_path: "OEBPS/s0.xhtml".into(),
+        raw_html: html.into(),
+        processed_html: html.into(),
+        plain_text: "First paragraph. Second paragraph.".into(),
+        plain_text_lower: "first paragraph. second paragraph.".into(),
+        char_count: 34,
+        viewport_width: None,
+        viewport_height: None,
+    };
+    let config = ebook_rs::RagChunkConfig {
+        min_chunk_size: 1,
+        max_tokens: 500,
+        preserve_headings: true,
+        ..Default::default()
+    };
+    let chunks =
+        ebook_rs::rag::RagChunker::chunk_section(&sec, 0, "Ch1", "Test Book", "Author", &config);
+    for chunk in &chunks {
+        // Must not contain <hr> or empty heading text as heading
+        assert!(
+            !chunk
+                .heading_hierarchy
+                .iter()
+                .any(|h| h.eq_ignore_ascii_case("hr")),
+            "hr leaked as heading: {:?}",
+            chunk.heading_hierarchy
+        );
+        // The text must not contain duplicate concatenated blobs like "First paragraph. Second paragraph." followed by "First paragraph."
+        let first_count = chunk.text.matches("First paragraph.").count();
+        assert_eq!(
+            first_count, 1,
+            "paragraph duplicated in chunk text: {}",
+            chunk.text
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Optimizer: <prefix> / <preview> tags do not toggle in_pre state.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn optimizer_minify_html_distinguishes_tag_boundaries() {
+    let input = "<prefix>   multiple   spaces   </prefix>";
+    let minified = ebook_rs::optimizer::EpubOptimizer::minify_html(input);
+    assert_eq!(minified, "<prefix>multiple spaces </prefix>");
+}
+
+// ---------------------------------------------------------------------------
+// Footnote: nested same-type tags do not prematurely close footnote target.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn footnote_nested_same_tag_preserves_full_content() {
+    let html = r##"
+        <p>Main text<a epub:type="noteref" href="#fn1">1</a></p>
+        <div id="fn1" class="footnote">
+            Initial note text <div>nested inner explanation</div> trailing note conclusion.
+        </div>
+    "##;
+    let fns = parse_footnotes_from_html(html);
+    assert_eq!(fns.len(), 1);
+    assert!(
+        fns[0].plain_text.contains("trailing note conclusion"),
+        "footnote was cut off at inner closing tag: {}",
+        fns[0].plain_text
+    );
+}

@@ -168,7 +168,7 @@ Add `ebook-rs` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ebook-rs = "0.17.0"
+ebook-rs = "0.17.1"
 ```
 
 Or install via `cargo`:

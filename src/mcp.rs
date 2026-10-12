@@ -877,7 +877,9 @@ fn handle_tool_call(
                 .into());
             }
 
-            let section = &book.sections[target_index];
+            let section = book
+                .get_section(target_index)
+                .map_err(|e| format!("Failed to load section {target_index}: {e}"))?;
             let cfi_anchor = crate::cfi::Cfi::from_spine_index(target_index, None, 0).to_string();
             let approx_tokens = section.plain_text.len() / 4;
             let section_title = format!("Section {}", section.index);

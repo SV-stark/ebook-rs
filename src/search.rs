@@ -386,7 +386,10 @@ fn extract_zero_alloc_snippet(
 
         (before, matched, after, prefix, suffix)
     } else {
-        let safe_byte_offset = byte_offset.min(text.len());
+        let mut safe_byte_offset = byte_offset.min(text.len());
+        while safe_byte_offset > 0 && !text.is_char_boundary(safe_byte_offset) {
+            safe_byte_offset -= 1;
+        }
         let before_slice = &text[..safe_byte_offset];
         let mut start_b = 0;
         let mut count = 0;
@@ -398,7 +401,10 @@ fn extract_zero_alloc_snippet(
             }
         }
 
-        let end_match_b = (safe_byte_offset + match_bytes_len).min(text.len());
+        let mut end_match_b = (safe_byte_offset + match_bytes_len).min(text.len());
+        while end_match_b < text.len() && !text.is_char_boundary(end_match_b) {
+            end_match_b += 1;
+        }
         let after_slice = &text[end_match_b..];
         let mut end_b = text.len();
         let mut count = 0;

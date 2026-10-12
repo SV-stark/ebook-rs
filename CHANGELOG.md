@@ -5,6 +5,42 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.1] - 2026-10-12
+
+### Fixed
+
+- **DOM Tag Attribute Parsing (`src/dom.rs`)**:
+  - `parse_tag_parts` previously checked for `=` globally in the remaining attribute slice, which caused boolean attributes preceding valued attributes (e.g. `<input disabled class="foo">`) to merge the boolean attribute name with the subsequent attribute name (`"disabled class"` => `"foo"`).
+  - Also fixed trailing boolean attributes being truncated after the first boolean tag; multiple boolean attributes (e.g. `<video controls autoplay loop>`) now parse properly.
+
+- **URI Scheme Sanitization with Whitespace (`src/section.rs`)**:
+  - Per the WHATWG URL Standard, browsers strip ASCII tabs, CRs, and newlines before resolving URL schemes. `scheme_prefix_bytes` stopped prematurely on encountering literal whitespace characters (`\t`, `\r`, `\n`) rather than consuming them through the terminating colon, causing obfuscated schemes such as `java\tscript:alert(1)` to retain script tails. Literals `\t`, `\r`, and `\n` in the scheme prefix are now properly consumed through the colon.
+
+- **HTTP Server Resource Streaming & Search Hydration (`src/server.rs`)**:
+  - **Percent-Decoding for Resources**: Archive paths queried via `/resource/` or `/api/resource/` were passed percent-encoded (`%20`), failing lookups for filenames with spaces or encoded characters. Paths are now percent-decoded prior to archive retrieval.
+  - **HTTP 206 Partial Content**: Added support for standard HTTP `Range` requests (`bytes=start-end`) on resource endpoints, enabling media streaming with `206 Partial Content`, `Content-Range`, and `Accept-Ranges: bytes` headers.
+  - **Full-Text Search on Lazy Books**: `/api/book/search` called `SearchEngine::search_limited` directly on `book.sections`, which holds unhydrated section skeletons with empty plain text when books are lazy-loaded. It now calls `book.search_limited`, ensuring sections are hydrated during search.
+
+- **Lazy Asset Preservation in Universal EPUB 3 Exporter (`src/validator.rs`)**:
+  - `UniversalEpub3Exporter::export` iterated directly over `book.archive.files()`, omitting all images, stylesheets, and fonts in books loaded via lazy mode. All archive files are now hydrated via `hydrate_into`, preserving all assets in exported EPUB 3 packages.
+  - Escaped asset `href` manifest attributes using `xml_escape` to prevent XML injection or malformed OPF attributes.
+
+- **MCP Section Content Hydration (`src/mcp.rs`)**:
+  - `read_section` accessed `book.sections[target_index]` directly, returning empty content for lazy-loaded books. It now calls `book.get_section(target_index)`, properly hydrating section HTML and text.
+
+- **RAG Chunker Quality & Deduplication (`src/rag.rs`)**:
+  - Corrected heading extraction logic which previously categorized `<hr>` as a heading due to matching tag lengths starting with `'h'`.
+  - Container elements (`div`, `section`, `blockquote`) that enclose child block elements are no longer emitted as redundant aggregate paragraphs alongside their individual children, eliminating duplicate paragraphs in RAG chunks.
+
+- **HTML Minifier Tag Boundary Check (`src/optimizer.rs`)**:
+  - `minify_html` used prefix checks such as `rest.starts_with("<pre")`, which inadvertently matched tags like `<prefix>`, `<preview>`, `<prefer>`, and `<codegen>`, permanently disabling minification for the remainder of the document. Added boundary checks requiring whitespace, `>`, or `/`.
+
+- **UTF-8 Char Boundary Safety in Search Snippets (`src/search.rs`)**:
+  - `extract_zero_alloc_snippet` now snaps slicing offsets to valid UTF-8 character boundaries in multi-byte strings, preventing panics when slicing non-ASCII text.
+
+- **Footnote Target Tag Nesting Depth (`src/footnote.rs`)**:
+  - `extract_footnote_target` tracked the first closing tag instead of accounting for tag nesting depth, truncating footnotes that contained nested elements of the same tag type (e.g. inner `<div>`s). It now maintains element depth to accurately extract complete footnote contents.
+
 ## [0.17.0] - 2026-10-11
 
 ### Fixed

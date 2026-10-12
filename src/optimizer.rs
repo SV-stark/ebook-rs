@@ -168,18 +168,29 @@ impl EpubOptimizer {
                 in_tag = true;
                 in_quote = None;
                 let rest = &html[i..];
-                if rest.starts_with("<pre")
-                    || rest.starts_with("<code")
-                    || rest.starts_with("<script")
-                    || rest.starts_with("<style")
-                    || rest.starts_with("<textarea")
+                let is_tag_open = |r: &str, tag: &str| -> bool {
+                    r.strip_prefix(tag).is_some_and(|after| {
+                        after.starts_with(|c: char| c.is_whitespace() || c == '>' || c == '/')
+                    })
+                };
+                let is_tag_close = |r: &str, tag: &str| -> bool {
+                    r.strip_prefix(tag).is_some_and(|after| {
+                        after.starts_with(|c: char| c.is_whitespace() || c == '>')
+                    })
+                };
+
+                if is_tag_open(rest, "<pre")
+                    || is_tag_open(rest, "<code")
+                    || is_tag_open(rest, "<script")
+                    || is_tag_open(rest, "<style")
+                    || is_tag_open(rest, "<textarea")
                 {
                     in_pre = true;
-                } else if rest.starts_with("</pre>")
-                    || rest.starts_with("</code>")
-                    || rest.starts_with("</script>")
-                    || rest.starts_with("</style>")
-                    || rest.starts_with("</textarea>")
+                } else if is_tag_close(rest, "</pre")
+                    || is_tag_close(rest, "</code")
+                    || is_tag_close(rest, "</script")
+                    || is_tag_close(rest, "</style")
+                    || is_tag_close(rest, "</textarea")
                 {
                     in_pre = false;
                 }

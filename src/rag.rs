@@ -325,17 +325,37 @@ impl RagChunker {
             for node in doc.descendants() {
                 if node.is_element() {
                     let name = node.tag_name().name().to_lowercase();
-                    if name.starts_with('h') && name.len() == 2 {
+                    if matches!(name.as_str(), "h1" | "h2" | "h3" | "h4" | "h5" | "h6") {
                         let text: String = node.text().unwrap_or_default().trim().to_string();
                         if !text.is_empty() {
                             headings.push(text);
                         }
                     } else if matches!(name.as_str(), "p" | "div" | "blockquote" | "li" | "section")
                     {
-                        // `descendants()` yields the element *itself* plus its descendants, and
-                        // `Node::text()` on an element returns the element's first text child, so
-                        // iterating `descendants().filter_map(|n| n.text())` emitted every
-                        // paragraph's text twice. Take the descendant *text* nodes only.
+                        // Container elements (div, section, blockquote) containing descendant block elements
+                        // should not emit their aggregated text to avoid duplicate paragraphs.
+                        if matches!(name.as_str(), "div" | "section" | "blockquote")
+                            && node.descendants().any(|child| {
+                                child.id() != node.id()
+                                    && child.is_element()
+                                    && matches!(
+                                        child.tag_name().name().to_lowercase().as_str(),
+                                        "p" | "div"
+                                            | "blockquote"
+                                            | "li"
+                                            | "section"
+                                            | "h1"
+                                            | "h2"
+                                            | "h3"
+                                            | "h4"
+                                            | "h5"
+                                            | "h6"
+                                    )
+                            })
+                        {
+                            continue;
+                        }
+
                         let text: String = node
                             .descendants()
                             .filter(|n| n.is_text())

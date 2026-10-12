@@ -415,27 +415,69 @@ impl ReaderServer {
                         let clean_path = path
                             .strip_prefix("/api/resource/")
                             .or_else(|| path.strip_prefix("/resource/"))
-                            .unwrap_or(&path)
+                            .unwrap_or(&path);
+                        let decoded_path = percent_encoding::percent_decode_str(clean_path)
+                            .decode_utf8_lossy()
                             .to_string();
                         let book = book_arc.read().unwrap_or_else(|e| e.into_inner());
 
-                        match book.get_resource_bytes(&clean_path) {
+                        match book.get_resource_bytes(&decoded_path) {
                             Ok((bytes, mime)) => {
                                 // Raw archive bytes are served in the reader's own origin, so
                                 // serving active content types (XHTML/SVG/JS) here would hand an
                                 // eBook author same-origin script execution -- and therefore
                                 // access to every authenticated API on this server. Serve those
                                 // as inert downloads instead.
-                                if is_active_content_type(mime) {
-                                    send_bytes(
-                                        request,
-                                        StatusCode(200),
-                                        "application/octet-stream",
-                                        &bytes,
-                                    );
+                                let effective_mime = if is_active_content_type(mime) {
+                                    "application/octet-stream"
                                 } else {
-                                    send_bytes(request, StatusCode(200), mime, &bytes);
+                                    mime
+                                };
+
+                                if let Some(range_val) = header_value(&request, "Range") {
+                                    if let Some((start, end_opt)) =
+                                        crate::archive::HttpRangeRequest::parse_range_header(
+                                            &range_val,
+                                        )
+                                    {
+                                        let total = bytes.len() as u64;
+                                        if total > 0 && start < total {
+                                            let end = end_opt.unwrap_or(total - 1).min(total - 1);
+                                            if start <= end {
+                                                let slice = &bytes[start as usize..=end as usize];
+                                                let cr_hdr = format!("bytes {start}-{end}/{total}");
+                                                send_bytes_with_headers(
+                                                    request,
+                                                    StatusCode(206),
+                                                    effective_mime,
+                                                    slice,
+                                                    &[
+                                                        ("Content-Range", &cr_hdr),
+                                                        ("Accept-Ranges", "bytes"),
+                                                    ],
+                                                );
+                                                return;
+                                            }
+                                        }
+                                        let cr_hdr = format!("bytes */{total}");
+                                        send_bytes_with_headers(
+                                            request,
+                                            StatusCode(416),
+                                            "text/plain; charset=utf-8",
+                                            b"416 Range Not Satisfiable",
+                                            &[("Content-Range", &cr_hdr)],
+                                        );
+                                        return;
+                                    }
                                 }
+
+                                send_bytes_with_headers(
+                                    request,
+                                    StatusCode(200),
+                                    effective_mime,
+                                    &bytes,
+                                    &[("Accept-Ranges", "bytes")],
+                                );
                             }
                             Err(_) => {
                                 send_text(
@@ -466,12 +508,7 @@ impl ReaderServer {
 
                         let book = book_arc.read().unwrap_or_else(|e| e.into_inner());
                         // The engine truncates internally; do not materialize the full set.
-                        let results = crate::search::SearchEngine::search_limited(
-                            &book.sections,
-                            &query,
-                            false,
-                            Some(MAX_SEARCH_RESULTS),
-                        );
+                        let results = book.search_limited(&query, Some(MAX_SEARCH_RESULTS));
 
                         let json = serde_json::to_string(&results).unwrap_or_default();
                         send_json(request, 200, &json);
@@ -827,9 +864,24 @@ fn send_bytes(
     content_type: &str,
     body: &[u8],
 ) {
+    send_bytes_with_headers(request, status, content_type, body, &[]);
+}
+
+fn send_bytes_with_headers(
+    request: tiny_http::Request,
+    status: impl Into<StatusCode>,
+    content_type: &str,
+    body: &[u8],
+    extra_headers: &[(&str, &str)],
+) {
     let mut response = Response::from_data(body.to_vec()).with_status_code(status.into());
     if let Ok(h) = Header::from_bytes(&b"Content-Type"[..], content_type.as_bytes()) {
         response = response.with_header(h);
+    }
+    for &(name, val) in extra_headers {
+        if let Ok(h) = Header::from_bytes(name.as_bytes(), val.as_bytes()) {
+            response = response.with_header(h);
+        }
     }
     for h in security_headers() {
         response = response.with_header(h);

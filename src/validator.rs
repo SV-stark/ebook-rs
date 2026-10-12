@@ -250,9 +250,14 @@ impl UniversalEpub3Exporter {
                 );
             }
             // Add asset files (images, css, fonts) from book.archive to content.opf manifest
+            let mut archive_files = ahash::AHashMap::new();
+            book.archive
+                .hydrate_into(&mut archive_files)
+                .map_err(|e| e.to_string())?;
+
             let mut asset_idx = 0;
             let mut seen_manifest_hrefs = std::collections::HashSet::new();
-            for path in book.archive.files().keys() {
+            for path in archive_files.keys() {
                 let path_str = path.as_str();
                 if path_str.ends_with(".opf")
                     || path_str.ends_with(".ncx")
@@ -277,7 +282,7 @@ impl UniversalEpub3Exporter {
                     opf_xml,
                     "    <item id=\"asset_{}\" href=\"{}\" media-type=\"{}\"/>",
                     asset_idx,
-                    crate::dom::sanitize_and_repair_xml(rel_href),
+                    crate::dom::xml_escape(rel_href),
                     mime
                 );
                 asset_idx += 1;
@@ -344,7 +349,7 @@ impl UniversalEpub3Exporter {
 
             // Collect asset files (images, CSS, fonts) from book.archive
             let mut seen_zip_paths = std::collections::HashSet::new();
-            for (path, bytes) in book.archive.files() {
+            for (path, bytes) in &archive_files {
                 let path_low = path.to_lowercase();
                 if path_low.ends_with(".opf")
                     || path_low.ends_with(".ncx")

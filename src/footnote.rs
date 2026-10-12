@@ -139,19 +139,72 @@ fn extract_footnote_target(html: &str, target_id: &str) -> Option<(String, Strin
     if tag_name.is_empty() {
         return None;
     }
-    let close_tag = format!("</{}>", tag_name);
-
-    if let Some(close_idx) = find_ignore_case(&html[tag_start..], &close_tag) {
-        let full_html = html[tag_start..tag_start + close_idx + close_tag.len()].to_string();
+    let first_tag_close = html[tag_start..].find('>')?;
+    let open_tag_slice = &html[tag_start..tag_start + first_tag_close];
+    if open_tag_slice.trim_end().ends_with('/') {
+        let full_html = html[tag_start..=tag_start + first_tag_close].to_string();
         let plain_text = extract_plain_text(&full_html);
-        Some((full_html, plain_text))
-    } else {
-        // Fallback: extract single tag slice
-        let tag_close = html[tag_start..].find('>')?;
-        let full_html = html[tag_start..=tag_start + tag_close].to_string();
-        let plain_text = extract_plain_text(&full_html);
-        Some((full_html, plain_text))
+        return Some((full_html, plain_text));
     }
+
+    let mut depth = 1usize;
+    let mut search_pos = tag_start + first_tag_close + 1;
+    let open_prefix = format!("<{}", tag_name);
+    let close_prefix = format!("</{}", tag_name);
+
+    while search_pos < html.len() && depth > 0 {
+        if let Some(next_lt) = html[search_pos..].find('<') {
+            let cur = search_pos + next_lt;
+            let rest = &html[cur..];
+            let is_close = if rest.len() >= close_prefix.len()
+                && rest[..close_prefix.len()].eq_ignore_ascii_case(&close_prefix)
+            {
+                rest[close_prefix.len()..].starts_with(|c: char| c.is_whitespace() || c == '>')
+            } else {
+                false
+            };
+
+            let is_open = if rest.len() >= open_prefix.len()
+                && rest[..open_prefix.len()].eq_ignore_ascii_case(&open_prefix)
+            {
+                rest[open_prefix.len()..]
+                    .starts_with(|c: char| c.is_whitespace() || c == '>' || c == '/')
+            } else {
+                false
+            };
+
+            if is_close {
+                depth -= 1;
+                if depth == 0 {
+                    let gt = rest.find('>')?;
+                    let full_html = html[tag_start..=cur + gt].to_string();
+                    let plain_text = extract_plain_text(&full_html);
+                    return Some((full_html, plain_text));
+                }
+                if let Some(gt) = rest.find('>') {
+                    search_pos = cur + gt + 1;
+                    continue;
+                }
+            } else if is_open {
+                let gt = rest.find('>')?;
+                let tag_content = &rest[..gt];
+                if !tag_content.trim_end().ends_with('/') {
+                    depth += 1;
+                }
+                search_pos = cur + gt + 1;
+                continue;
+            }
+            search_pos = cur + 1;
+        } else {
+            break;
+        }
+    }
+
+    // Fallback: extract single tag slice
+    let tag_close = html[tag_start..].find('>')?;
+    let full_html = html[tag_start..=tag_start + tag_close].to_string();
+    let plain_text = extract_plain_text(&full_html);
+    Some((full_html, plain_text))
 }
 
 fn extract_attr(tag_str: &str, attr: &str) -> Option<(String, String)> {

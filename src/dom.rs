@@ -206,40 +206,53 @@ fn parse_tag_parts(content: &str) -> (CompactString, AHashMap<CompactString, Com
     let mut attrs = AHashMap::new();
     let mut search_idx = tag_name.len();
     while search_idx < trimmed.len() {
-        let rem = &trimmed[search_idx..].trim_start();
+        let rem = trimmed[search_idx..].trim_start();
         if rem.is_empty() {
             break;
         }
-        if let Some(eq_idx) = rem.find('=') {
-            let key = CompactString::new(rem[..eq_idx].trim());
-            let val_rem = rem[eq_idx + 1..].trim_start();
+        let name_end = rem
+            .find(|c: char| c.is_whitespace() || c == '=' || c == '/')
+            .unwrap_or(rem.len());
+        if name_end == 0 {
+            search_idx = trimmed.len() - rem[1..].len();
+            continue;
+        }
+        let key = &rem[..name_end];
+        let after_name = rem[name_end..].trim_start();
+
+        if let Some(after_eq) = after_name.strip_prefix('=') {
+            let val_rem = after_eq.trim_start();
             if let Some(stripped) = val_rem.strip_prefix('"') {
                 if let Some(end_q) = stripped.find('"') {
                     let val = &stripped[..end_q];
-                    attrs.insert(key, CompactString::new(val));
+                    attrs.insert(CompactString::new(key), CompactString::new(val));
                     search_idx = trimmed.len() - stripped[end_q + 1..].len();
                 } else {
+                    attrs.insert(CompactString::new(key), CompactString::new(stripped));
                     break;
                 }
             } else if let Some(stripped) = val_rem.strip_prefix('\'') {
                 if let Some(end_q) = stripped.find('\'') {
                     let val = &stripped[..end_q];
-                    attrs.insert(key, CompactString::new(val));
+                    attrs.insert(CompactString::new(key), CompactString::new(val));
                     search_idx = trimmed.len() - stripped[end_q + 1..].len();
                 } else {
+                    attrs.insert(CompactString::new(key), CompactString::new(stripped));
                     break;
                 }
             } else {
-                let val_end = val_rem.find(char::is_whitespace).unwrap_or(val_rem.len());
-                attrs.insert(key, CompactString::new(&val_rem[..val_end]));
+                let val_end = val_rem
+                    .find(|c: char| c.is_whitespace() || c == '/' || c == '>')
+                    .unwrap_or(val_rem.len());
+                attrs.insert(
+                    CompactString::new(key),
+                    CompactString::new(&val_rem[..val_end]),
+                );
                 search_idx = trimmed.len() - val_rem[val_end..].len();
             }
         } else {
-            let key = rem.split_whitespace().next().unwrap_or("");
-            if !key.is_empty() {
-                attrs.insert(CompactString::new(key), CompactString::new(""));
-            }
-            break;
+            attrs.insert(CompactString::new(key), CompactString::new(""));
+            search_idx = trimmed.len() - rem[name_end..].len();
         }
     }
 

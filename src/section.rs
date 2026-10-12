@@ -1106,7 +1106,11 @@ fn scheme_prefix_bytes(window: &str) -> usize {
                 // the scheme cannot extend beyond it.
                 None => return i,
             },
-            c if c.is_ascii_alphanumeric() || matches!(c, b'+' | b'-' | b'.') => i += 1,
+            c if c.is_ascii_alphanumeric()
+                || matches!(c, b'+' | b'-' | b'.' | b'\t' | b'\r' | b'\n') =>
+            {
+                i += 1
+            }
             _ => return i,
         }
     }
