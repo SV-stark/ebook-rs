@@ -49,6 +49,10 @@ pub struct Book {
     pub annotations: AnnotationManager,
     pub layout: RenditionLayout,
     pub font_deobfuscator: FontDeobfuscator,
+    /// Optional Readium LCP passphrase supplied at load time (used for per-resource decryption).
+    pub lcp_passphrase: Option<String>,
+    /// Parsed Readium LCP license, when the book is (or was) LCP-protected.
+    pub lcp_license: Option<crate::lcp::LcpLicense>,
     pub before_display_hooks: Vec<BeforeDisplayHook>,
     pub media_overlays: AHashMap<String, crate::media_overlay::MediaOverlayPackage>,
     pub render_cache: parking_lot::Mutex<AHashMap<RenderCacheKey, String>>,
@@ -70,6 +74,8 @@ impl Clone for Book {
             annotations: self.annotations.clone(),
             layout: self.layout.clone(),
             font_deobfuscator: self.font_deobfuscator.clone(),
+            lcp_passphrase: self.lcp_passphrase.clone(),
+            lcp_license: self.lcp_license.clone(),
             before_display_hooks: self.before_display_hooks.clone(),
             media_overlays: self.media_overlays.clone(),
             render_cache: parking_lot::Mutex::new(self.render_cache.lock().clone()),
@@ -99,6 +105,15 @@ impl Book {
 
     /// Open an eBook from an in-memory byte slice with a title fallback.
     pub fn from_bytes_with_title(bytes: &[u8], title_fallback: &str) -> Result<Self, EbookError> {
+        Self::from_bytes_with_title_and_passphrase(bytes, title_fallback, None)
+    }
+
+    /// Open an eBook from an in-memory byte slice with a title fallback and an optional LCP passphrase.
+    pub fn from_bytes_with_title_and_passphrase(
+        bytes: &[u8],
+        title_fallback: &str,
+        passphrase: Option<&str>,
+    ) -> Result<Self, EbookError> {
         if bytes.starts_with(b"Rar!\x1a\x07\x00")
             || bytes.starts_with(b"Rar!\x1a\x07\x01\x00")
             || bytes.starts_with(b"Rar!\x1a\x07")
@@ -111,7 +126,9 @@ impl Book {
         if bytes.starts_with(b"PK\x03\x04") {
             if let Ok(archive) = EpubArchive::from_bytes(bytes) {
                 if archive.contains("META-INF/container.xml") {
-                    if let Ok(book) = Self::from_archive(archive.clone()) {
+                    if let Ok(book) =
+                        Self::from_archive_with_passphrase(archive.clone(), passphrase)
+                    {
                         return Ok(book);
                     }
                 } else if archive.contains("word/document.xml") {
@@ -172,9 +189,12 @@ impl Book {
         Self::from_bytes_with_title(&bytes, title_fallback)
     }
 
-    /// Internal builder from an initialized archive.
-    fn from_archive(archive: EpubArchive) -> Result<Self, EbookError> {
-        Self::from_archive_internal(archive, false)
+    /// Internal builder from an initialized archive, supplying an optional LCP passphrase.
+    pub fn from_archive_with_passphrase(
+        archive: EpubArchive,
+        passphrase: Option<&str>,
+    ) -> Result<Self, EbookError> {
+        Self::from_archive_internal(archive, false, passphrase)
     }
 
     /// Open an EPUB archive using lazy section hydration (sections loaded on demand).
@@ -182,13 +202,74 @@ impl Book {
         archive: EpubArchive,
         _title_fallback: &str,
     ) -> Result<Self, EbookError> {
-        Self::from_archive_internal(archive, true)
+        Self::from_archive_internal(archive, true, None)
     }
 
-    fn from_archive_internal(archive: EpubArchive, lazy: bool) -> Result<Self, EbookError> {
-        // E8 Fix: Detect DRM encryption (ADEPT / LCP)
-        if archive.contains("META-INF/rights.xml") || archive.contains("license.lcpl") {
-            return Err(EbookError::DrmProtected("DRM protected eBook (ADEPT/LCP). Decryption keys are required to read encrypted content.".to_string()));
+    /// Open an EPUB archive using lazy section hydration, supplying an optional LCP passphrase.
+    pub fn from_archive_lazy_with_passphrase(
+        archive: EpubArchive,
+        _title_fallback: &str,
+        passphrase: Option<&str>,
+    ) -> Result<Self, EbookError> {
+        Self::from_archive_internal(archive, true, passphrase)
+    }
+
+    /// Convenience: open an EPUB from bytes with an LCP passphrase.
+    pub fn from_bytes_with_passphrase(
+        bytes: &[u8],
+        title_fallback: &str,
+        passphrase: &str,
+    ) -> Result<Self, EbookError> {
+        Self::from_bytes_with_title_and_passphrase(bytes, title_fallback, Some(passphrase))
+    }
+
+    fn from_archive_internal(
+        archive: EpubArchive,
+        lazy: bool,
+        passphrase: Option<&str>,
+    ) -> Result<Self, EbookError> {
+        // E8 Fix: Detect DRM encryption (ADEPT / LCP). The license path must be the real
+        // archive location (`META-INF/license.lcpl`); a bare `license.lcpl` never matches
+        // because `EpubArchive::contains` normalizes without adding a directory prefix.
+        let has_rights = archive.contains("META-INF/rights.xml");
+        let has_license = archive.contains("META-INF/license.lcpl");
+        // Credentials carried on the Book for downstream per-resource decryption.
+        let lcp_passphrase: Option<String> = passphrase.map(|s| s.to_string());
+        let mut lcp_license: Option<crate::lcp::LcpLicense> = None;
+
+        if has_rights || has_license {
+            match passphrase {
+                None => {
+                    return Err(EbookError::DrmProtected(
+                        "DRM protected eBook (ADEPT/LCP). A passphrase is required to read encrypted content.".to_string(),
+                    ));
+                }
+                Some(pp) => {
+                    if has_license {
+                        let parsed = archive
+                            .read_string("META-INF/license.lcpl")
+                            .ok()
+                            .and_then(|s| crate::lcp::LcpLicense::parse(&s).ok());
+                        match parsed {
+                            Some(license) => {
+                                lcp_license = Some(license);
+                            }
+                            None => {
+                                return Err(EbookError::DrmProtected(
+                                    "DRM protected eBook (LCP): license could not be read or parsed.".to_string(),
+                                ));
+                            }
+                        }
+                    }
+                    // ADEPT (rights.xml only): no LCP decryptor exists; keep the gate.
+                    if has_rights && !has_license {
+                        return Err(EbookError::DrmProtected(
+                            "DRM protected eBook (ADEPT). Decryption keys are required to read encrypted content.".to_string(),
+                        ));
+                    }
+                    let _ = pp;
+                }
+            }
         }
 
         let opf_path = archive.get_opf_path()?;
@@ -328,6 +409,8 @@ impl Book {
             annotations: AnnotationManager::new(),
             layout: RenditionLayout::default(),
             font_deobfuscator,
+            lcp_passphrase,
+            lcp_license,
             before_display_hooks: Vec::new(),
             media_overlays,
             render_cache: parking_lot::Mutex::new(AHashMap::new()),
@@ -622,6 +705,8 @@ impl Book {
             annotations: cache.annotations,
             layout: cache.layout,
             font_deobfuscator: FontDeobfuscator::new(),
+            lcp_passphrase: None,
+            lcp_license: None,
             before_display_hooks: Vec::new(),
             media_overlays: cache.media_overlays,
             render_cache: parking_lot::Mutex::new(AHashMap::new()),
@@ -664,10 +749,11 @@ impl Book {
             &self.archive,
         )?;
         // Inline assets
-        section.processed_html = crate::section::process_section_resources(
+        section.processed_html = crate::section::process_section_resources_with_strategy(
             &section.raw_html,
             &section.full_path,
             &self.archive,
+            &self.layout.asset_delivery,
         );
         // RTL injection
         if self.opf.metadata.direction == crate::metadata::PageProgressionDirection::Rtl {
@@ -772,10 +858,11 @@ impl Book {
         }
 
         if section.processed_html == section.raw_html && !section.raw_html.is_empty() {
-            section.processed_html = crate::section::process_section_resources(
+            section.processed_html = crate::section::process_section_resources_with_strategy(
                 &section.raw_html,
                 &section.full_path,
                 &self.archive,
+                &self.layout.asset_delivery,
             );
         }
 
@@ -838,10 +925,75 @@ impl Book {
     }
 
     /// Retrieve section for a given CFI string.
+    ///
+    /// Only the spine index is consumed; the in-section character offset carried by the CFI is
+    /// discarded. Use [`Self::get_section_and_offset_by_cfi`] (or [`Self::resolve_cfi`]) when
+    /// restoring an exact reading position.
     pub fn get_section_by_cfi(&self, cfi_str: &str) -> Result<Section, String> {
         let cfi = Cfi::parse(cfi_str)?;
         let spine_idx = cfi.spine_index();
         self.get_section(spine_idx)
+    }
+
+    /// Retrieve a section together with the in-section character offset carried by a CFI.
+    ///
+    /// Returns `(section, char_offset)` where `char_offset` is measured against the section's
+    /// `plain_text` (the same coordinate space produced by [`Cfi::char_offset`] and consumed by
+    /// [`Self::to_readium_locator`]). Enables exact-position restore/scroll without re-parsing
+    /// the CFI app-side.
+    pub fn get_section_and_offset_by_cfi(&self, cfi_str: &str) -> Result<(Section, usize), String> {
+        let cfi = Cfi::parse(cfi_str)?;
+        let spine_idx = cfi.spine_index();
+        let offset = cfi.char_offset();
+        let section = self.get_section(spine_idx)?;
+        Ok((section, offset))
+    }
+
+    /// Resolve a CFI into its section, in-section character offset, and DOM target (CSS selector).
+    ///
+    /// Convenience wrapper combining [`Self::get_section_and_offset_by_cfi`] with
+    /// [`Cfi::resolve_dom_path`] so a renderer can anchor highlights/scroll without re-running
+    /// CFI parsing or selector construction itself.
+    pub fn resolve_cfi(
+        &self,
+        cfi_str: &str,
+        html: &str,
+    ) -> Result<(Section, usize, crate::cfi::CfiDomTarget), String> {
+        let cfi = Cfi::parse(cfi_str)?;
+        let (section, offset) = self.get_section_and_offset_by_cfi(cfi_str)?;
+        let dom = cfi
+            .resolve_dom_path(html)
+            .ok_or_else(|| "CFI could not be resolved to a DOM target".to_string())?;
+        Ok((section, offset, dom))
+    }
+
+    /// Collect and return the merged, processed book stylesheet (all `<link rel="stylesheet">`
+    /// CSS from every section, with `url(...)` resources inlined), as a single CSS string.
+    ///
+    /// Enables renderers without data-URI / `<link>` support to obtain the book's CSS directly
+    /// instead of relying on `processed_html`.
+    pub fn get_merged_stylesheet(&self) -> String {
+        let sections = self.get_all_sections_hydrated();
+        let mut merged = String::new();
+        for section in &sections {
+            let section_dir = if let Some(idx) = section.full_path.rfind('/') {
+                &section.full_path[..idx]
+            } else {
+                ""
+            };
+            for (_, _, href_val) in crate::section::regex_find_link_css(&section.raw_html) {
+                let res_path = crate::archive::resolve_relative_path(section_dir, &href_val);
+                if let Ok(css_text) = self.archive.read_string(&res_path) {
+                    let processed =
+                        crate::section::process_css_resources(&css_text, &res_path, &self.archive);
+                    if !merged.is_empty() {
+                        merged.push('\n');
+                    }
+                    merged.push_str(&processed);
+                }
+            }
+        }
+        merged
     }
 
     /// Perform full-text search across all spine sections (hydrating lazy sections if needed).
@@ -1108,10 +1260,11 @@ impl Book {
                 // the raw source instead produced an EPUB whose manifest still referenced
                 // `style.css`, fonts and images that were never copied into the new archive, so
                 // the export parsed cleanly but rendered unstyled with broken images.
-                let inlined = crate::section::process_section_resources(
+                let inlined = crate::section::process_section_resources_with_strategy(
                     html_source,
                     &section.full_path,
                     &self.archive,
+                    &self.layout.asset_delivery,
                 );
                 let html_source = if inlined.trim().is_empty() {
                     html_source

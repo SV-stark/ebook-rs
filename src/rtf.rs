@@ -619,6 +619,8 @@ impl RtfBook {
             annotations: crate::annotations::AnnotationManager::default(),
             before_display_hooks: Vec::new(),
             font_deobfuscator: FontDeobfuscator::parse_encryption_xml(""),
+            lcp_passphrase: None,
+            lcp_license: None,
             media_overlays: AHashMap::new(),
             render_cache: parking_lot::Mutex::new(AHashMap::new()),
         };
@@ -630,7 +632,7 @@ impl RtfBook {
 
 fn hex_to_bytes(hex: &str) -> Result<Vec<u8>, String> {
     let clean: String = hex.chars().filter(|c| c.is_ascii_hexdigit()).collect();
-    if clean.len() % 2 != 0 {
+    if !clean.len().is_multiple_of(2) {
         return Err("Invalid hex length".to_string());
     }
     let mut bytes = Vec::with_capacity(clean.len() / 2);

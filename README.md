@@ -11,7 +11,7 @@
 [![Documentation](https://img.shields.io/badge/docs-sv--stark.github.io%2Febook--rs-0284c7?style=flat-square&logo=gitbook&logoColor=white)](https://sv-stark.github.io/ebook-rs/)
 [![CI Build Status](https://img.shields.io/github/actions/workflow/status/SV-stark/ebook-rs/ci.yml?branch=main&style=flat-square&label=build)](https://github.com/SV-stark/ebook-rs/actions)
 [![Fuzzing & Chaos Resilience](https://img.shields.io/badge/Fuzzing-Continuous%20libFuzzer%20%2B%20Chaos-informational?style=flat-square&logo=rust)](https://github.com/SV-stark/ebook-rs/actions)
-[![Rust Edition](https://img.shields.io/badge/rust-2024%20%7C%201.85%2B-informational?style=flat-square&logo=rust)](https://www.rust-lang.org/)
+[![Rust Edition](https://img.shields.io/badge/rust-2024%20%7C%201.88%2B-informational?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/crates/l/ebook-rs.svg?style=flat-square&color=green)](LICENSE)
 
 *Pure Rust multi-format eBook engine (**EPUB 2/3, MOBI, AZW3, KFX, FB2, LIT, CBZ, PDF, ODT, DOCX, RTF, TXT & MD**) featuring Mozilla UniFFI mobile bindings, Readium CFI locators & LCP DRM, SpeechSynthesis TTS word sync, CJK vertical & RTL pagination, PDF two-column reflow, lossless EPUB3 optimizer, AI RAG BM25 chunking, zero-copy search, Zstd caching, Python/WASM bindings, and a native MCP server.*
@@ -168,7 +168,7 @@ Add `ebook-rs` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ebook-rs = "0.17.1"
+ebook-rs = "0.17.2"
 ```
 
 Or install via `cargo`:

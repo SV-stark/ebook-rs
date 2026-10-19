@@ -277,12 +277,18 @@ pub fn extract_plain_text(html: &str) -> String {
                     skipping_tag = Some("style");
                 } else if starts_with_ignore_case(slice, "<script") {
                     skipping_tag = Some("script");
+                } else if starts_with_ignore_case(slice, "<title") {
+                    // <title> belongs in <head> and must never contribute to body
+                    // plain text (search index, TTS stream, RAG chunks, char counts).
+                    skipping_tag = Some("title");
                 }
             } else if let Some(tag) = skipping_tag {
                 let close_tag = if tag == "style" {
                     "</style"
-                } else {
+                } else if tag == "script" {
                     "</script"
+                } else {
+                    "</title"
                 };
                 if starts_with_ignore_case(slice, close_tag) {
                     skipping_tag = None;
@@ -377,6 +383,26 @@ pub fn process_section_resources_with_strategy(
         ""
     };
 
+    // For the InlinedStyle strategy, pre-collect the merged book stylesheet so it can be
+    // injected as a single <style> block (and the original <link> tags dropped) instead of
+    // being delivered as base64 data-URI links.
+    let merged_style_css = if matches!(strategy, AssetDeliveryStrategy::InlinedStyle) {
+        let mut mc = String::new();
+        for (_, _, href_val) in regex_find_link_css(html) {
+            let res_path = resolve_relative_path(section_dir, &href_val);
+            if let Ok(css_text) = archive.read_string(&res_path) {
+                let processed = process_css_resources(&css_text, &res_path, archive);
+                if !mc.is_empty() {
+                    mc.push('\n');
+                }
+                mc.push_str(&processed);
+            }
+        }
+        mc
+    } else {
+        String::new()
+    };
+
     // Collect every replacement as a byte range plus its new attribute text, then splice them
     // all in a single forward pass. The previous implementation did
     // `output = output.replace(&needle, ..)` once per match, which reallocated and rescanned the
@@ -395,7 +421,7 @@ pub fn process_section_resources_with_strategy(
         let res_path = resolve_relative_path(section_dir, &src_val);
 
         match strategy {
-            AssetDeliveryStrategy::InlinedBase64 => {
+            AssetDeliveryStrategy::InlinedBase64 | AssetDeliveryStrategy::InlinedStyle => {
                 if let Ok(bytes) = archive.read_bytes(&res_path) {
                     let mime = EpubArchive::get_mime_type(&res_path);
                     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
@@ -413,47 +439,102 @@ pub fn process_section_resources_with_strategy(
         }
     }
 
-    // Replace ONLY <link href="*.css"> stylesheet links
-    for (start, end, href_val) in regex_find_link_css(html) {
+    // Replace SVG <image xlink:href="..."> / <image href="..."> references (cover art, illustrations).
+    // SVG-wrapped covers (`<svg><image xlink:href="cover1.jpeg"/></svg>`) were previously left as
+    // un-rewritten relative paths and reached the renderer broken.
+    for (start, end, href_val, attr_name) in regex_find_svg_image_href(html) {
+        if href_val.starts_with("data:")
+            || href_val.starts_with("http://")
+            || href_val.starts_with("https://")
+        {
+            continue;
+        }
         let res_path = resolve_relative_path(section_dir, &href_val);
+
         match strategy {
-            AssetDeliveryStrategy::InlinedBase64 => {
-                if let Ok(css_text) = archive.read_string(&res_path) {
-                    let processed_css = process_css_resources(&css_text, &res_path, archive);
-                    let b64 =
-                        base64::engine::general_purpose::STANDARD.encode(processed_css.as_bytes());
+            AssetDeliveryStrategy::InlinedBase64 | AssetDeliveryStrategy::InlinedStyle => {
+                if let Ok(bytes) = archive.read_bytes(&res_path) {
+                    let mime = EpubArchive::get_mime_type(&res_path);
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
                     replacements.push((
                         start,
                         end,
-                        format!("href=\"data:text/css;base64,{}\"", b64),
+                        format!("{}=\"data:{};base64,{}\"", attr_name, mime, b64),
                     ));
                 }
             }
             AssetDeliveryStrategy::ResourceStream => {
                 let stream_url = format!("resource/{}", res_path);
-                replacements.push((start, end, format!("href=\"{}\"", stream_url)));
+                replacements.push((start, end, format!("{}=\"{}\"", attr_name, stream_url)));
             }
         }
     }
 
-    if replacements.is_empty() {
-        return html.to_string();
+    // Replace ONLY <link href="*.css"> stylesheet links (skipped for InlinedStyle: handled below).
+    if !matches!(strategy, AssetDeliveryStrategy::InlinedStyle) {
+        for (start, end, href_val) in regex_find_link_css(html) {
+            let res_path = resolve_relative_path(section_dir, &href_val);
+            match strategy {
+                AssetDeliveryStrategy::InlinedBase64 => {
+                    if let Ok(css_text) = archive.read_string(&res_path) {
+                        let processed_css = process_css_resources(&css_text, &res_path, archive);
+                        let b64 = base64::engine::general_purpose::STANDARD
+                            .encode(processed_css.as_bytes());
+                        replacements.push((
+                            start,
+                            end,
+                            format!("href=\"data:text/css;base64,{}\"", b64),
+                        ));
+                    }
+                }
+                AssetDeliveryStrategy::ResourceStream => {
+                    let stream_url = format!("resource/{}", res_path);
+                    replacements.push((start, end, format!("href=\"{}\"", stream_url)));
+                }
+                AssetDeliveryStrategy::InlinedStyle => {}
+            }
+        }
     }
 
     // Splice: sort by start offset and emit untouched spans verbatim between replacements.
-    replacements.sort_by_key(|(start, _, _)| *start);
-    let mut out = String::with_capacity(html.len());
-    let mut cursor = 0usize;
-    for (start, end, replacement) in replacements {
-        // Skip overlapping/duplicate ranges; a range must begin at or after the cursor.
-        if start < cursor || end < start || end >= html.len() {
-            continue;
+    let mut out = if replacements.is_empty() {
+        html.to_string()
+    } else {
+        replacements.sort_by_key(|(start, _, _)| *start);
+        let mut out = String::with_capacity(html.len());
+        let mut cursor = 0usize;
+        for (start, end, replacement) in replacements {
+            // Skip overlapping/duplicate ranges; a range must begin at or after the cursor.
+            if start < cursor || end < start || end >= html.len() {
+                continue;
+            }
+            out.push_str(&html[cursor..start]);
+            out.push_str(&replacement);
+            cursor = end + 1;
         }
-        out.push_str(&html[cursor..start]);
-        out.push_str(&replacement);
-        cursor = end + 1;
+        out.push_str(&html[cursor..]);
+        out
+    };
+
+    // InlinedStyle: drop the now-redundant stylesheet <link> tags and inject the merged
+    // book CSS as a single <style> block so renderers without data-URI support still get it.
+    if matches!(strategy, AssetDeliveryStrategy::InlinedStyle) && !merged_style_css.is_empty() {
+        let re = regex::Regex::new(
+            r#"(?i)<link\b[^>]*(?:rel\s*=\s*["']stylesheet["']|href\s*=\s*["'][^"']*\.css["'])[^>]*/?>"#,
+        )
+        .unwrap();
+        let cleaned = re.replace_all(&out, "").to_string();
+        let style_block = format!("<style>{}</style>", merged_style_css);
+        if let Some(pos) = cleaned.find("</head>") {
+            out = format!("{}{}{}", &cleaned[..pos], style_block, &cleaned[pos..]);
+        } else {
+            out = format!("{}{}", style_block, cleaned);
+        }
     }
-    out.push_str(&html[cursor..]);
+
+    // Strip <title>...</title> from the delivered HTML: the title belongs in <head> and
+    // must never be rendered as body content (real books ship `<title>Unknown</title>`).
+    out = strip_title_elements(&out);
     out
 }
 
@@ -475,7 +556,7 @@ fn find_ignore_case(s: &str, pat: &str) -> Option<usize> {
 /// Helper to find ONLY `<link ... href="...">` tags for CSS inlining (E5 Fix).
 /// Collect `<link href="...">` stylesheet attributes as `(start, end_inclusive, value)` byte
 /// ranges into `html`, so callers can splice replacements in a single pass.
-fn regex_find_link_css(html: &str) -> Vec<(usize, usize, String)> {
+pub fn regex_find_link_css(html: &str) -> Vec<(usize, usize, String)> {
     let mut list = Vec::new();
     let mut search_idx = 0;
 
@@ -540,6 +621,99 @@ fn extract_attr(tag_str: &str, attr: &str) -> Option<(usize, usize, String)> {
     None
 }
 
+/// Strip `<title>...</title>` elements (case-insensitive, non-greedy) from HTML.
+fn strip_title_elements(html: &str) -> String {
+    let lower = html.to_lowercase();
+    let mut out = String::with_capacity(html.len());
+    let mut cursor = 0usize;
+    let mut search = 0usize;
+    while search < html.len() {
+        // find next "<title" (as a tag, not inside text)
+        let Some(rel) = lower[search..].find("<title") else {
+            break;
+        };
+        let abs = search + rel;
+        // ensure it's a tag boundary: next char after "<title" must be '>' or whitespace
+        let after = abs + 6; // "<title".len()
+        if after < html.len() {
+            let c = html.as_bytes()[after];
+            if c != b'>' && c != b' ' && c != b'\t' && c != b'\n' && c != b'\r' && c != b'/' {
+                search = abs + 6;
+                continue;
+            }
+        }
+        // find closing "</title>"
+        let close_pat = "</title>";
+        let close_rel = lower[abs..].find(close_pat);
+        if let Some(cr) = close_rel {
+            let close_end = abs + cr + close_pat.len();
+            out.push_str(&html[cursor..abs]);
+            cursor = close_end;
+            search = close_end;
+        } else {
+            // no closing tag; drop from <title to end? keep rest to be safe
+            out.push_str(&html[cursor..abs]);
+            cursor = html.len();
+            search = html.len();
+        }
+    }
+    out.push_str(&html[cursor..]);
+    out
+}
+
+/// Helper to find SVG `<image xlink:href="...">` / `<image href="...">` references.
+///
+/// Returns `(start, end_inclusive, value, attr_name)` byte ranges into `html`, where
+/// `start` points at the first character of the attribute name and `end` at the closing quote.
+fn regex_find_svg_image_href(html: &str) -> Vec<(usize, usize, String, &'static str)> {
+    let mut list = Vec::new();
+    let lower = html.to_lowercase();
+    let mut search = 0usize;
+    while search < html.len() {
+        let Some(tag_rel) = lower[search..].find("<image") else {
+            break;
+        };
+        let tag_start = search + tag_rel;
+        let Some(gt_rel) = html[tag_start..].find('>') else {
+            break;
+        };
+        let tag_end = tag_start + gt_rel; // position of '>'
+
+        // Prefer xlink:href, then plain href (SVG 2).
+        let mut found: Option<(usize, usize, String, &'static str)> = None;
+        for attr in ["xlink:href", "href"] {
+            let pat = format!("{}=\"", attr);
+            if let Some(rel) = find_ignore_case(&html[tag_start..tag_end], &pat) {
+                let abs = tag_start + rel;
+                let val_start = abs + attr.len() + 2; // skip attr="
+                if val_start <= tag_end {
+                    if let Some(q) = html[val_start..tag_end].find('"') {
+                        let abs_end = val_start + q;
+                        let val = html[val_start..abs_end].to_string();
+                        found = Some((
+                            abs,
+                            abs_end,
+                            val,
+                            if attr == "xlink:href" {
+                                "xlink:href"
+                            } else {
+                                "href"
+                            },
+                        ));
+                        break;
+                    }
+                }
+            }
+        }
+
+        if let Some(t) = found {
+            list.push(t);
+        }
+        search = tag_end.saturating_add(1);
+    }
+    list
+}
+
 /// Helper to find attributes like `src="..."` or `href="..."` with word boundary checks (E4 Fix).
 ///
 /// Returns `(start, end_inclusive, value)` byte ranges into `html`.
@@ -602,7 +776,7 @@ fn regex_find_attr(html: &str, attr: &str) -> Vec<(usize, usize, String)> {
 }
 
 /// Inline fonts and images inside CSS stylesheet content (P7 Fix: Single-pass streaming builder).
-fn process_css_resources(css: &str, css_path: &str, archive: &EpubArchive) -> String {
+pub fn process_css_resources(css: &str, css_path: &str, archive: &EpubArchive) -> String {
     let css_dir = if let Some(idx) = css_path.rfind('/') {
         &css_path[..idx]
     } else {

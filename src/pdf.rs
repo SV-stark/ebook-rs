@@ -97,7 +97,7 @@ impl PdfBook {
         // us (TOCTOU), but drop it before `open` so the parser does not fight the lock.
         drop(file);
 
-        let mut doc = pdf_oxide::PdfDocument::open(&temp_path).map_err(|e| {
+        let doc = pdf_oxide::PdfDocument::open(&temp_path).map_err(|e| {
             EbookError::InvalidFormat(format!("Failed to open PDF document with pdf_oxide: {}", e))
         })?;
 
@@ -206,6 +206,8 @@ impl PdfBook {
             annotations: crate::annotations::AnnotationManager::default(),
             before_display_hooks: Vec::new(),
             font_deobfuscator: FontDeobfuscator::parse_encryption_xml(""),
+            lcp_passphrase: None,
+            lcp_license: None,
             media_overlays: AHashMap::new(),
             render_cache: parking_lot::Mutex::new(AHashMap::new()),
         };

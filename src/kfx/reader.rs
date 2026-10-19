@@ -247,6 +247,8 @@ impl KfxBook {
             annotations: crate::annotations::AnnotationManager::default(),
             layout: crate::layout::RenditionLayout::default(),
             font_deobfuscator: crate::deobfuscate::FontDeobfuscator::default(),
+            lcp_passphrase: None,
+            lcp_license: None,
             before_display_hooks: Vec::new(),
             media_overlays: AHashMap::new(),
             render_cache: parking_lot::Mutex::new(AHashMap::new()),

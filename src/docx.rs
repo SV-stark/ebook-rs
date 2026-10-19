@@ -54,7 +54,7 @@ impl DocxBook {
         let mut budget = DecompressionBudget::new(MAX_DOCX_MEDIA_TOTAL, MAX_DOCX_MEDIA_SIZE);
         for i in 0..archive.len() {
             if let Ok(mut file) = archive.by_index(i) {
-                let name = file.name().to_string();
+                let name = crate::archive::zip_entry_name(&file);
                 if name.starts_with("word/media/") && !name.ends_with('/') {
                     // Reject entry names that escape the archive root once normalized.
                     let norm = crate::archive::normalize_path(&name);
@@ -367,6 +367,8 @@ impl DocxBook {
             annotations: crate::annotations::AnnotationManager::default(),
             before_display_hooks: Vec::new(),
             font_deobfuscator: FontDeobfuscator::parse_encryption_xml(""),
+            lcp_passphrase: None,
+            lcp_license: None,
             media_overlays: AHashMap::new(),
             render_cache: parking_lot::Mutex::new(AHashMap::new()),
         };

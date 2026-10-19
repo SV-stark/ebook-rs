@@ -63,6 +63,9 @@ impl Default for ViewportManagerConfig {
 #[serde(rename_all = "lowercase")]
 pub enum AssetDeliveryStrategy {
     InlinedBase64,
+    /// Deliver book CSS as an inlined `<style>` block (merged) instead of a base64
+    /// `<link href="data:text/css;base64,...">`. Useful for renderers without data-URI support.
+    InlinedStyle,
     ResourceStream,
 }
 

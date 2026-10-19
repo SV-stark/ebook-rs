@@ -258,6 +258,8 @@ impl Fb2Book {
             annotations: crate::annotations::AnnotationManager::default(),
             before_display_hooks: Vec::new(),
             font_deobfuscator: FontDeobfuscator::parse_encryption_xml(""),
+            lcp_passphrase: None,
+            lcp_license: None,
             media_overlays: AHashMap::new(),
             render_cache: parking_lot::Mutex::new(AHashMap::new()),
         };

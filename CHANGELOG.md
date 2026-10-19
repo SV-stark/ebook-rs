@@ -5,6 +5,28 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.2] - 2026-10-19
+
+### Changed & Improved
+
+- **MSRV Raised to Rust 1.88**:
+  - `rust-version` in `Cargo.toml` bumped from `1.85` to `1.88` (README badge updated to match).
+  - Unblocks dependency versions gated on the 1.88 toolchain.
+
+- **`zip` Upgraded from `7.0` to `9.0`** (resolves to `9.0.5`):
+  - Reverses the v0.16.5 downgrade, which existed only to keep the crate on a Rust 1.85-compatible release line.
+  - Keeps the minimal `default-features = false, features = ["deflate-flate2"]` configuration, so no additional compression backends are pulled in.
+  - Deduplicates the dependency tree: `pdf_oxide`/`office_oxide` already required `zip 9`, so the crate previously compiled two `zip` copies (7.x direct + 9.x transitive). A single `zip 9.0.5` now satisfies both.
+
+### Fixed & Hardened
+
+- **Fallible ZIP Entry Name Decoding (`src/archive.rs`, `src/docx.rs`, `src/odt.rs`)**:
+  - `zip` 9 changed `ZipFile::name()` from returning `&str` to returning `Result<Cow<'_, str>, ZipError>`: it yields the raw bytes when they are valid UTF-8 and otherwise attempts a CP437 decode that can itself fail for bytes which are neither. `zip` 7 always produced a name, so callers relied on receiving a usable string.
+  - Added `archive::zip_entry_name`, which falls back to a lossy decode of the raw bytes on the error path, preserving the previous guarantee that an archive entry can never be silently dropped because of its name. Used at the four entry-enumeration sites in `src/archive.rs` (lazy indexing and eager loading), `src/docx.rs` (`word/media/` extraction) and `src/odt.rs` (`Pictures/` extraction).
+
+- **Test Fixtures Use `SimpleFileOptions` (`tests/test_blackbox_docx_and_rtf.rs`)**:
+  - `zip::write::FileOptions` gained a second lifetime parameter in zip 9. The test fixtures now use the `SimpleFileOptions` alias (`FileOptions<'static, 'static, ()>`), matching `tests/test_blackbox_epub_parsing.rs` and `tests/test_blackbox_multi_format.rs`.
+
 ## [0.17.1] - 2026-10-12
 
 ### Fixed

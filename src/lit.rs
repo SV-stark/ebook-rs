@@ -152,6 +152,8 @@ impl LitBook {
             annotations: crate::annotations::AnnotationManager::default(),
             before_display_hooks: Vec::new(),
             font_deobfuscator: FontDeobfuscator::parse_encryption_xml(""),
+            lcp_passphrase: None,
+            lcp_license: None,
             media_overlays: AHashMap::new(),
             render_cache: parking_lot::Mutex::new(AHashMap::new()),
         };
@@ -177,8 +179,10 @@ fn extract_html_from_lit_bytes(bytes: &[u8]) -> String {
     // Check if container bytes are UTF-16LE encoded
     let text = if bytes.windows(2).any(|w| w == b"<\0") {
         let u16_data: Vec<u16> = bytes
-            .chunks_exact(2)
-            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|chunk| u16::from_le_bytes(*chunk))
             .collect();
         String::from_utf16_lossy(&u16_data)
     } else {

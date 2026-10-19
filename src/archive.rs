@@ -265,7 +265,7 @@ impl EpubArchive {
                 let mut file = zip.by_index(i).map_err(|e| {
                     EbookError::Zip(format!("Failed to read entry index {}: {}", i, e))
                 })?;
-                let name = file.name().to_string();
+                let name = zip_entry_name(&file);
                 if name.ends_with('/') {
                     continue;
                 }
@@ -317,7 +317,7 @@ impl EpubArchive {
                 let mut file = zip.by_index(i).map_err(|e| {
                     EbookError::Zip(format!("Failed to read file index {}: {}", i, e))
                 })?;
-                let name = file.name().to_string();
+                let name = zip_entry_name(&file);
                 if name.ends_with('/') {
                     continue;
                 }
@@ -482,25 +482,31 @@ impl EpubArchive {
             Ok(s.to_string())
         } else if bytes.starts_with(&[0xFE, 0xFF]) {
             let u16_data: Vec<u16> = bytes[2..]
-                .chunks_exact(2)
-                .map(|c| u16::from_be_bytes([c[0], c[1]]))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_be_bytes(*c))
                 .collect();
             Ok(String::from_utf16_lossy(&u16_data))
         } else if bytes.starts_with(&[0xFF, 0xFE]) {
             let u16_data: Vec<u16> = bytes[2..]
-                .chunks_exact(2)
-                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_le_bytes(*c))
                 .collect();
             Ok(String::from_utf16_lossy(&u16_data))
         } else if bytes.windows(2).any(|w| w == b"<\0" || w == b"\0<") {
             let is_le = bytes.windows(2).any(|w| w == b"<\0");
             let u16_data: Vec<u16> = bytes
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|c| {
                     if is_le {
-                        u16::from_le_bytes([c[0], c[1]])
+                        u16::from_le_bytes(*c)
                     } else {
-                        u16::from_be_bytes([c[0], c[1]])
+                        u16::from_be_bytes(*c)
                     }
                 })
                 .collect();
@@ -562,6 +568,23 @@ pub fn normalize_path(path: &str) -> String {
         }
     }
     parts.join("/")
+}
+
+/// Helper function to decode a ZIP entry name without ever failing.
+///
+/// `zip` 9 made [`zip::read::ZipFile::name`] fallible: it yields the raw bytes when they are
+/// valid UTF-8 and otherwise attempts a CP437 decode, which itself fails for bytes that are
+/// neither. `zip` 7 always produced a name (lossy UTF-8 when the UTF-8 flag was set, a CP437
+/// mapping otherwise), so callers were able to rely on getting a usable string back and an
+/// entry could never vanish just because of its name. Decoding the raw bytes lossily on the
+/// error path preserves that guarantee instead of dropping the entry silently.
+pub fn zip_entry_name<R: std::io::Read + std::io::Seek + ?Sized>(
+    file: &zip::read::ZipFile<'_, R>,
+) -> String {
+    match file.name() {
+        Ok(name) => name.into_owned(),
+        Err(_) => String::from_utf8_lossy(file.name_raw()).into_owned(),
+    }
 }
 
 /// Helper function to resolve relative paths against a base directory.

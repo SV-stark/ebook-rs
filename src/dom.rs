@@ -180,6 +180,64 @@ impl EbookDomTree {
         let strip_set: Vec<String> = tags_to_strip.iter().map(|s| s.to_lowercase()).collect();
         strip_nodes(&mut self.root_nodes, &strip_set);
     }
+
+    /// Query all elements matching a CSS selector (tag, #id, .class, [attr], [attr=val],
+    /// descendant and child combinators, comma grouping).
+    pub fn query_selector_all(&self, selector: &str) -> Vec<&DomNode> {
+        let mut result = Vec::new();
+        let selectors = parse_selectors(selector);
+        for node in &self.root_nodes {
+            collect_selector_matches(node, &[], &selectors, &mut result);
+        }
+        result
+    }
+
+    /// Resolve the inline + `<style>`-block styles applicable to a node, returned as a
+    /// property -> value map (later/higher-specificity declarations win).
+    pub fn style_of(&self, node: &DomNode) -> AHashMap<CompactString, CompactString> {
+        // Collect <style> block CSS from the tree.
+        let mut css = String::new();
+        collect_style_text(&self.root_nodes, &mut css);
+        // Parse rules.
+        let rules = parse_css_rules(&css);
+        // Find ancestors of node.
+        let ancestors = find_ancestors(&self.root_nodes, node).unwrap_or_default();
+        // Collect matching rules with specificity.
+        let mut applied: Vec<(Specificity, &CssDeclaration)> = Vec::new();
+        for rule in &rules {
+            for sel in &rule.selectors {
+                if matches_selector_with_ancestors(node, &ancestors, sel) {
+                    for decl in &rule.decls {
+                        applied.push((rule.specificity, decl));
+                    }
+                }
+            }
+        }
+        // Sort by specificity ascending so later wins.
+        applied.sort_by_key(|(s, _)| *s);
+        let mut out = AHashMap::new();
+        for (_, decl) in &applied {
+            out.insert(
+                CompactString::new(&decl.prop),
+                CompactString::new(&decl.val),
+            );
+        }
+        // Inline style overrides everything.
+        if let DomNode::Element { attributes, .. } = node {
+            if let Some(inline) = attributes.get("style") {
+                for part in inline.split(';') {
+                    let part = part.trim();
+                    if part.is_empty() {
+                        continue;
+                    }
+                    if let Some((k, v)) = part.split_once(':') {
+                        out.insert(CompactString::new(k.trim()), CompactString::new(v.trim()));
+                    }
+                }
+            }
+        }
+        out
+    }
 }
 
 fn strip_nodes(nodes: &mut Vec<DomNode>, strip_set: &[String]) {
@@ -760,4 +818,514 @@ mod nesting_tests {
         );
         assert!(check_xml_nesting_depth(&deep).is_err());
     }
+}
+
+// ---- CSS selector engine + style resolution (blocker #3) ----
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+struct Specificity(pub u32, pub u32, pub u32);
+
+#[derive(Clone, Debug)]
+struct SimpleSel {
+    tag: Option<String>,
+    id: Option<String>,
+    classes: Vec<String>,
+    attrs: Vec<(String, Option<String>)>,
+    universal: bool,
+    pseudo: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+struct Compound {
+    simples: Vec<SimpleSel>,
+}
+
+#[derive(Clone, Debug)]
+enum Combinator {
+    Descendant,
+    Child,
+}
+
+#[derive(Clone, Debug)]
+struct Selector {
+    // list of (combinator_before, compound); first has None combinator
+    parts: Vec<(Option<Combinator>, Compound)>,
+}
+
+#[derive(Clone, Debug)]
+struct CssDeclaration {
+    prop: String,
+    val: String,
+}
+
+#[derive(Clone, Debug)]
+struct CssRule {
+    selectors: Vec<Selector>,
+    decls: Vec<CssDeclaration>,
+    specificity: Specificity,
+}
+
+fn parse_simple(s: &str) -> SimpleSel {
+    let s = s.trim();
+    let mut sel = SimpleSel {
+        tag: None,
+        id: None,
+        classes: vec![],
+        attrs: vec![],
+        universal: false,
+        pseudo: vec![],
+    };
+    let mut i = 0;
+    // tag name at start (if not starting with # . [ * :)
+    let mut buf = String::new();
+    // parse leading tag
+    if !s.is_empty() && !matches!(s.chars().next().unwrap(), '#' | '.' | '[' | '*' | ':') {
+        for c in s.chars() {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                buf.push(c);
+                i += c.len_utf8();
+            } else {
+                break;
+            }
+        }
+        if !buf.is_empty() {
+            sel.tag = Some(buf.to_lowercase());
+            buf.clear();
+        }
+    }
+    // universal
+    if s.starts_with('*') {
+        sel.universal = true;
+        i = 1;
+    }
+    // parse rest
+    let rest = &s[i..];
+    let mut j = 0;
+    let chars: Vec<char> = rest.chars().collect();
+    while j < chars.len() {
+        match chars[j] {
+            '#' => {
+                j += 1;
+                let mut name = String::new();
+                while j < chars.len()
+                    && (chars[j].is_alphanumeric() || chars[j] == '-' || chars[j] == '_')
+                {
+                    name.push(chars[j]);
+                    j += 1;
+                }
+                sel.id = Some(name);
+            }
+            '.' => {
+                j += 1;
+                let mut name = String::new();
+                while j < chars.len()
+                    && (chars[j].is_alphanumeric() || chars[j] == '-' || chars[j] == '_')
+                {
+                    name.push(chars[j]);
+                    j += 1;
+                }
+                sel.classes.push(name);
+            }
+            '[' => {
+                // find closing ]
+                let mut depth = 0;
+                let mut k = j;
+                while k < chars.len() {
+                    if chars[k] == '[' {
+                        depth += 1;
+                    }
+                    if chars[k] == ']' {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                    k += 1;
+                }
+                let content: String = chars[j + 1..k].iter().collect();
+                j = k + 1;
+                // parse attr and optional = value
+                let content = content.trim();
+                if let Some(eq) = content.find('=') {
+                    let attr = content[..eq].trim().to_lowercase();
+                    let mut val = content[eq + 1..].trim();
+                    val = val.trim_matches('"').trim_matches('\'');
+                    sel.attrs.push((attr, Some(val.to_string())));
+                } else {
+                    sel.attrs.push((content.to_lowercase(), None));
+                }
+            }
+            ':' => {
+                // pseudo-class: read name and optional (...)
+                j += 1;
+                let mut name = String::new();
+                while j < chars.len() && (chars[j].is_alphanumeric() || chars[j] == '-') {
+                    name.push(chars[j]);
+                    j += 1;
+                }
+                if j < chars.len() && chars[j] == '(' {
+                    // skip until )
+                    while j < chars.len() && chars[j] != ')' {
+                        j += 1;
+                    }
+                    j += 1;
+                }
+                sel.pseudo.push(name);
+            }
+            _ => {
+                j += 1;
+            }
+        }
+    }
+    sel
+}
+
+fn parse_compound(s: &str) -> Compound {
+    // split into simple selectors: tag#id.class[attr]:pseudo chained (no spaces)
+    // A compound is a sequence of simple selectors with no combinator; but our SimpleSel
+    // already captures tag+id+class+attr+pseudo as one compound. Multiple simples chained
+    // like "div.foo" are ONE simple sel. Combinators split compounds.
+    // So a compound string with no spaces/ >/+ /~ is a single SimpleSel.
+    Compound {
+        simples: vec![parse_simple(s.trim())],
+    }
+}
+
+fn parse_selectors(selector: &str) -> Vec<Selector> {
+    let mut out = Vec::new();
+    for group in selector.split(',') {
+        let group = group.trim();
+        if group.is_empty() {
+            continue;
+        }
+        // tokenize combinators: split by whitespace and >
+        // We'll parse by scanning
+        let mut parts: Vec<(Option<Combinator>, Compound)> = Vec::new();
+        // normalize: insert spaces around >
+        let normalized = group.replace('>', " > ");
+        let tokens: Vec<&str> = normalized.split_whitespace().collect();
+        // tokens may be: compound, ">", compound, compound (descendant)...
+        // Reconstruct: a combinator appears as ">" token
+        let mut pending_comb: Option<Combinator> = None;
+        // first part
+        let mut first = true;
+        let mut buf: Vec<&str> = Vec::new();
+        // We'll iterate tokens; when we hit ">", flush buf as a compound with pending comb
+        for tok in &tokens {
+            if *tok == ">" {
+                if !buf.is_empty() {
+                    let compound_str = buf.join("");
+                    let c = parse_compound(&compound_str);
+                    // Actually for first, comb None; for subsequent without explicit >, descendant
+                    let comb = if first {
+                        None
+                    } else if pending_comb.is_some() {
+                        pending_comb.take()
+                    } else {
+                        Some(Combinator::Descendant)
+                    };
+                    parts.push((comb, c));
+                    first = false;
+                    buf.clear();
+                }
+                pending_comb = Some(Combinator::Child);
+            } else {
+                buf.push(tok);
+            }
+        }
+        if !buf.is_empty() {
+            let compound_str = buf.join("");
+            let c = parse_compound(&compound_str);
+            let comb = if first {
+                None
+            } else if pending_comb.is_some() {
+                pending_comb.take()
+            } else {
+                Some(Combinator::Descendant)
+            };
+            parts.push((comb, c));
+        }
+        if !parts.is_empty() {
+            out.push(Selector { parts });
+        }
+    }
+    out
+}
+
+fn simple_matches(node: &DomNode, simple: &SimpleSel) -> bool {
+    let DomNode::Element {
+        tag_name,
+        attributes,
+        ..
+    } = node
+    else {
+        return false;
+    };
+    if simple.universal {
+    } else if let Some(t) = &simple.tag {
+        if tag_name.to_lowercase() != *t {
+            return false;
+        }
+    }
+    if let Some(id) = &simple.id {
+        match attributes.get("id") {
+            Some(v) if v == id => {}
+            _ => return false,
+        }
+    }
+    for cls in &simple.classes {
+        let class_attr = attributes.get("class").cloned().unwrap_or_default();
+        let classes: Vec<&str> = class_attr.split_whitespace().collect();
+        if !classes.contains(&cls.as_str()) {
+            return false;
+        }
+    }
+    for (attr, val) in &simple.attrs {
+        match attributes.get(attr.as_str()) {
+            Some(v) => {
+                if let Some(expected) = val {
+                    if v != expected {
+                        return false;
+                    }
+                }
+            }
+            None => return false,
+        }
+    }
+    for p in &simple.pseudo {
+        // basic pseudo-classes handled in caller context; here just accept :first-child etc. as no-op-ish
+        let _ = p;
+    }
+    true
+}
+
+fn compound_matches(node: &DomNode, compound: &Compound) -> bool {
+    compound.simples.iter().all(|s| simple_matches(node, s))
+}
+
+fn matches_selector_with_ancestors(
+    node: &DomNode,
+    ancestors: &[&DomNode],
+    selector: &Selector,
+) -> bool {
+    // parts: last must match node; walk backwards
+    let n = selector.parts.len();
+    if n == 0 {
+        return false;
+    }
+    // last part
+    let (_, last_compound) = &selector.parts[n - 1];
+    if !compound_matches(node, last_compound) {
+        return false;
+    }
+    if n == 1 {
+        return true;
+    }
+    // walk previous parts
+    let mut current_ancestors = ancestors;
+    for idx in (0..n - 1).rev() {
+        let (comb, compound) = &selector.parts[idx];
+        let is_child = matches!(comb, Some(Combinator::Child));
+        // find an ancestor matching compound
+        if is_child {
+            // immediate parent
+            if current_ancestors.is_empty() {
+                return false;
+            }
+            let parent = current_ancestors[current_ancestors.len() - 1];
+            if !compound_matches(parent, compound) {
+                return false;
+            }
+            // move up one
+            current_ancestors = &current_ancestors[..current_ancestors.len().saturating_sub(1)];
+        } else {
+            // descendant: any ancestor
+            let mut found = false;
+            for i in (0..current_ancestors.len()).rev() {
+                if compound_matches(current_ancestors[i], compound) {
+                    current_ancestors = &current_ancestors[..i];
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn collect_selector_matches<'a>(
+    node: &'a DomNode,
+    ancestors: &[&'a DomNode],
+    selectors: &[Selector],
+    out: &mut Vec<&'a DomNode>,
+) {
+    let mut new_anc = ancestors.to_vec();
+    new_anc.push(node);
+    if let DomNode::Element { children, .. } = node {
+        // test this node
+        for sel in selectors {
+            if matches_selector_with_ancestors(node, ancestors, sel) {
+                out.push(node);
+                break;
+            }
+        }
+        for c in children {
+            collect_selector_matches(c, &new_anc, selectors, out);
+        }
+    }
+}
+
+fn collect_style_text(nodes: &[DomNode], out: &mut String) {
+    for node in nodes {
+        if let DomNode::Element {
+            tag_name, children, ..
+        } = node
+        {
+            if tag_name.eq_ignore_ascii_case("style") {
+                // gather text children
+                for c in children {
+                    if let DomNode::Text(t) = c {
+                        out.push_str(t);
+                        out.push('\n');
+                    }
+                }
+            } else {
+                collect_style_text(children, out);
+            }
+        }
+    }
+}
+
+fn find_ancestors<'a>(nodes: &'a [DomNode], target: &'a DomNode) -> Option<Vec<&'a DomNode>> {
+    // returns ancestors (excluding target) from root
+    fn walk<'a>(nodes: &'a [DomNode], target: *const DomNode, path: &mut Vec<&'a DomNode>) -> bool {
+        for node in nodes {
+            if std::ptr::eq(node as *const DomNode, target) {
+                return true;
+            }
+            if let DomNode::Element { children, .. } = node {
+                path.push(node);
+                if walk(children, target, path) {
+                    return true;
+                }
+                path.pop();
+            }
+        }
+        false
+    }
+    let mut path = Vec::new();
+    if walk(nodes, target as *const DomNode, &mut path) {
+        Some(path)
+    } else {
+        None
+    }
+}
+
+fn parse_css_rules(css: &str) -> Vec<CssRule> {
+    let mut rules = Vec::new();
+    // strip comments
+    let css = strip_css_comments(css);
+    // split into rules by }
+    let mut depth = 0;
+    let mut buf = String::new();
+    let mut chunks: Vec<String> = Vec::new();
+    for c in css.chars() {
+        buf.push(c);
+        if c == '{' {
+            depth += 1;
+        } else if c == '}' {
+            depth -= 1;
+            if depth == 0 {
+                chunks.push(buf.clone());
+                buf.clear();
+            }
+        }
+    }
+    for chunk in chunks {
+        let chunk = chunk.trim();
+        if chunk.is_empty() {
+            continue;
+        }
+        // split selector { decls }
+        let Some(brace) = chunk.find('{') else {
+            continue;
+        };
+        let sel_part = chunk[..brace].trim();
+        let decl_part = chunk[brace + 1..].trim().trim_end_matches('}').trim();
+        if sel_part.is_empty() {
+            continue;
+        }
+        let selectors = parse_selectors(sel_part);
+        // specificity: sum of first selector (approx)
+        let spec = selectors
+            .first()
+            .map(selector_specificity)
+            .unwrap_or(Specificity(0, 0, 0));
+        let mut decls = Vec::new();
+        for d in decl_part.split(';') {
+            let d = d.trim();
+            if d.is_empty() {
+                continue;
+            }
+            if let Some((k, v)) = d.split_once(':') {
+                decls.push(CssDeclaration {
+                    prop: k.trim().to_string(),
+                    val: v.trim().to_string(),
+                });
+            }
+        }
+        if decls.is_empty() {
+            continue;
+        }
+        rules.push(CssRule {
+            selectors,
+            decls,
+            specificity: spec,
+        });
+    }
+    rules
+}
+
+fn selector_specificity(sel: &Selector) -> Specificity {
+    let mut a = 0u32;
+    let mut b = 0u32;
+    let mut c = 0u32;
+    for (_, compound) in &sel.parts {
+        for simple in &compound.simples {
+            if simple.id.is_some() {
+                a += 1;
+            }
+            b += simple.classes.len() as u32
+                + simple.attrs.len() as u32
+                + simple.pseudo.len() as u32;
+            if simple.tag.is_some() {
+                c += 1;
+            }
+            if simple.universal { /* no specificity */ }
+        }
+    }
+    Specificity(a, b, c)
+}
+
+fn strip_css_comments(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    let bytes = s.as_bytes();
+    while i < bytes.len() {
+        if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
+            // find */
+            let mut j = i + 2;
+            while j + 1 < bytes.len() && !(bytes[j] == b'*' && bytes[j + 1] == b'/') {
+                j += 1;
+            }
+            i = j + 2;
+        } else {
+            out.push(bytes[i] as char);
+            i += 1;
+        }
+    }
+    out
 }

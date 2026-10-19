@@ -1,14 +1,14 @@
 use ebook_rs::{Book, DocxBook, RagChunkConfig, RagChunker, RtfBook};
 use std::io::Write;
 use zip::ZipWriter;
-use zip::write::FileOptions;
+use zip::write::SimpleFileOptions;
 
 fn create_synthetic_docx() -> Vec<u8> {
     let mut buf = std::io::Cursor::new(Vec::new());
     {
         let mut zip = ZipWriter::new(&mut buf);
-        let options: FileOptions<'_, ()> =
-            FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        let options: SimpleFileOptions =
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
         // 1. [Content_Types].xml
         zip.start_file("[Content_Types].xml", options).unwrap();
@@ -155,12 +155,12 @@ fn create_synthetic_odt_with_images() -> Vec<u8> {
     let mut buf = std::io::Cursor::new(Vec::new());
     {
         let mut zip = ZipWriter::new(&mut buf);
-        let options: FileOptions<'_, ()> =
-            FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        let options: SimpleFileOptions =
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
         // 1. mimetype (stored uncompressed)
-        let stored_options: FileOptions<'_, ()> =
-            FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        let stored_options: SimpleFileOptions =
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
         zip.start_file("mimetype", stored_options).unwrap();
         zip.write_all(b"application/vnd.oasis.opendocument.text")
             .unwrap();
