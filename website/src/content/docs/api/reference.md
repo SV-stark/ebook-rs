@@ -19,8 +19,14 @@ pub struct Book {
 impl Book {
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, EbookError>;
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, EbookError>;
+    pub fn from_bytes_with_title(bytes: &[u8], title: &str) -> Result<Self, EbookError>;
+    pub fn from_bytes_with_passphrase(bytes: &[u8], title: &str, passphrase: &str) -> Result<Self, EbookError>;
     pub fn get_section(&self, index: usize) -> Result<&Section, EbookError>;
+    pub fn get_section_by_cfi(&self, cfi: &str) -> Result<Section, String>;
+    pub fn get_section_and_offset_by_cfi(&self, cfi: &str) -> Result<(Section, usize), String>;
+    pub fn resolve_cfi(&self, cfi: &str, html: &str) -> Result<(Section, usize, CfiDomTarget), String>;
     pub fn get_all_sections_hydrated(&self) -> Vec<Section>;
+    pub fn get_merged_stylesheet(&self) -> String;
     pub fn search(&self, query: &str) -> Vec<SearchResult>;
     pub fn to_rag_chunks(&self, config: &RagChunkConfig) -> Vec<RagChunk>;
     pub fn to_webpub_manifest(&self) -> Result<WebPubManifest, EbookError>;
