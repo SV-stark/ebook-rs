@@ -87,6 +87,43 @@ let key = RenderCacheKey {
 assert!(book.render_cache.lock().get(&key).is_none()); // not yet rendered
 ```
 
+### CFI Position Resolution & DOM Anchoring
+
+`get_section_by_cfi` historically discarded the in-section offset. The new helpers preserve it for
+exact-position restore, scroll, and highlight anchoring:
+
+```rust
+use ebook_rs::{Book, CfiDomTarget};
+
+let book = Book::from_file("sample.epub")?;
+
+// Section + in-section character offset (measured against section.plain_text)
+let (section, offset) = book.get_section_and_offset_by_cfi("epubcfi(/6/4!/4/2/1:12)")?;
+
+// Full resolution: section, offset, and a CSS selector for the DOM node
+let (section, offset, dom) = book.resolve_cfi("epubcfi(/6/4!/4/2/1:12)", &section.processed_html)?;
+println!("selector: {}", dom.css_selector);
+println!("char_offset: {}", dom.char_offset);
+```
+
+### Merged Book Stylesheet
+
+Renderers without data-URI / `<link>` support can fetch the book's CSS directly:
+
+```rust
+let css: String = book.get_merged_stylesheet(); // all <link rel="stylesheet"> CSS, url() inlined
+```
+
+### LCP Passphrase-Aware Loading
+
+```rust
+// Supply a passphrase at load time for LCP-protected books
+let book = Book::from_bytes_with_passphrase(&bytes, "title", "user_passphrase")?;
+// or, for an already-opened archive:
+let book = Book::from_archive_with_passphrase(archive, Some("user_passphrase"))?;
+// passphrase and parsed license are retained on book.lcp_passphrase / book.lcp_license
+```
+
 ---
 
 ## 1b. Locations & Reading Progress (`locations_from_sections`)
@@ -251,6 +288,12 @@ if license.is_expired("2026-12-01T00:00:00Z") {
 let encrypted_bytes: Vec<u8> = std::fs::read("content/chapter1.xhtml")?;
 let decrypted = LcpDecryptor::decrypt_bytes(&encrypted_bytes, "user_passphrase", &license)?;
 ```
+
+Passphrase-aware loading is also available on `Book` (see §1): `Book::from_bytes_with_passphrase`,
+`Book::from_archive_with_passphrase`, and `Book::from_bytes_with_title_and_passphrase`. The passphrase
+and parsed license are retained on `book.lcp_passphrase` / `book.lcp_license` for per-resource
+decryption. The `META-INF/license.lcpl` path is now resolved correctly (previously the bare
+`license.lcpl` check could never match).
 
 ---
 
@@ -532,6 +575,15 @@ use ebook_rs::dom::EbookDomTree;
 let html = "<div class='chapter'><h1>Title</h1><p>Hello world</p></div>";
 let tree = EbookDomTree::parse(html);
 let clean_html = tree.to_html();
+
+// CSS selector query (tag, #id, .class, [attr], [attr=val], combinators, comma groups)
+let headings = tree.query_selector_all("article.post > h1, h2.title");
+
+// Resolve applicable styles for a node (specificity-ordered, inline style wins)
+if let Some(node) = headings.first() {
+    let styles = tree.style_of(node);
+    println!("{:?}", styles.get("color"));
+}
 ```
 
 ---
