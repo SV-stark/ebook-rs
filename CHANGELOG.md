@@ -5,6 +5,12 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.3] - 2026-10-19
+
+### Fixed & Hardened
+
+- **Changelog accuracy**: the 0.17.2 entry previously omitted the six hard-blocker fixes and the clippy cleanup that shipped in that release. Those changes are now documented above (and below, carried into this patch). No code changes beyond documentation in this release.
+
 ## [0.17.2] - 2026-10-19
 
 ### Changed & Improved
