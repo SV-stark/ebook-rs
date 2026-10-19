@@ -27,6 +27,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Test Fixtures Use `SimpleFileOptions` (`tests/test_blackbox_docx_and_rtf.rs`)**:
   - `zip::write::FileOptions` gained a second lifetime parameter in zip 9. The test fixtures now use the `SimpleFileOptions` alias (`FileOptions<'static, 'static, ()>`), matching `tests/test_blackbox_epub_parsing.rs` and `tests/test_blackbox_multi_format.rs`.
 
+- **Six Hard-Blocker Fixes (audit-driven)**:
+  - **SVG cover inlining (`src/section.rs`)**: resource processing now also rewrites `xlink:href`/`href` on SVG `<image>` elements (new `regex_find_svg_image_href` pass), so SVG-wrapped covers no longer reach the renderer as broken relative paths.
+  - **CSS delivery mode (`src/layout.rs`, `src/section.rs`, `src/book.rs`)**: added `AssetDeliveryStrategy::InlinedStyle`, which delivers book CSS as a single merged `<style>` block instead of base64 `<link>` data URIs, and added `Book::get_merged_stylesheet()` returning the merged, processed stylesheet for renderers without data-URI support. `RenditionLayout::asset_delivery` is now actually consulted by `Book::get_section` (previously hardcoded to `InlinedBase64`).
+  - **Selector engine / computed styles (`src/dom.rs`)**: added `EbookDomTree::query_selector_all` (tag, `#id`, `.class`, `[attr]`, `[attr=val]`, descendant/child combinators, comma grouping) and `EbookDomTree::style_of`, which resolves matching `<style>`-block rules by specificity with inline-style override.
+  - **Title leak (`src/section.rs`)**: `<title>` is now stripped from `processed_html` and skipped in `extract_plain_text`, so `<title>Unknown</title>` no longer contaminates search/TTS/RAG text or char counts.
+  - **LCP reachability (`src/book.rs`, `src/lcp.rs`)**: DRM detection no longer short-circuits unconditionally; added `from_bytes_with_title_and_passphrase` / `from_archive_with_passphrase` / `from_bytes_with_passphrase` so an LCP passphrase can be supplied and the license parsed/validated, with the passphrase and license stored on `Book` for per-resource decryption. Fixed `META-INF/license.lcpl` path (the bare `license.lcpl` check could never match).
+  - **CFI offset preservation (`src/book.rs`, `src/cfi.rs`)**: added `Book::get_section_and_offset_by_cfi` and `Book::resolve_cfi`, exposing the in-section character offset and DOM target (`CfiDomTarget`) that `get_section_by_cfi` previously discarded.
+
+- **Clippy `-D warnings` cleanup (Rust 1.99)**:
+  - Pre-existing lints newly promoted by the 1.99 toolchain: `chunks_exact` → `as_chunks` (`src/archive.rs`, `src/fingerprint.rs`, `src/lcp.rs`, `src/lit.rs`), `% 2 != 0` → `is_multiple_of` (`src/lcp.rs`, `src/rtf.rs`), unused `mut` (`src/pdf.rs`).
+  - New-code lints: `std::ptr::eq` for raw-pointer comparison and removal of a redundant closure (`src/dom.rs`).
+
 ## [0.17.1] - 2026-10-12
 
 ### Fixed
