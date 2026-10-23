@@ -1,20 +1,35 @@
 name: Publish to npm
 
 on:
+  # Publishing is driven by the GitHub Release so that the npm version, the
+  # PyPI version and the release notes all come from the same tag. The old
+  # `push: tags` trigger is intentionally gone: together with `release` it
+  # produced two concurrent publishes per release, and the loser failed.
   release:
     types: [published]
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
+
+# Never run two publishes at once; npm rejects duplicate versions.
+concurrency:
+  group: npm-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   publish-npm:
+    name: Publish to npm
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required for npm Trusted Publishing (OIDC) and for the provenance
+      # attestation npm attaches to the tarball.
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust Toolchain
+      - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -22,16 +37,24 @@ jobs:
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
-      - name: Build WebAssembly Package
+      - name: Build WebAssembly package
         run: wasm-pack build --target web --out-dir pkg -- --no-default-features --features wasm
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
+          # Trusted publishing needs Node >= 22.14 and npm >= 11.5.1.
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
+      - name: Show package manifest
+        working-directory: pkg
+        run: |
+          node -e "const p=require('./package.json'); console.log(p.name + '@' + p.version); console.log('repository:', p.repository && p.repository.url)"
+
+      # No NODE_AUTH_TOKEN and no NPM_TOKEN: the npm CLI detects the GitHub
+      # Actions OIDC environment and exchanges the ID token for short-lived
+      # publish credentials (npm Trusted Publishing).
       - name: Publish to npm
-        run: cd pkg && npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        working-directory: pkg
+        run: npm publish --access public

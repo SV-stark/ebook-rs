@@ -30,6 +30,13 @@ classifiers = [
     "Topic :: Text Processing :: Markup",
 ]
 
+[project.urls]
+Homepage = "https://sv-stark.github.io/ebook-rs/"
+Documentation = "https://sv-stark.github.io/ebook-rs/"
+Repository = "https://github.com/SV-stark/ebook-rs"
+Changelog = "https://github.com/SV-stark/ebook-rs/blob/main/CHANGELOG.md"
+Issues = "https://github.com/SV-stark/ebook-rs/issues"
+
 [tool.maturin]
 features = ["python"]
 module-name = "ebook_rs"

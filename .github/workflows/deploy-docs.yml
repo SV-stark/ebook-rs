@@ -28,7 +28,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # Astro 7 requires Node >= 22.23.4; the runner's cached 22.23.3 made
+          # `npm run build` abort with "Node.js v22.23.3 is not supported".
+          node-version: '24'
+          check-latest: true
           cache: 'npm'
           cache-dependency-path: 'website/package.json'
 
