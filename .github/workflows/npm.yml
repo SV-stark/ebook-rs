@@ -17,6 +17,14 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # The registry rejects the unscoped name `ebook-rs` with
+  # `400 Bad Request - That word is not allowed`, so the package lives under
+  # the user scope. wasm-pack regenerates pkg/package.json on every build and
+  # ignores [package.metadata.wasm-pack.package], so the name is patched here.
+  NPM_PACKAGE_NAME: '@svstark/ebook-rs'
+  NPM_REPOSITORY_URL: 'https://github.com/SV-stark/ebook-rs'
+
 jobs:
   publish-npm:
     name: Publish to npm
@@ -46,6 +54,14 @@ jobs:
           # Trusted publishing needs Node >= 22.14 and npm >= 11.5.1.
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
+
+      # wasm-pack derives `name` from the crate name and ignores the
+      # [package.metadata.wasm-pack.package] table in Cargo.toml.
+      - name: Fix package manifest for npm
+        working-directory: pkg
+        run: |
+          npm pkg set "name=$NPM_PACKAGE_NAME"
+          npm pkg set "repository.type=git" "repository.url=$NPM_REPOSITORY_URL"
 
       - name: Show package manifest
         working-directory: pkg

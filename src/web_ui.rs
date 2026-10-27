@@ -40,6 +40,17 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
             --border-color: #f59e0b;
         }
 
+        body.theme-midnight {
+            --bg-primary: #000000;
+            --bg-surface: #0a0a0c;
+            --bg-hover: #18181b;
+            --accent: #38bdf8;
+            --accent-hover: #0284c7;
+            --text-primary: #f1f5f9;
+            --text-secondary: #a1a1aa;
+            --border-color: #27272a;
+        }
+
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
@@ -330,6 +341,231 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
             margin-top: 4px;
             font-family: 'Fira Code', monospace;
         }
+
+        .sidebar-footer {
+            padding: 12px 16px;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            gap: 8px;
+            background: var(--bg-surface);
+            margin-top: auto;
+        }
+
+        /* Modal Dialogs */
+        .modal-backdrop {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.65);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        .modal-backdrop.open {
+            display: flex;
+            opacity: 1;
+        }
+
+        .modal-box {
+            background: var(--bg-surface);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            width: 100%;
+            max-width: 580px;
+            max-height: 85vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+            animation: modalSlideUp 0.2s ease forwards;
+            overflow: hidden;
+        }
+
+        @keyframes modalSlideUp {
+            from { transform: translateY(16px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .modal-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .modal-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-close {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 1.4rem;
+            line-height: 1;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: all 0.15s ease;
+        }
+
+        .btn-close:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+
+        .modal-body {
+            padding: 20px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .modal-footer {
+            padding: 12px 20px;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            background: rgba(0, 0, 0, 0.12);
+        }
+
+        .settings-section {
+            margin-bottom: 22px;
+        }
+
+        .settings-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .settings-section-title {
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--accent);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .setting-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            gap: 16px;
+        }
+
+        .setting-label {
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .setting-desc {
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+
+        .setting-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .select-input {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .select-input:focus {
+            border-color: var(--accent);
+        }
+
+        .about-badge-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 14px 0;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            background: var(--bg-hover);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.78rem;
+            font-weight: 500;
+        }
+
+        .badge-accent {
+            background: rgba(59, 130, 246, 0.15);
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .about-info-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+
+        .about-info-table td {
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .about-info-table td:first-child {
+            color: var(--text-secondary);
+            width: 32%;
+            font-weight: 500;
+        }
+
+        .about-shortcuts {
+            background: var(--bg-hover);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 10px 14px;
+            font-size: 0.82rem;
+        }
+
+        .shortcut-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px 0;
+        }
+
+        .kbd {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-family: monospace;
+            font-size: 0.75rem;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        }
     </style>
 </head>
 <body class="theme-dark">
@@ -353,6 +589,8 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
             <button class="btn" id="btn-theme-sepia">📜 Sepia</button>
             <button class="btn" id="btn-font-dec">A-</button>
             <button class="btn" id="btn-font-inc">A+</button>
+            <button class="btn" id="btn-open-settings" title="Reader Settings">⚙️ Settings</button>
+            <button class="btn" id="btn-open-about" title="About App">ℹ️ About</button>
         </div>
     </header>
 
@@ -376,6 +614,10 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
             <div id="tab-annotations" class="tab-content">
                 <div id="annotations-list">No annotations yet. Select text in book to highlight.</div>
             </div>
+            <div class="sidebar-footer">
+                <button class="btn" style="flex:1; justify-content:center;" id="btn-sidebar-settings">⚙️ Settings</button>
+                <button class="btn" style="flex:1; justify-content:center;" id="btn-sidebar-about">ℹ️ About App</button>
+            </div>
         </sidebar>
 
         <div class="reader-stage" id="reader-stage">
@@ -390,6 +632,267 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
                 <div class="color-dot" style="background:#bfdbfe" onclick="addHighlight('#bfdbfe')"></div>
                 <div class="color-dot" style="background:#fbcfe8" onclick="addHighlight('#fbcfe8')"></div>
                 <button class="btn" style="padding:2px 6px; font-size:0.75rem;" onclick="addBookmark()">📌 Bookmark</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal-backdrop" id="modal-settings">
+        <div class="modal-box" role="dialog" aria-labelledby="modal-settings-title" aria-modal="true">
+            <div class="modal-header">
+                <div class="modal-title" id="modal-settings-title">⚙️ Reader Settings</div>
+                <button class="btn-close" id="btn-close-settings-x" aria-label="Close settings">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="settings-section">
+                    <div class="settings-section-title">🎨 Appearance & Theme</div>
+                    <div class="setting-row">
+                        <div>
+                            <div class="setting-label">Color Theme</div>
+                            <div class="setting-desc">Reading palette and interface contrast</div>
+                        </div>
+                        <div class="setting-control">
+                            <select id="setting-theme" class="select-input">
+                                <option value="theme-dark">🌙 Dark (Default)</option>
+                                <option value="theme-light">☀️ Light</option>
+                                <option value="theme-sepia">📜 Sepia</option>
+                                <option value="theme-midnight">🖤 Midnight (OLED)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <div class="settings-section-title">🔤 Typography</div>
+                    <div class="setting-row">
+                        <div>
+                            <div class="setting-label">Font Family</div>
+                            <div class="setting-desc">Typeface used for rendering book text</div>
+                        </div>
+                        <div class="setting-control">
+                            <select id="setting-font-family" class="select-input">
+                                <option value="Georgia, 'Times New Roman', serif">Serif (Georgia)</option>
+                                <option value="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">Sans-Serif (System)</option>
+                                <option value="'Merriweather', Palatino, serif">Literary (Merriweather)</option>
+                                <option value="'Fira Code', 'Courier New', monospace">Monospace (Fira Code)</option>
+                                <option value="'OpenDyslexic', 'Comic Sans MS', sans-serif">Dyslexic-friendly</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="setting-row">
+                        <div>
+                            <div class="setting-label">Font Size</div>
+                            <div class="setting-desc">Base text size for comfortable reading</div>
+                        </div>
+                        <div class="setting-control">
+                            <input type="range" id="setting-font-size" min="12" max="36" step="1" value="18">
+                            <span id="setting-font-size-val" style="min-width: 44px; text-align: right; font-weight: 600;">18px</span>
+                        </div>
+                    </div>
+                    <div class="setting-row">
+                        <div>
+                            <div class="setting-label">Line Spacing</div>
+                            <div class="setting-desc">Vertical height between lines of text</div>
+                        </div>
+                        <div class="setting-control">
+                            <select id="setting-line-height" class="select-input">
+                                <option value="1.4">Compact (1.4)</option>
+                                <option value="1.7">Normal (1.7)</option>
+                                <option value="2.0">Relaxed (2.0)</option>
+                                <option value="2.3">Spacious (2.3)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="setting-row">
+                        <div>
+                            <div class="setting-label">Text Alignment</div>
+                            <div class="setting-desc">Justify or left-align paragraph text</div>
+                        </div>
+                        <div class="setting-control">
+                            <select id="setting-text-align" class="select-input">
+                                <option value="justify">Justified</option>
+                                <option value="left">Left Aligned</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <div class="settings-section-title">📐 Layout & Dimensions</div>
+                    <div class="setting-row">
+                        <div>
+                            <div class="setting-label">Spread Mode</div>
+                            <div class="setting-desc">Single page view or 2-page open book spread</div>
+                        </div>
+                        <div class="setting-control">
+                            <select id="setting-spread" class="select-input">
+                                <option value="single">Single Page</option>
+                                <option value="double">2-Page Double Spread</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="setting-row">
+                        <div>
+                            <div class="setting-label">Flow Mode</div>
+                            <div class="setting-desc">Paginated page turns or vertical scroll</div>
+                        </div>
+                        <div class="setting-control">
+                            <select id="setting-flow" class="select-input">
+                                <option value="paginated">Paginated</option>
+                                <option value="scrolled">Continuous Scroll</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="setting-row">
+                        <div>
+                            <div class="setting-label">Reading Column Width</div>
+                            <div class="setting-desc">Maximum width of reading text column</div>
+                        </div>
+                        <div class="setting-control">
+                            <select id="setting-max-width" class="select-input">
+                                <option value="650">Narrow (650px)</option>
+                                <option value="800">Standard (800px)</option>
+                                <option value="1050">Wide (1050px)</option>
+                                <option value="100%">Full Width (100%)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="setting-row">
+                        <div>
+                            <div class="setting-label">Page Margins</div>
+                            <div class="setting-desc">Inner padding around book content</div>
+                        </div>
+                        <div class="setting-control">
+                            <select id="setting-padding" class="select-input">
+                                <option value="20">Compact (20px)</option>
+                                <option value="32">Normal (32px)</option>
+                                <option value="48">Spacious (48px)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" id="btn-reset-settings">↺ Reset to Defaults</button>
+                <button class="btn active" id="btn-close-settings">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- About App Modal -->
+    <div class="modal-backdrop" id="modal-about">
+        <div class="modal-box" role="dialog" aria-labelledby="modal-about-title" aria-modal="true">
+            <div class="modal-header">
+                <div class="modal-title" id="modal-about-title">ℹ️ About ebook-rs</div>
+                <button class="btn-close" id="btn-close-about-x" aria-label="Close about">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="text-align: center; margin-bottom: 16px;">
+                    <div style="font-size: 1.6rem; font-weight: 700; display: inline-flex; align-items: center; gap: 8px;">
+                        📖 ebook-rs
+                        <span id="about-version" class="badge badge-accent">v0.17.3</span>
+                    </div>
+                    <p id="about-description" style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 6px;">
+                        Pure Rust multi-format eBook engine & modern web reader
+                    </p>
+                </div>
+
+                <div class="about-badge-grid" style="justify-content: center;">
+                    <span class="badge">🦀 100% Pure Rust</span>
+                    <span class="badge">⚡ Zero-Copy Parser</span>
+                    <span class="badge">📚 13+ Formats</span>
+                    <span class="badge">🎯 Readium CFI & LCP</span>
+                    <span class="badge">🤖 Native MCP Server</span>
+                    <span class="badge">🧠 AI RAG BM25</span>
+                    <span class="badge">📜 Continuous & Spread</span>
+                </div>
+
+                <div class="settings-section" style="margin-top: 16px;">
+                    <div class="settings-section-title">📖 Active Book Information</div>
+                    <table class="about-info-table">
+                        <tbody>
+                            <tr>
+                                <td>Title</td>
+                                <td id="about-book-title" style="font-weight: 600;">Loading...</td>
+                            </tr>
+                            <tr>
+                                <td>Author(s)</td>
+                                <td id="about-book-author">Loading...</td>
+                            </tr>
+                            <tr>
+                                <td>Identifier</td>
+                                <td id="about-book-id" style="font-family: monospace; font-size: 0.8rem;">Loading...</td>
+                            </tr>
+                            <tr>
+                                <td>Spine Sections</td>
+                                <td id="about-book-spine">1 items</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="settings-section">
+                    <div class="settings-section-title">📂 Supported eBook Formats</div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 6px; font-size: 0.78rem;">
+                        <span class="badge">EPUB 2 / EPUB 3 (.epub)</span>
+                        <span class="badge">Kindle MOBI (.mobi)</span>
+                        <span class="badge">Kindle AZW / AZW3 (.azw3)</span>
+                        <span class="badge">Kindle KFX (.kfx)</span>
+                        <span class="badge">FictionBook (.fb2)</span>
+                        <span class="badge">Comic Archives (.cbz)</span>
+                        <span class="badge">PDF Documents (.pdf)</span>
+                        <span class="badge">Microsoft Word (.docx)</span>
+                        <span class="badge">OpenDocument (.odt)</span>
+                        <span class="badge">Rich Text (.rtf)</span>
+                        <span class="badge">Text & Markdown (.txt, .md)</span>
+                        <span class="badge">Microsoft Reader (.lit)</span>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <div class="settings-section-title">⌨️ Keyboard Navigation Shortcuts</div>
+                    <div class="about-shortcuts">
+                        <div class="shortcut-item">
+                            <span>Next page / Scroll down</span>
+                            <span><span class="kbd">→</span> or <span class="kbd">Space</span></span>
+                        </div>
+                        <div class="shortcut-item">
+                            <span>Previous page / Scroll up</span>
+                            <span><span class="kbd">←</span></span>
+                        </div>
+                        <div class="shortcut-item">
+                            <span>Close modals / Close menu</span>
+                            <span><span class="kbd">Esc</span></span>
+                        </div>
+                        <div class="shortcut-item">
+                            <span>Create Highlight / Bookmark</span>
+                            <span><span class="kbd">Select Text</span></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-section" style="margin-bottom: 0;">
+                    <div class="settings-section-title">🔗 Project & License</div>
+                    <table class="about-info-table">
+                        <tbody>
+                            <tr>
+                                <td>Author</td>
+                                <td>SV-Stark</td>
+                            </tr>
+                            <tr>
+                                <td>License</td>
+                                <td>MIT License</td>
+                            </tr>
+                            <tr>
+                                <td>Repository</td>
+                                <td><a href="https://github.com/SV-stark/ebook-rs" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none;">github.com/SV-stark/ebook-rs</a></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn active" id="btn-close-about">Close</button>
             </div>
         </div>
     </div>
@@ -412,6 +915,127 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
         let selectedCfiRange = "";
         let selectedText = "";
 
+        const defaultSettings = {
+            theme: 'theme-dark',
+            fontSize: 18,
+            fontFamily: "Georgia, 'Times New Roman', serif",
+            lineHeight: 1.7,
+            textAlign: 'justify',
+            maxWidth: '800',
+            pagePadding: 32,
+            spread: 'single',
+            flow: 'paginated'
+        };
+
+        let appSettings = Object.assign({}, defaultSettings);
+
+        function loadSettings() {
+            try {
+                const s = localStorage.getItem('ebook_rs_settings');
+                if (s) {
+                    const parsed = JSON.parse(s);
+                    appSettings = Object.assign({}, defaultSettings, parsed);
+                }
+            } catch (e) {
+                console.warn('Could not read settings from localStorage', e);
+            }
+        }
+
+        function saveSettings() {
+            try {
+                localStorage.setItem('ebook_rs_settings', JSON.stringify(appSettings));
+            } catch (e) {
+                console.warn('Could not save settings to localStorage', e);
+            }
+        }
+
+        function syncSettingsControls() {
+            const setVal = (id, val) => {
+                const el = document.getElementById(id);
+                if (el && val !== undefined) el.value = val;
+            };
+            setVal('setting-theme', appSettings.theme);
+            setVal('setting-font-family', appSettings.fontFamily);
+            setVal('setting-font-size', appSettings.fontSize);
+            const sizeLabel = document.getElementById('setting-font-size-val');
+            if (sizeLabel) sizeLabel.innerText = `${appSettings.fontSize}px`;
+            setVal('setting-line-height', String(appSettings.lineHeight));
+            setVal('setting-text-align', appSettings.textAlign);
+            setVal('setting-spread', appSettings.spread);
+            setVal('setting-flow', appSettings.flow);
+            setVal('setting-max-width', String(appSettings.maxWidth));
+            setVal('setting-padding', String(appSettings.pagePadding));
+        }
+
+        function applySettings(newSettings, reload = true) {
+            appSettings = Object.assign({}, appSettings, newSettings);
+            saveSettings();
+
+            fontSize = Number(appSettings.fontSize) || 18;
+            isDoubleSpread = (appSettings.spread === 'double');
+            isScrolledFlow = (appSettings.flow === 'scrolled');
+
+            document.body.className = appSettings.theme || 'theme-dark';
+
+            const btnSingle = document.getElementById('btn-spread-single');
+            const btnDouble = document.getElementById('btn-spread-double');
+            if (btnSingle && btnDouble) {
+                btnSingle.classList.toggle('active', !isDoubleSpread);
+                btnDouble.classList.toggle('active', isDoubleSpread);
+            }
+
+            const btnPaginated = document.getElementById('btn-flow-paginated');
+            const btnScrolled = document.getElementById('btn-flow-scrolled');
+            if (btnPaginated && btnScrolled) {
+                btnPaginated.classList.toggle('active', !isScrolledFlow);
+                btnScrolled.classList.toggle('active', isScrolledFlow);
+            }
+            const stage = document.getElementById('reader-stage');
+            if (stage) {
+                stage.classList.toggle('scrolled-mode', isScrolledFlow);
+            }
+
+            syncSettingsControls();
+
+            if (reload) {
+                loadSection(currentSpineIndex);
+            }
+        }
+
+        function openModal(id) {
+            closeAllModals();
+            const modal = document.getElementById(id);
+            if (modal) modal.classList.add('open');
+        }
+
+        function closeAllModals() {
+            document.querySelectorAll('.modal-backdrop').forEach(m => m.classList.remove('open'));
+        }
+
+        let appInfoLoaded = false;
+        async function openAboutModal() {
+            openModal('modal-about');
+            if (!appInfoLoaded) {
+                try {
+                    const res = await fetch('/api/app/info');
+                    if (res.ok) {
+                        const info = await res.json();
+                        if (info.version) {
+                            const vEl = document.getElementById('about-version');
+                            if (vEl) vEl.innerText = `v${info.version}`;
+                        }
+                        if (info.description) {
+                            const dEl = document.getElementById('about-description');
+                            if (dEl) dEl.innerText = info.description;
+                        }
+                        appInfoLoaded = true;
+                    }
+                } catch (e) {
+                    console.warn("Could not load /api/app/info", e);
+                }
+            }
+        }
+
         const sidebar = document.getElementById('sidebar');
         const sectionFrame = document.getElementById('section-frame');
         const selectionToolbar = document.getElementById('selection-toolbar');
@@ -433,13 +1057,25 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
 
         async function initReader() {
             try {
+                loadSettings();
+                applySettings({}, false);
+
                 const metaRes = await fetch('/api/book/metadata');
                 const meta = await metaRes.json();
                 document.getElementById('lbl-title').innerText = meta.title || "EPUB Book";
 
+                const abTitle = document.getElementById('about-book-title');
+                if (abTitle) abTitle.innerText = meta.title || "Untitled";
+                const abAuthor = document.getElementById('about-book-author');
+                if (abAuthor) abAuthor.innerText = (meta.creators && meta.creators.length > 0) ? meta.creators.join(', ') : "Unknown";
+                const abId = document.getElementById('about-book-id');
+                if (abId) abId.innerText = meta.identifier || "N/A";
+
                 const spineRes = await fetch('/api/book/spine');
                 const spine = await spineRes.json();
                 totalSpineSections = spine.length;
+                const abSpine = document.getElementById('about-book-spine');
+                if (abSpine) abSpine.innerText = `${spine.length} items`;
 
                 const tocRes = await fetch('/api/book/toc');
                 const toc = await tocRes.json();
@@ -514,11 +1150,21 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
             if (index < 0 || index >= totalSpineSections) return;
             currentSpineIndex = index;
 
-            const isLight = document.body.classList.contains('theme-light');
-            const isSepia = document.body.classList.contains('theme-sepia');
-            const fgColor = isLight ? '#0f172a' : (isSepia ? '#451a03' : '#f8fafc');
-            const pageBg = isLight ? '#ffffff' : (isSepia ? '#fbf0d9' : '#1e293b');
-            const borderCol = isLight ? '#e2e8f0' : (isSepia ? '#e7d8b8' : '#334155');
+            const theme = appSettings.theme || 'theme-dark';
+            const isLight = theme === 'theme-light';
+            const isSepia = theme === 'theme-sepia';
+            const isMidnight = theme === 'theme-midnight';
+            const fgColor = isLight ? '#0f172a' : (isSepia ? '#451a03' : (isMidnight ? '#f1f5f9' : '#f8fafc'));
+            const pageBg = isLight ? '#ffffff' : (isSepia ? '#fbf0d9' : (isMidnight ? '#000000' : '#1e293b'));
+            const borderCol = isLight ? '#e2e8f0' : (isSepia ? '#e7d8b8' : (isMidnight ? '#27272a' : '#334155'));
+
+            const fontFamily = appSettings.fontFamily || "Georgia, 'Times New Roman', serif";
+            const currentFontSize = Number(appSettings.fontSize) || fontSize || 18;
+            const lineHeight = appSettings.lineHeight || 1.7;
+            const textAlign = appSettings.textAlign || 'justify';
+            const maxWidth = appSettings.maxWidth === '100%' ? '100%' : (typeof appSettings.maxWidth === 'number' ? `${appSettings.maxWidth}px` : (appSettings.maxWidth ? (String(appSettings.maxWidth).endsWith('px') ? appSettings.maxWidth : `${appSettings.maxWidth}px`) : '800px'));
+            const padding = Number(appSettings.pagePadding) || 32;
+            const hPadding = Math.round(padding * 1.5);
 
             if (isDoubleSpread) {
                 // Real 2-Page Open Book Spread (Left Page = Section N, Right Page = Section N+1)
@@ -539,14 +1185,14 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
                                 height: 100vh;
                                 overflow: hidden;
                                 background: transparent;
-                                font-family: Georgia, 'Times New Roman', serif;
+                                font-family: ${fontFamily};
                             }
                             .book-spread {
                                 display: flex;
                                 flex-direction: row;
                                 gap: 28px;
                                 height: calc(100vh - 40px);
-                                max-width: 1350px;
+                                max-width: 1400px;
                                 margin: 20px auto;
                                 padding: 0 24px;
                                 box-sizing: border-box;
@@ -561,7 +1207,7 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
                                 color: ${fgColor};
                                 border-radius: 8px;
                                 box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
-                                padding: 28px 36px;
+                                padding: ${padding}px ${hPadding}px;
                                 box-sizing: border-box;
                                 border: 1px solid ${borderCol};
                                 overflow: hidden;
@@ -569,8 +1215,10 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
                             .page-content {
                                 flex: 1;
                                 overflow-y: auto;
-                                font-size: ${fontSize}px;
-                                line-height: 1.7;
+                                font-family: ${fontFamily};
+                                font-size: ${currentFontSize}px;
+                                line-height: ${lineHeight};
+                                text-align: ${textAlign};
                                 padding-right: 8px;
                             }
                             .page-footer {
@@ -635,13 +1283,14 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
                                 background: transparent;
                             }
                             body {
-                                font-family: Georgia, 'Times New Roman', serif;
-                                font-size: ${fontSize}px;
-                                line-height: 1.7;
+                                font-family: ${fontFamily};
+                                font-size: ${currentFontSize}px;
+                                line-height: ${lineHeight};
+                                text-align: ${textAlign};
                                 color: ${fgColor};
-                                padding: 32px 48px;
+                                padding: ${padding}px ${hPadding}px;
                                 margin: 0 auto;
-                                max-width: 800px;
+                                max-width: ${maxWidth};
                                 box-sizing: border-box;
                             }
                             a { color: #3b82f6; }
@@ -892,57 +1541,97 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
 
         // Feature 4: Spread Mode Handlers
         document.getElementById('btn-spread-single').addEventListener('click', () => {
-            isDoubleSpread = false;
-            document.getElementById('btn-spread-single').classList.add('active');
-            document.getElementById('btn-spread-double').classList.remove('active');
-            loadSection(currentSpineIndex);
+            applySettings({ spread: 'single' });
         });
         document.getElementById('btn-spread-double').addEventListener('click', () => {
-            isDoubleSpread = true;
-            document.getElementById('btn-spread-double').classList.add('active');
-            document.getElementById('btn-spread-single').classList.remove('active');
-            loadSection(currentSpineIndex);
+            applySettings({ spread: 'double' });
         });
 
         // Feature 6: Flow Mode Handlers (Paginated vs Scrolled)
         document.getElementById('btn-flow-paginated').addEventListener('click', () => {
-            isScrolledFlow = false;
-            document.getElementById('reader-stage').classList.remove('scrolled-mode');
-            document.getElementById('btn-flow-paginated').classList.add('active');
-            document.getElementById('btn-flow-scrolled').classList.remove('active');
-            loadSection(currentSpineIndex);
+            applySettings({ flow: 'paginated' });
         });
         document.getElementById('btn-flow-scrolled').addEventListener('click', () => {
-            isScrolledFlow = true;
-            document.getElementById('reader-stage').classList.add('scrolled-mode');
-            document.getElementById('btn-flow-scrolled').classList.add('active');
-            document.getElementById('btn-flow-paginated').classList.remove('active');
-            loadSection(currentSpineIndex);
+            applySettings({ flow: 'scrolled' });
         });
 
         document.getElementById('btn-prev').addEventListener('click', goPrev);
         document.getElementById('btn-next').addEventListener('click', goNext);
 
         document.getElementById('btn-theme-dark').addEventListener('click', () => {
-            document.body.className = 'theme-dark';
-            loadSection(currentSpineIndex);
+            applySettings({ theme: 'theme-dark' });
         });
         document.getElementById('btn-theme-light').addEventListener('click', () => {
-            document.body.className = 'theme-light';
-            loadSection(currentSpineIndex);
+            applySettings({ theme: 'theme-light' });
         });
         document.getElementById('btn-theme-sepia').addEventListener('click', () => {
-            document.body.className = 'theme-sepia';
-            loadSection(currentSpineIndex);
+            applySettings({ theme: 'theme-sepia' });
         });
 
         document.getElementById('btn-font-inc').addEventListener('click', () => {
-            fontSize += 2;
-            loadSection(currentSpineIndex);
+            applySettings({ fontSize: Math.min(36, (Number(appSettings.fontSize) || 18) + 2) });
         });
         document.getElementById('btn-font-dec').addEventListener('click', () => {
-            if (fontSize > 12) fontSize -= 2;
-            loadSection(currentSpineIndex);
+            applySettings({ fontSize: Math.max(12, (Number(appSettings.fontSize) || 18) - 2) });
+        });
+
+        // Modal triggers (Header & Sidebar)
+        document.getElementById('btn-open-settings').addEventListener('click', () => openModal('modal-settings'));
+        document.getElementById('btn-open-about').addEventListener('click', openAboutModal);
+        document.getElementById('btn-sidebar-settings').addEventListener('click', () => {
+            sidebar.classList.remove('open');
+            openModal('modal-settings');
+        });
+        document.getElementById('btn-sidebar-about').addEventListener('click', () => {
+            sidebar.classList.remove('open');
+            openAboutModal();
+        });
+
+        document.getElementById('btn-close-settings').addEventListener('click', closeAllModals);
+        document.getElementById('btn-close-settings-x').addEventListener('click', closeAllModals);
+        document.getElementById('btn-close-about').addEventListener('click', closeAllModals);
+        document.getElementById('btn-close-about-x').addEventListener('click', closeAllModals);
+
+        document.querySelectorAll('.modal-backdrop').forEach(b => {
+            b.addEventListener('click', (e) => {
+                if (e.target === b) closeAllModals();
+            });
+        });
+
+        // Settings interactive bindings
+        document.getElementById('setting-theme').addEventListener('change', (e) => {
+            applySettings({ theme: e.target.value });
+        });
+        document.getElementById('setting-font-family').addEventListener('change', (e) => {
+            applySettings({ fontFamily: e.target.value });
+        });
+        document.getElementById('setting-font-size').addEventListener('input', (e) => {
+            const val = parseInt(e.target.value, 10);
+            const lbl = document.getElementById('setting-font-size-val');
+            if (lbl) lbl.innerText = `${val}px`;
+            applySettings({ fontSize: val });
+        });
+        document.getElementById('setting-line-height').addEventListener('change', (e) => {
+            applySettings({ lineHeight: parseFloat(e.target.value) });
+        });
+        document.getElementById('setting-text-align').addEventListener('change', (e) => {
+            applySettings({ textAlign: e.target.value });
+        });
+        document.getElementById('setting-spread').addEventListener('change', (e) => {
+            applySettings({ spread: e.target.value });
+        });
+        document.getElementById('setting-flow').addEventListener('change', (e) => {
+            applySettings({ flow: e.target.value });
+        });
+        document.getElementById('setting-max-width').addEventListener('change', (e) => {
+            applySettings({ maxWidth: e.target.value });
+        });
+        document.getElementById('setting-padding').addEventListener('change', (e) => {
+            applySettings({ pagePadding: parseInt(e.target.value, 10) });
+        });
+
+        document.getElementById('btn-reset-settings').addEventListener('click', () => {
+            applySettings(defaultSettings);
         });
 
         document.getElementById('btn-search-go').addEventListener('click', async () => {
@@ -962,6 +1651,23 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
         });
 
         window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeAllModals();
+                if (sidebar.classList.contains('open')) {
+                    sidebar.classList.remove('open');
+                }
+                return;
+            }
+
+            const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+            if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') {
+                return;
+            }
+
+            if (document.querySelector('.modal-backdrop.open')) {
+                return;
+            }
+
             if (e.key === 'ArrowRight' || e.key === ' ') {
                 e.preventDefault();
                 goNext();
@@ -977,3 +1683,55 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
 </body>
 </html>
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_reader_html_structure_and_options() {
+        assert!(READER_HTML.starts_with("<!DOCTYPE html>"));
+        assert!(READER_HTML.trim_end().ends_with("</html>"));
+
+        // Header options
+        assert!(READER_HTML.contains("id=\"btn-open-settings\""));
+        assert!(READER_HTML.contains("id=\"btn-open-about\""));
+
+        // Sidebar options
+        assert!(READER_HTML.contains("id=\"btn-sidebar-settings\""));
+        assert!(READER_HTML.contains("id=\"btn-sidebar-about\""));
+
+        // Settings modal & controls
+        assert!(READER_HTML.contains("id=\"modal-settings\""));
+        assert!(READER_HTML.contains("id=\"setting-theme\""));
+        assert!(READER_HTML.contains("id=\"setting-font-family\""));
+        assert!(READER_HTML.contains("id=\"setting-font-size\""));
+        assert!(READER_HTML.contains("id=\"setting-line-height\""));
+        assert!(READER_HTML.contains("id=\"setting-text-align\""));
+        assert!(READER_HTML.contains("id=\"setting-spread\""));
+        assert!(READER_HTML.contains("id=\"setting-flow\""));
+        assert!(READER_HTML.contains("id=\"setting-max-width\""));
+        assert!(READER_HTML.contains("id=\"setting-padding\""));
+        assert!(READER_HTML.contains("id=\"btn-reset-settings\""));
+        assert!(READER_HTML.contains("id=\"btn-close-settings\""));
+
+        // About modal & metadata
+        assert!(READER_HTML.contains("id=\"modal-about\""));
+        assert!(READER_HTML.contains("id=\"about-version\""));
+        assert!(READER_HTML.contains("id=\"about-description\""));
+        assert!(READER_HTML.contains("id=\"about-book-title\""));
+        assert!(READER_HTML.contains("id=\"about-book-author\""));
+        assert!(READER_HTML.contains("id=\"about-book-id\""));
+        assert!(READER_HTML.contains("id=\"about-book-spine\""));
+        assert!(READER_HTML.contains("id=\"btn-close-about\""));
+
+        // API Endpoint binding
+        assert!(READER_HTML.contains("/api/app/info"));
+
+        // Themes
+        assert!(READER_HTML.contains("theme-dark"));
+        assert!(READER_HTML.contains("theme-light"));
+        assert!(READER_HTML.contains("theme-sepia"));
+        assert!(READER_HTML.contains("theme-midnight"));
+    }
+}

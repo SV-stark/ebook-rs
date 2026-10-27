@@ -177,6 +177,39 @@ impl ReaderServer {
                         );
                     }
 
+                    "/api/app/info" | "/api/version" => {
+                        let info = serde_json::json!({
+                            "name": env!("CARGO_PKG_NAME"),
+                            "version": env!("CARGO_PKG_VERSION"),
+                            "description": env!("CARGO_PKG_DESCRIPTION"),
+                            "repository": env!("CARGO_PKG_REPOSITORY"),
+                            "license": "MIT",
+                            "formats": [
+                                "EPUB 2/3 (.epub)",
+                                "Amazon Kindle (.mobi, .azw, .azw3)",
+                                "Amazon KFX (.kfx)",
+                                "FictionBook (.fb2)",
+                                "Comic Book (.cbz)",
+                                "PDF (.pdf)",
+                                "Microsoft Word (.docx)",
+                                "OpenDocument (.odt)",
+                                "Rich Text Format (.rtf)",
+                                "Plain Text & Markdown (.txt, .md)",
+                                "Microsoft Reader (.lit)"
+                            ],
+                            "features": [
+                                "Readium Canonical Fragment Identifiers (CFI)",
+                                "DOM Selection-to-CFI Annotation & Highlights",
+                                "Dual-Page Open Book Spread & Continuous Scroll",
+                                "Zero-Copy BM25 & Substring Search",
+                                "Native Model Context Protocol (MCP) Server",
+                                "AI RAG BM25 Smart Semantic Chunking",
+                                "Readium LCP Decryption & AES-CBC-128"
+                            ]
+                        });
+                        send_json(request, 200, &info.to_string());
+                    }
+
                     // ---- Authenticated routes -------------------------------------------
                     "/api/mcp" => {
                         // Auth is enforced for every state-changing route, not just this one.
@@ -958,5 +991,13 @@ mod tests {
         ] {
             assert!(!is_active_content_type(mime), "{mime} should be inert");
         }
+    }
+
+    #[test]
+    fn app_info_metadata_valid() {
+        let pkg_name = env!("CARGO_PKG_NAME");
+        let pkg_ver = env!("CARGO_PKG_VERSION");
+        assert_eq!(pkg_name, "ebook-rs");
+        assert!(!pkg_ver.is_empty());
     }
 }
