@@ -998,7 +998,7 @@ impl Book {
 
     /// Perform full-text search across all spine sections (hydrating lazy sections if needed).
     ///
-    /// Applies [`SearchEngine::DEFAULT_MAX_RESULTS`]. Use [`Self::search_limited`] to choose a
+    /// Applies [`crate::search::DEFAULT_MAX_RESULTS`]. Use [`Self::search_limited`] to choose a
     /// different cap.
     pub fn search(&self, query: &str) -> Vec<SearchResult> {
         self.search_limited(query, None)

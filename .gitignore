@@ -12,3 +12,4 @@ corpus/
 /pkg/
 # machine-local cargo config (disables the global kache wrapper for this repo)
 /.cargo/
+hp.pdf

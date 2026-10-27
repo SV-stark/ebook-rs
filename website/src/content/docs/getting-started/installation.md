@@ -30,7 +30,7 @@ cargo add ebook-rs
 | `opds` | OPDS 1.2 / 2.0 catalog feeds | ✅ Yes |
 | `python` | PyO3 Python bindings | ❌ No |
 | `wasm` | WebAssembly (`wasm-bindgen`) bindings | ❌ No |
-| `pdf` | Native PDF spatial reflow engine (`pdf_oxide`) | ❌ No |
+| `pdf` | Native PDF spatial reflow engine (`unpdf`) | ❌ No |
 
 ---
 

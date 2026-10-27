@@ -200,7 +200,7 @@ impl Section {
         annotated
     }
 
-    /// Strip embedded <script> tags, inline event attributes (on*="..."), and javascript: URIs.
+    /// Strip embedded `<script>` tags, inline event attributes (`on*="..."`), and `javascript:` URIs.
     pub fn strip_script_content(&mut self) {
         self.processed_html = sanitize_html_scripts(&self.processed_html);
     }
@@ -888,7 +888,7 @@ pub fn parse_viewport_meta(html: &str) -> (Option<f64>, Option<f64>) {
     (None, None)
 }
 
-/// Sanitize HTML content by stripping <script> blocks, inline event handlers, and javascript: links.
+/// Sanitize HTML content by stripping `<script>` blocks, inline event handlers, and `javascript:` links.
 pub fn sanitize_html_scripts(html: &str) -> String {
     let mut output = String::with_capacity(html.len());
     let len = html.len();

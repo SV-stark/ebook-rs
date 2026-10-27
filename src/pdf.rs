@@ -14,97 +14,18 @@ use crate::{
 #[cfg(feature = "pdf")]
 use ahash::AHashMap;
 
-/// PDF Document Parser using pre-extracted text / markdown via `pdf_oxide`.
+/// PDF Document Parser using pre-extracted text / markdown via `unpdf`.
 pub struct PdfBook;
-
-#[cfg(feature = "pdf")]
-use std::sync::atomic::{AtomicU64, Ordering};
-
-#[cfg(feature = "pdf")]
-static TEMP_PDF_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-#[cfg(feature = "pdf")]
-struct TempPdfGuard(std::path::PathBuf);
-
-#[cfg(feature = "pdf")]
-impl Drop for TempPdfGuard {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
-    }
-}
 
 impl PdfBook {
     /// Parse raw PDF byte data into a `Book` struct.
     #[cfg(feature = "pdf")]
     pub fn parse(bytes: &[u8], title_fallback: &str) -> Result<Book, EbookError> {
-        // `pdf_oxide` can only open a path, so the input has to be spooled to disk. Create the
-        // file with `create_new` (O_EXCL) rather than `fs::write` (O_CREAT|O_TRUNC): the name is
-        // derived from pid + timestamp + counter and is therefore predictable, so a co-tenant on
-        // a shared temp directory could pre-create it as a symlink and have an arbitrary file
-        // truncated and overwritten. Retrying with a fresh name keeps the caller's bytes private.
-        const MAX_TEMP_ATTEMPTS: u32 = 8;
-        // Installed as soon as the file exists so that *every* subsequent early return cleans it
-        // up. It used to be created after `write_all`/`flush`, so a failed write on a full or
-        // quota-exhausted temp volume leaked one zero-byte file per call.
-        let mut _guard: Option<TempPdfGuard> = None;
-        let mut temp_path = std::path::PathBuf::new();
-        let mut file = None;
-        for _ in 0..MAX_TEMP_ATTEMPTS {
-            let counter = TEMP_PDF_COUNTER.fetch_add(1, Ordering::Relaxed);
-            let candidate = std::env::temp_dir().join(format!(
-                "ebook_rs_temp_{}_{}_{}.pdf",
-                std::process::id(),
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_nanos())
-                    .unwrap_or(0),
-                counter
-            ));
-            match std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&candidate)
-            {
-                Ok(f) => {
-                    _guard = Some(TempPdfGuard(candidate.clone()));
-                    temp_path = candidate;
-                    file = Some(f);
-                    break;
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(e) => {
-                    return Err(EbookError::InvalidFormat(format!(
-                        "Failed to create temporary PDF file: {}",
-                        e
-                    )));
-                }
-            }
-        }
-        let mut file = file.ok_or_else(|| {
-            EbookError::InvalidFormat(
-                "Failed to create a unique temporary PDF file after several attempts".to_string(),
-            )
+        let doc = unpdf::parse_bytes(bytes).map_err(|e| {
+            EbookError::InvalidFormat(format!("Failed to parse PDF document with unpdf: {}", e))
         })?;
 
-        use std::io::Write;
-        file.write_all(bytes).map_err(|e| {
-            EbookError::InvalidFormat(format!("Failed to write temporary PDF file: {}", e))
-        })?;
-        file.flush().map_err(|e| {
-            EbookError::InvalidFormat(format!("Failed to flush temporary PDF file: {}", e))
-        })?;
-        // Keep the handle open until parsing completes so the path cannot be swapped underneath
-        // us (TOCTOU), but drop it before `open` so the parser does not fight the lock.
-        drop(file);
-
-        let doc = pdf_oxide::PdfDocument::open(&temp_path).map_err(|e| {
-            EbookError::InvalidFormat(format!("Failed to open PDF document with pdf_oxide: {}", e))
-        })?;
-
-        let page_count = doc.page_count().map_err(|e| {
-            EbookError::InvalidFormat(format!("Failed to get PDF page count: {}", e))
-        })?;
-
+        let page_count = doc.page_count() as usize;
         if page_count == 0 {
             return Err(EbookError::InvalidFormat(
                 "PDF document contains 0 pages".to_string(),
@@ -116,13 +37,15 @@ impl PdfBook {
         let mut spine = Vec::with_capacity(capacity);
         let mut toc = Vec::with_capacity(capacity);
 
-        for page_idx in 0..page_count {
-            let raw_md = doc
-                .to_markdown(page_idx, &Default::default())
-                .unwrap_or_else(|_| match doc.extract_text(page_idx) {
-                    Ok(txt) => txt,
-                    Err(_) => format!("<p>Page {}</p>", page_idx + 1),
-                });
+        let render_options = unpdf::RenderOptions::default();
+
+        for (page_idx, page) in doc.pages.iter().enumerate() {
+            let page_options = render_options
+                .clone()
+                .with_pages(unpdf::PageSelection::Pages(vec![page.number]));
+
+            let raw_md = unpdf::render::to_markdown(&doc, &page_options)
+                .unwrap_or_else(|_| format!("<p>Page {}</p>", page.number));
 
             let markdown_content = reflow_two_column_markdown(&raw_md);
             let raw_html = markdown_to_html(&markdown_content, page_idx + 1);
@@ -142,8 +65,16 @@ impl PdfBook {
                 plain_text,
                 plain_text_lower,
                 char_count,
-                viewport_width: None,
-                viewport_height: None,
+                viewport_width: if page.width > 0.0 {
+                    Some(page.width as f64)
+                } else {
+                    None
+                },
+                viewport_height: if page.height > 0.0 {
+                    Some(page.height as f64)
+                } else {
+                    None
+                },
             });
 
             spine.push(SpineItem {
@@ -164,17 +95,48 @@ impl PdfBook {
             });
         }
 
+        let title = doc
+            .metadata
+            .title
+            .filter(|t| !t.trim().is_empty())
+            .unwrap_or_else(|| title_fallback.to_string());
+
+        let creators = doc
+            .metadata
+            .author
+            .filter(|a| !a.trim().is_empty())
+            .map(|a| vec![a])
+            .unwrap_or_else(|| vec!["PDF Document".to_string()]);
+
+        let subjects = doc
+            .metadata
+            .keywords
+            .filter(|k| !k.trim().is_empty())
+            .map(|k| {
+                k.split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
+            .unwrap_or_else(|| vec!["PDF".to_string()]);
+
+        let description = doc
+            .metadata
+            .subject
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| Some(format!("PDF Document ({} pages)", page_count)));
+
         let metadata = Metadata {
-            title: title_fallback.to_string(),
-            creators: vec!["PDF Document".to_string()],
+            title,
+            creators,
             publishers: Vec::new(),
             languages: vec!["en".to_string()],
             rights: None,
-            description: Some(format!("PDF Document ({} pages)", page_count)),
+            description,
             identifier: None,
             pub_date: None,
             modified_date: None,
-            subjects: vec!["PDF".to_string()],
+            subjects,
             cover_id: None,
             cover_href: None,
             direction: PageProgressionDirection::Ltr,

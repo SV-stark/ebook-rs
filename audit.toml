@@ -3,11 +3,8 @@
 # - RUSTSEC-2020-0144 (lzw): unmaintained; no longer in the dependency tree after the
 #   zip 7 -> 9 / image 0.24 -> 0.25 upgrade (zip 9 dropped the lzw/tiff path).
 # - RUSTSEC-2024-0436 (paste): no longer maintained; removed from the tree.
-# - RUSTSEC-2026-0192 (ttf-parser): unmaintained; pulled in transitively by pdf_oxide 0.3.78
-#   for font parsing. No maintained replacement is available in the current pdf_oxide release;
-#   track upstream for an update and remove this ignore once pdf_oxide switches parsers.
+# - RUSTSEC-2026-0192 (ttf-parser): removed from the tree with the migration from pdf_oxide to unpdf.
 ignore = [
     "RUSTSEC-2020-0144",
     "RUSTSEC-2024-0436",
-    "RUSTSEC-2026-0192",
 ]

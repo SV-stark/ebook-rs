@@ -14,7 +14,7 @@ description: Detailed comparison of ebook-rs against foliate-js, epub.js, and rb
 | **KEPUB (Kobo EPUB)** | ✅ Native | ❌ No | ✅ Yes | ❌ No |
 | **LIT (Microsoft Reader)** | ✅ Native | ❌ No | ✅ Yes | ❌ No |
 | **CBZ (Comic Book ZIP)** | ✅ Native ZIP Images | ❌ No | ✅ Yes | ❌ No |
-| **PDF 2-Column Reflow** | ✅ `pdf_oxide` spatial reflow | ❌ No | ❌ No | ❌ No |
+| **PDF 2-Column Reflow** | ✅ `unpdf` spatial reflow | ❌ No | ❌ No | ❌ No |
 | **DOCX (Microsoft Word)** | ✅ Native WordML | ❌ No | ❌ No | ❌ No |
 | **RTF (Rich Text Format)** | ✅ Native Control Words | ❌ No | ❌ No | ❌ No |
 

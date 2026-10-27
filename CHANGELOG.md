@@ -5,6 +5,27 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2026-10-27
+
+### Changed & Improved
+
+- **Replaced `pdf_oxide` with `unpdf` for In-Memory PDF Parsing**:
+  - Replaced `pdf_oxide` with `unpdf 0.51` (`fast-parse`, `refine` features) in `src/pdf.rs`.
+  - **Zero Disk Spooling**: Replaced temporary file creation and `TempPdfGuard` / `TEMP_PDF_COUNTER` disk-spooling hacks with pure in-memory parsing directly from byte buffers via `unpdf::parse_bytes(bytes)`.
+  - **Structured Markdown Page Rendering**: Extracted pages are rendered to clean, structured Markdown using `unpdf::render::to_markdown(&doc, &page_options)`.
+  - **Metadata & Geometry Extraction**: Retains page dimensions (`page.width`, `page.height`) and extracts standard document metadata (`title`, `author`, `keywords`, `subject`).
+  - **Massive Dependency Tree Reduction**: Pruned ~845 lines of heavy transitive dependencies from `Cargo.lock` (including `office_oxide`, `tiny-skia`, `ttf-parser`, `taffy`, and `image`).
+  - **Unblocks Downstream Crates**: Resolves transitive dependency friction where `office_oxide 0.1.12+` broke `pdf_oxide 0.3.78` due to a newly required `defined_names` field in `DocumentIR`, removing the need for downstream consumers (like `eParna`) to pin `office_oxide = "=0.1.11"`.
+
+### Fixed & Hardened
+
+- **Dependency Security Audit**:
+  - Removed obsolete advisory ignore `RUSTSEC-2026-0192` (`ttf-parser`) in `audit.toml`, as `ttf-parser` is no longer present in the crate's dependency tree.
+- **Rustdoc Intra-Doc Links & HTML Tag Validation**:
+  - Resolved broken intra-doc link to `crate::search::DEFAULT_MAX_RESULTS` in `src/book.rs`.
+  - Escaped bracketed CFI identifiers in `src/cfi.rs` and selector syntax in `src/dom.rs`.
+  - Wrapped SMIL elements (`<text>`, `<audio>`, `<par>`, `<seq>`) and `<script>` sanitization tags in code spans in `src/media_overlay.rs` and `src/section.rs`, eliminating all rustdoc compiler warnings.
+
 ## [0.17.3] - 2026-10-19
 
 ### Fixed & Hardened

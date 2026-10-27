@@ -790,7 +790,7 @@ pub const READER_HTML: &str = r#"<!DOCTYPE html>
                 <div style="text-align: center; margin-bottom: 16px;">
                     <div style="font-size: 1.6rem; font-weight: 700; display: inline-flex; align-items: center; gap: 8px;">
                         📖 ebook-rs
-                        <span id="about-version" class="badge badge-accent">v0.17.3</span>
+                        <span id="about-version" class="badge badge-accent">v0.18.0</span>
                     </div>
                     <p id="about-description" style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 6px;">
                         Pure Rust multi-format eBook engine & modern web reader

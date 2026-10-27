@@ -171,7 +171,7 @@ impl SmilClock {
     }
 }
 
-/// Text target reference inside a SMIL parallel node (<text src="...">).
+/// Text target reference inside a SMIL parallel node (`<text src="...">`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SmilTextRef {
     pub src: String,
@@ -179,7 +179,7 @@ pub struct SmilTextRef {
     pub element_id: Option<String>,
 }
 
-/// Audio clip payload inside a SMIL parallel node (<audio src="..." clipBegin="..." clipEnd="...">).
+/// Audio clip payload inside a SMIL parallel node (`<audio src="..." clipBegin="..." clipEnd="...">`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SmilAudioClip {
     pub src: String,
@@ -188,7 +188,7 @@ pub struct SmilAudioClip {
     pub clip_end: f64,
 }
 
-/// A synchronized parallel pair element (<par>).
+/// A synchronized parallel pair element (`<par>`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MediaOverlayParallel {
     pub id: Option<String>,
@@ -196,7 +196,7 @@ pub struct MediaOverlayParallel {
     pub audio: Option<SmilAudioClip>,
 }
 
-/// A SMIL sequence container (<seq>).
+/// A SMIL sequence container (`<seq>`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MediaOverlaySequence {
     pub id: Option<String>,

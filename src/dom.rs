@@ -181,7 +181,7 @@ impl EbookDomTree {
         strip_nodes(&mut self.root_nodes, &strip_set);
     }
 
-    /// Query all elements matching a CSS selector (tag, #id, .class, [attr], [attr=val],
+    /// Query all elements matching a CSS selector (`tag`, `#id`, `.class`, `[attr]`, `[attr=val]`,
     /// descendant and child combinators, comma grouping).
     pub fn query_selector_all(&self, selector: &str) -> Vec<&DomNode> {
         let mut result = Vec::new();

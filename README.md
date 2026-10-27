@@ -50,7 +50,7 @@
 | **FB2 (FictionBook 2) Support** | ✅ Native XML + xlink:href | ❌ No | ✅ Yes | ❌ No |
 | **LIT (Microsoft Reader) Support** | ✅ Native | ❌ No | ✅ Yes | ❌ No |
 | **CBZ (Comic Book ZIP) Support** | ✅ Native ZIP Images | ❌ No | ✅ Yes | ❌ No |
-| **PDF Support & Two-Column Reflow** | ✅ `pdf_oxide` + reading-order reflow | ❌ No | ❌ No | ❌ No |
+| **PDF Support & Two-Column Reflow** | ✅ `unpdf` + reading-order reflow | ❌ No | ❌ No | ❌ No |
 | **ODT (OpenDocument Text)** | ✅ Native XML + `content.xml` | ❌ No | ❌ No | ❌ No |
 | **DOCX (Microsoft Word)** | ✅ Native WordML + `rdocx` | ❌ No | ❌ No | ❌ No |
 | **RTF (Rich Text Format)** | ✅ Native Control Words + Unicode | ❌ No | ❌ No | ❌ No |
@@ -168,7 +168,7 @@ Add `ebook-rs` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ebook-rs = "0.17.3"
+ebook-rs = "0.18.0"
 ```
 
 Or install via `cargo`:

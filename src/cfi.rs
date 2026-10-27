@@ -24,7 +24,7 @@ pub struct CfiPath {
     pub offset: Option<CfiOffset>,
 }
 
-/// A single step in a CFI path (e.g. /6/4[chap01ref]!).
+/// A single step in a CFI path (e.g. `/6/4[chap01ref]!`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CfiStep {
     pub index: usize,
