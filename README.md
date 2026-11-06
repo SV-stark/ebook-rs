@@ -31,6 +31,7 @@
 - [💻 CLI Usage](#-cli-usage)
 - [📚 Complete API Reference](#-complete-api-reference)
 - [🏗️ Architecture Overview](#-architecture-overview)
+- [⚠️ Known Limitations](#️-known-limitations)
 - [🤝 Contributing](#-contributing)
 - [🙏 Acknowledgments](#-acknowledgments--credits)
 - [📜 License](#-license)
@@ -270,7 +271,7 @@ ebook-rs mcp --sandbox-root /path/to/ebooks
 }
 ```
 
-> See detailed MCP documentation in [`docs/MCP_SERVER.md`](file:///E:/ebook-rs/docs/MCP_SERVER.md).
+> See detailed MCP documentation in [`docs/MCP_SERVER.md`](docs/MCP_SERVER.md).
 
 ---
 
@@ -309,8 +310,8 @@ Both flags also read from the environment: `EBOOK_RS_AUTH_TOKEN` and `EBOOK_RS_S
 ## 📚 Complete API Reference
 
 For detailed function signatures, struct documentation, and module guides, refer to:
-- **[`API.md`](file:///E:/ebook-rs/API.md)**: Full API reference guide.
-- **[`docs/MCP_SERVER.md`](file:///E:/ebook-rs/docs/MCP_SERVER.md)**: Model Context Protocol (MCP) server specification.
+- **[`API.md`](API.md)**: Full API reference guide.
+- **[`docs/MCP_SERVER.md`](docs/MCP_SERVER.md)**: Model Context Protocol (MCP) server specification.
 - **[Docs.rs Documentation](https://docs.rs/ebook-rs)**: Generated Rust API docs.
 
 ---
@@ -336,6 +337,24 @@ For detailed function signatures, struct documentation, and module guides, refer
 - **`src/mcp.rs`**: Model Context Protocol (MCP 2024-11-05) JSON-RPC stdio & HTTP server.
 - **`src/section.rs`**: Lazy on-demand section hydration and Base64 asset inlining.
 - **`src/validator.rs`**: Structural EPUB 2/3 validator and multi-threaded EPUB3/KFX exporter.
+
+---
+
+## ⚠️ Known Limitations
+
+Format support is broad but not uniformly deep. Know these before depending on a format:
+
+| Area | Status |
+|---|---|
+| **EPUB 2/3, TXT, MD, FB2, CBZ** | Primary, best-tested paths. |
+| **CBR (RAR)** | **Not supported.** Opening one returns an error asking you to convert to CBZ. |
+| **PDF** | Behind the opt-in `pdf` feature (not in `default`). Text is extracted via the third-party `unpdf` crate and rendered as Markdown sections; quality (reading order, columns, scanned/image-only PDFs) depends on that crate. No OCR. |
+| **MOBI / AZW3 / KFX** | DRM-protected files are rejected with `DrmProtected`; DRM is never removed. KFX is a clean-room implementation, not validated against every Amazon-produced file. |
+| **LIT** | No LZX decompression is implemented, so LIT files that use compressed streams may not open. |
+| **Readium LCP** | Parses licenses and AES-256-CBC-decrypts content given a passphrase. Does **not** verify the license signature or certificate chain, and is not a certified LCP implementation. |
+| **Layout / pagination** | `ReflowPaginator` is an approximation with no real font metrics; do not expect pixel-identical pages to any reading system. |
+| **HTTP reader server** | Binds to `127.0.0.1` only and is unauthenticated unless `--auth-token` / `EBOOK_RS_AUTH_TOKEN` is set. The bundled web UI does not send the token, so most routes work in the UI only when auth is disabled. Use only on trusted machines; there is no TLS. |
+| **Benchmarks** | The Calibre comparison covers a handful of samples on one machine and is not a general performance guarantee. |
 
 ---
 
@@ -375,4 +394,4 @@ Contributions are warmly welcomed! Whether you are adding support for a new eBoo
 
 ## 📜 License
 
-Distributed under the **MIT License**. See [`LICENSE`](file:///E:/ebook-rs/LICENSE) for more information.
+Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for more information.

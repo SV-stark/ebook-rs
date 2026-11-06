@@ -6,7 +6,7 @@ Welcome to the official developer wiki for **`ebook-rs`**.
 
 ## 📚 Quick Links
 
-- [Complete API Reference Guide](docs/API.md)
+- [Complete API Reference Guide](API.md)
 - [Project Changelog](CHANGELOG.md)
 - [GitHub Repository](https://github.com/SV-stark/ebook-rs)
 - [Crates.io Package](https://crates.io/crates/ebook-rs)
