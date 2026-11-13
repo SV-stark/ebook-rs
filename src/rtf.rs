@@ -196,16 +196,16 @@ impl RtfBook {
                         &cur_state,
                     );
                     if in_pict {
-                        if !pict_hex.is_empty() {
-                            if let Ok(bin) = hex_to_bytes(&pict_hex) {
-                                img_counter += 1;
-                                let img_name = format!("images/img_{}.{}", img_counter, pict_type);
-                                archive.insert(&img_name, bin);
-                                current_html.push_str(&format!(
-                                    "<p><img src=\"{}\" alt=\"image\" /></p>\n",
-                                    img_name
-                                ));
-                            }
+                        if !pict_hex.is_empty()
+                            && let Ok(bin) = hex_to_bytes(&pict_hex)
+                        {
+                            img_counter += 1;
+                            let img_name = format!("images/img_{}.{}", img_counter, pict_type);
+                            archive.insert(&img_name, bin);
+                            current_html.push_str(&format!(
+                                "<p><img src=\"{}\" alt=\"image\" /></p>\n",
+                                img_name
+                            ));
                         }
                         in_pict = false;
                         pict_hex.clear();
@@ -622,7 +622,8 @@ impl RtfBook {
             lcp_passphrase: None,
             lcp_license: None,
             media_overlays: AHashMap::new(),
-            render_cache: parking_lot::Mutex::new(AHashMap::new()),
+            render_cache: Default::default(),
+            hydrated_cache: Default::default(),
         };
 
         book.generate_locations(1000);

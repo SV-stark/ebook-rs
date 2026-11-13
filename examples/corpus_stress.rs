@@ -124,7 +124,7 @@ fn main() {
                     "| `{}` | {} | ✅ OK | {} sections | {}ms |",
                     file_name,
                     size_kb,
-                    book.sections.len(),
+                    book.sections().len(),
                     elapsed_ms
                 );
             }

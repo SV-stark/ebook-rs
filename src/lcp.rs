@@ -79,17 +79,17 @@ impl LcpLicense {
 
     /// Check if rights license has expired.
     pub fn is_expired(&self, current_iso_date: &str) -> bool {
-        if let Some(ref rights) = self.rights {
-            if let Some(ref end) = rights.end {
-                let cur_ts = parse_iso_date_to_seconds(current_iso_date, false);
-                let end_ts = parse_iso_date_to_seconds(end, true);
-                if let (Some(cur), Some(end)) = (cur_ts, end_ts) {
-                    return cur > end;
-                }
-                let cur_norm = normalize_iso_timestamp(current_iso_date, false);
-                let end_norm = normalize_iso_timestamp(end, true);
-                return cur_norm > end_norm;
+        if let Some(ref rights) = self.rights
+            && let Some(ref end) = rights.end
+        {
+            let cur_ts = parse_iso_date_to_seconds(current_iso_date, false);
+            let end_ts = parse_iso_date_to_seconds(end, true);
+            if let (Some(cur), Some(end)) = (cur_ts, end_ts) {
+                return cur > end;
             }
+            let cur_norm = normalize_iso_timestamp(current_iso_date, false);
+            let end_norm = normalize_iso_timestamp(end, true);
+            return cur_norm > end_norm;
         }
         false
     }
@@ -231,83 +231,74 @@ impl LcpDecryptor {
         let user_key_bytes: [u8; 32] = sha256_hash(passphrase.as_bytes());
 
         // Validate passphrase against license key_check if present
-        if let Some(ref encryption) = license.encryption {
-            if let Some(ref user_key) = encryption.user_key {
-                if let Some(key_check) = user_key.get("key_check").and_then(|v| v.as_str()) {
-                    let mut valid = false;
-                    // Check if key_check is encrypted license id (hex or base64)
-                    if let Ok(kc_bytes) = hex_decode(key_check).or_else(|_| {
-                        base64::engine::general_purpose::STANDARD
-                            .decode(key_check)
-                            .map_err(|_| ())
-                    }) {
-                        if kc_bytes.len() >= 16 {
-                            let kc_iv: [u8; 16] = kc_bytes[..16].try_into().unwrap_or([0u8; 16]);
-                            let kc_cipher = &kc_bytes[16..];
-                            let decryptor = cbc::Decryptor::<Aes256>::new(
-                                &user_key_bytes.into(),
-                                &kc_iv.into(),
-                            );
-                            let mut buf = kc_cipher.to_vec();
-                            if let Ok(decrypted) = decryptor.decrypt_padded::<Pkcs7>(&mut buf) {
-                                if let Ok(s) = std::str::from_utf8(decrypted) {
-                                    if s == license.id {
-                                        valid = true;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if !valid {
-                        return Err(
-                            "Invalid passphrase for Readium LCP protected eBook".to_string()
-                        );
-                    }
+        if let Some(ref encryption) = license.encryption
+            && let Some(ref user_key) = encryption.user_key
+            && let Some(key_check) = user_key.get("key_check").and_then(|v| v.as_str())
+        {
+            let mut valid = false;
+            // Check if key_check is encrypted license id (hex or base64)
+            if let Ok(kc_bytes) = hex_decode(key_check).or_else(|_| {
+                base64::engine::general_purpose::STANDARD
+                    .decode(key_check)
+                    .map_err(|_| ())
+            }) && kc_bytes.len() >= 16
+            {
+                let kc_iv: [u8; 16] = kc_bytes[..16].try_into().unwrap_or([0u8; 16]);
+                let kc_cipher = &kc_bytes[16..];
+                let decryptor =
+                    cbc::Decryptor::<Aes256>::new(&user_key_bytes.into(), &kc_iv.into());
+                let mut buf = kc_cipher.to_vec();
+                if let Ok(decrypted) = decryptor.decrypt_padded::<Pkcs7>(&mut buf)
+                    && let Ok(s) = std::str::from_utf8(decrypted)
+                    && s == license.id
+                {
+                    valid = true;
                 }
+            }
+            if !valid {
+                return Err("Invalid passphrase for Readium LCP protected eBook".to_string());
             }
         }
 
         // Determine content encryption key (CEK): either decrypted from content_key or direct user_key
         let mut final_aes_key = user_key_bytes;
-        if let Some(ref encryption) = license.encryption {
-            if let Some(content_key) = encryption
+        if let Some(ref encryption) = license.encryption
+            && let Some(content_key) = encryption
                 .user_key
                 .as_ref()
                 .and_then(|uk| uk.get("content_key"))
-            {
-                if let Some(enc_val) = content_key.get("encrypted_value").and_then(|v| v.as_str()) {
-                    // A `content_key` block that is present but cannot be decrypted into exactly
-                    // 32 bytes used to be silently ignored, falling back to the user key and
-                    // returning garbage post-processing bytes as if they had been decrypted
-                    // successfully. Surface the failure instead.
-                    let decoded = base64::engine::general_purpose::STANDARD
-                        .decode(enc_val)
-                        .map_err(|e| format!("Failed to decode LCP content_key: {e}"))?;
-                    if decoded.len() < 32 {
-                        return Err(format!(
-                            "LCP content_key is truncated: {} bytes, need at least 32",
-                            decoded.len()
-                        ));
-                    }
-                    let ck_iv: [u8; 16] = decoded[..16]
-                        .try_into()
-                        .map_err(|_| "LCP content_key IV extraction failed")?;
-                    let ck_cipher = &decoded[16..];
-                    let decryptor =
-                        cbc::Decryptor::<Aes256>::new((&user_key_bytes).into(), (&ck_iv).into());
-                    let mut buf = ck_cipher.to_vec();
-                    let decrypted = decryptor.decrypt_padded::<Pkcs7>(&mut buf).map_err(|_| {
-                        "Failed to decrypt LCP content key (invalid padding)".to_string()
-                    })?;
-                    if decrypted.len() != 32 {
-                        return Err(format!(
-                            "LCP content key decrypted to {} bytes, expected 32",
-                            decrypted.len()
-                        ));
-                    }
-                    final_aes_key.copy_from_slice(decrypted);
-                }
+            && let Some(enc_val) = content_key.get("encrypted_value").and_then(|v| v.as_str())
+        {
+            // A `content_key` block that is present but cannot be decrypted into exactly
+            // 32 bytes used to be silently ignored, falling back to the user key and
+            // returning garbage post-processing bytes as if they had been decrypted
+            // successfully. Surface the failure instead.
+            let decoded = base64::engine::general_purpose::STANDARD
+                .decode(enc_val)
+                .map_err(|e| format!("Failed to decode LCP content_key: {e}"))?;
+            if decoded.len() < 32 {
+                return Err(format!(
+                    "LCP content_key is truncated: {} bytes, need at least 32",
+                    decoded.len()
+                ));
             }
+            let ck_iv: [u8; 16] = decoded[..16]
+                .try_into()
+                .map_err(|_| "LCP content_key IV extraction failed")?;
+            let ck_cipher = &decoded[16..];
+            let decryptor =
+                cbc::Decryptor::<Aes256>::new((&user_key_bytes).into(), (&ck_iv).into());
+            let mut buf = ck_cipher.to_vec();
+            let decrypted = decryptor
+                .decrypt_padded::<Pkcs7>(&mut buf)
+                .map_err(|_| "Failed to decrypt LCP content key (invalid padding)".to_string())?;
+            if decrypted.len() != 32 {
+                return Err(format!(
+                    "LCP content key decrypted to {} bytes, expected 32",
+                    decrypted.len()
+                ));
+            }
+            final_aes_key.copy_from_slice(decrypted);
         }
 
         // IV = first 16 bytes of ciphertext (per LCP spec)

@@ -171,7 +171,8 @@ impl PdfBook {
             lcp_passphrase: None,
             lcp_license: None,
             media_overlays: AHashMap::new(),
-            render_cache: parking_lot::Mutex::new(AHashMap::new()),
+            render_cache: Default::default(),
+            hydrated_cache: Default::default(),
         };
 
         book.generate_locations(1000);

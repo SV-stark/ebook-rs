@@ -3,63 +3,132 @@ use crate::annotations::AnnotationManager;
 use crate::archive::EpubArchive;
 use crate::deobfuscate::FontDeobfuscator;
 use crate::error::EbookError;
-use crate::layout::RenditionLayout;
+use crate::layout::{AssetDeliveryStrategy, RenditionLayout};
 use crate::locations::Locations;
-use crate::metadata::{ManifestItem, Metadata, SpineItem};
+use crate::metadata::{ManifestItem, Metadata, PageProgressionDirection, SpineItem};
 use crate::nav::{Landmark, NavPoint, PageListItem, parse_landmarks, parse_nav_xhtml, parse_ncx};
 use crate::opf::parse_opf;
 use crate::search::{SearchEngine, SearchResult};
 use crate::section::Section;
 use ahash::AHashMap;
+use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::Arc;
 
 pub type BeforeDisplayHook = Arc<dyn Fn(&mut String, &str) + Send + Sync>;
 
-/// Key for an entry in [`Book::render_cache`].
-///
-/// The rendered output of a section does not depend on its index alone: it also depends on
-/// `layout.allow_scripted_content` (which gates script stripping), on how many
-/// `before_display_hooks` are registered, and on the section's source HTML. Keying the cache on
-/// the index alone meant that anything which changed those inputs without going through the
-/// setter methods was served a stale rendering — flipping the public `layout` field back to
-/// `allow_scripted_content = false` still returned HTML containing `<script>`, because the entry
-/// written while the flag was `true` was still keyed by the index.
+/// Key for an entry in [`Book`]'s bounded render cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RenderCacheKey {
     /// Spine index of the section this rendering belongs to.
     pub index: usize,
     /// Value of `Book::layout.allow_scripted_content` when the rendering was produced.
     pub allow_scripted_content: bool,
+    /// Asset delivery strategy used when the rendering was produced.
+    pub asset_delivery: AssetDeliveryStrategy,
+    /// Whether RTL `dir="rtl"` injection was active.
+    pub is_rtl: bool,
     /// Number of `before_display_hooks` that were applied.
     pub hook_count: usize,
     /// Length of the section's `raw_html`, so a changed source never hits a stale entry.
     pub source_len: usize,
 }
 
+/// Bounded FIFO render cache for processed section HTML.
+#[derive(Default, Clone)]
+pub(crate) struct RenderCache {
+    entries: AHashMap<RenderCacheKey, String>,
+    order: VecDeque<RenderCacheKey>,
+}
+
+impl RenderCache {
+    fn get(&self, key: &RenderCacheKey) -> Option<&String> {
+        self.entries.get(key)
+    }
+
+    fn insert(&mut self, key: RenderCacheKey, value: String) {
+        if self.entries.contains_key(&key) {
+            self.entries.insert(key, value);
+            return;
+        }
+        while self.entries.len() >= MAX_RENDER_CACHE_ENTRIES {
+            if let Some(oldest) = self.order.pop_front() {
+                self.entries.remove(&oldest);
+            } else {
+                break;
+            }
+        }
+        self.order.push_back(key);
+        self.entries.insert(key, value);
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.order.clear();
+    }
+}
+
+/// Bounded FIFO cache for lazily-hydrated raw section data, preventing repeated
+/// decompression of the same spine entry from exhausting `EpubArchive::lazy_budget`.
+#[derive(Default, Clone)]
+pub(crate) struct HydratedSectionCache {
+    entries: AHashMap<usize, Section>,
+    order: VecDeque<usize>,
+}
+
+impl HydratedSectionCache {
+    fn get(&self, index: usize) -> Option<&Section> {
+        self.entries.get(&index)
+    }
+
+    fn insert(&mut self, index: usize, section: Section) {
+        if self.entries.contains_key(&index) {
+            self.entries.insert(index, section);
+            return;
+        }
+        while self.entries.len() >= MAX_HYDRATED_CACHE_ENTRIES {
+            if let Some(oldest) = self.order.pop_front() {
+                self.entries.remove(&oldest);
+            } else {
+                break;
+            }
+        }
+        self.order.push_back(index);
+        self.entries.insert(index, section);
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.order.clear();
+    }
+}
+
 /// Main Book Core API engine.
 pub struct Book {
-    pub archive: EpubArchive,
-    pub opf: crate::opf::OpfPackage,
-    pub toc: Vec<NavPoint>,
-    pub landmarks: Vec<Landmark>,
-    pub page_list: Vec<PageListItem>,
-    pub sections: Vec<Section>,
-    pub locations: Locations,
-    pub annotations: AnnotationManager,
-    pub layout: RenditionLayout,
-    pub font_deobfuscator: FontDeobfuscator,
+    pub(crate) archive: EpubArchive,
+    pub(crate) opf: crate::opf::OpfPackage,
+    pub(crate) toc: Vec<NavPoint>,
+    pub(crate) landmarks: Vec<Landmark>,
+    pub(crate) page_list: Vec<PageListItem>,
+    pub(crate) sections: Vec<Section>,
+    pub(crate) locations: Locations,
+    pub(crate) annotations: AnnotationManager,
+    pub(crate) layout: RenditionLayout,
+    pub(crate) font_deobfuscator: FontDeobfuscator,
     /// Optional Readium LCP passphrase supplied at load time (used for per-resource decryption).
-    pub lcp_passphrase: Option<String>,
+    pub(crate) lcp_passphrase: Option<String>,
     /// Parsed Readium LCP license, when the book is (or was) LCP-protected.
-    pub lcp_license: Option<crate::lcp::LcpLicense>,
-    pub before_display_hooks: Vec<BeforeDisplayHook>,
-    pub media_overlays: AHashMap<String, crate::media_overlay::MediaOverlayPackage>,
-    pub render_cache: parking_lot::Mutex<AHashMap<RenderCacheKey, String>>,
+    pub(crate) lcp_license: Option<crate::lcp::LcpLicense>,
+    pub(crate) before_display_hooks: Vec<BeforeDisplayHook>,
+    pub(crate) media_overlays: AHashMap<String, crate::media_overlay::MediaOverlayPackage>,
+    pub(crate) render_cache: parking_lot::Mutex<RenderCache>,
+    pub(crate) hydrated_cache: parking_lot::Mutex<HydratedSectionCache>,
 }
 
 /// Maximum number of rendered sections retained in [`Book::render_cache`].
 const MAX_RENDER_CACHE_ENTRIES: usize = 64;
+/// Maximum number of lazily-hydrated sections retained in [`Book::hydrated_cache`].
+const MAX_HYDRATED_CACHE_ENTRIES: usize = 128;
 
 impl Clone for Book {
     fn clone(&self) -> Self {
@@ -79,6 +148,7 @@ impl Clone for Book {
             before_display_hooks: self.before_display_hooks.clone(),
             media_overlays: self.media_overlays.clone(),
             render_cache: parking_lot::Mutex::new(self.render_cache.lock().clone()),
+            hydrated_cache: parking_lot::Mutex::new(self.hydrated_cache.lock().clone()),
         }
     }
 }
@@ -123,25 +193,23 @@ impl Book {
         if bytes.starts_with(b"%PDF-") {
             return crate::pdf::PdfBook::parse(bytes, title_fallback);
         }
-        if bytes.starts_with(b"PK\x03\x04") {
-            if let Ok(archive) = EpubArchive::from_bytes(bytes) {
-                if archive.contains("META-INF/container.xml") {
-                    if let Ok(book) =
-                        Self::from_archive_with_passphrase(archive.clone(), passphrase)
-                    {
-                        return Ok(book);
-                    }
-                } else if archive.contains("word/document.xml") {
-                    if let Ok(docx) = crate::docx::DocxBook::parse(bytes, title_fallback) {
-                        return Ok(docx);
-                    }
-                } else if archive.contains("content.xml") || archive.contains("meta.xml") {
-                    if let Ok(odt) = crate::odt::OdtBook::parse(bytes, title_fallback) {
-                        return Ok(odt);
-                    }
+        if bytes.starts_with(b"PK\x03\x04")
+            && let Ok(archive) = EpubArchive::from_bytes(bytes)
+        {
+            if archive.contains("META-INF/container.xml") {
+                if let Ok(book) = Self::from_archive_with_passphrase(archive.clone(), passphrase) {
+                    return Ok(book);
                 }
-                return crate::cbz::CbzBook::from_archive(archive, title_fallback);
+            } else if archive.contains("word/document.xml") {
+                if let Ok(docx) = crate::docx::DocxBook::parse(bytes, title_fallback) {
+                    return Ok(docx);
+                }
+            } else if (archive.contains("content.xml") || archive.contains("meta.xml"))
+                && let Ok(odt) = crate::odt::OdtBook::parse(bytes, title_fallback)
+            {
+                return Ok(odt);
             }
+            return crate::cbz::CbzBook::from_archive(archive, title_fallback);
         }
         if bytes.starts_with(b"{\\rtf") || bytes.starts_with(b"{\\rtf1") {
             return crate::rtf::RtfBook::parse(bytes, title_fallback);
@@ -179,13 +247,22 @@ impl Book {
 
     /// Open an eBook from any `Read + Seek` stream with custom title fallback.
     pub fn from_reader_with_title<R: std::io::Read + std::io::Seek>(
-        mut reader: R,
+        reader: R,
         title_fallback: &str,
     ) -> Result<Self, EbookError> {
+        use std::io::Read as _;
+        const MAX_STREAM_INPUT_BYTES: u64 = 2 * 1024 * 1024 * 1024;
         let mut bytes = Vec::new();
         reader
+            .take(MAX_STREAM_INPUT_BYTES + 1)
             .read_to_end(&mut bytes)
             .map_err(|e| EbookError::Io(format!("Failed to read stream: {}", e)))?;
+        if bytes.len() as u64 > MAX_STREAM_INPUT_BYTES {
+            return Err(EbookError::InvalidFormat(format!(
+                "Stream exceeds maximum {} byte safety limit",
+                MAX_STREAM_INPUT_BYTES
+            )));
+        }
         Self::from_bytes_with_title(&bytes, title_fallback)
     }
 
@@ -283,12 +360,10 @@ impl Book {
         // 1. Try NCX TOC
         if let Some(ncx_item) = opf.manifest.values().find(|i| {
             i.media_type == "application/x-dtbncx+xml" || i.href.ends_with(".ncx") || i.id == "ncx"
-        }) {
-            if let Ok(ncx_xml) = archive.read_string(&ncx_item.full_path) {
-                if let Ok(points) = parse_ncx(&ncx_xml, &ncx_item.full_path) {
-                    toc = points;
-                }
-            }
+        }) && let Ok(ncx_xml) = archive.read_string(&ncx_item.full_path)
+            && let Ok(points) = parse_ncx(&ncx_xml, &ncx_item.full_path)
+        {
+            toc = points;
         }
 
         // 2. Try NAV XHTML TOC (EPUB 3) & Landmarks & PageList
@@ -296,16 +371,15 @@ impl Book {
             i.properties.contains(&"nav".to_string())
                 || i.href.contains("nav.xhtml")
                 || i.href.contains("nav.html")
-        }) {
-            if let Ok(nav_html) = archive.read_string(&nav_item.full_path) {
-                if let Ok(points) = parse_nav_xhtml(&nav_html, &nav_item.full_path) {
-                    if toc.is_empty() || !points.is_empty() {
-                        toc = points;
-                    }
-                }
-                landmarks = parse_landmarks(&nav_html);
-                page_list = crate::nav::parse_page_list(&nav_html);
+        }) && let Ok(nav_html) = archive.read_string(&nav_item.full_path)
+        {
+            if let Ok(points) = parse_nav_xhtml(&nav_html, &nav_item.full_path)
+                && (toc.is_empty() || !points.is_empty())
+            {
+                toc = points;
             }
+            landmarks = parse_landmarks(&nav_html);
+            page_list = crate::nav::parse_page_list(&nav_html);
         }
 
         // Parse META-INF/encryption.xml if present
@@ -386,15 +460,14 @@ impl Book {
         // Load EPUB 3 Media Overlays (SMIL Sync)
         let mut media_overlays = AHashMap::new();
         for item in opf.manifest.values() {
-            if item.media_type == "application/smil+xml" || item.href.ends_with(".smil") {
-                if let Ok(smil_xml) = archive.read_string(&item.full_path) {
-                    if let Ok(pkg) = crate::media_overlay::MediaOverlayPackage::parse_smil(
-                        &smil_xml,
-                        &item.full_path,
-                    ) {
-                        media_overlays.insert(item.full_path.clone(), pkg);
-                    }
-                }
+            if (item.media_type == "application/smil+xml" || item.href.ends_with(".smil"))
+                && let Ok(smil_xml) = archive.read_string(&item.full_path)
+                && let Ok(pkg) = crate::media_overlay::MediaOverlayPackage::parse_smil(
+                    &smil_xml,
+                    &item.full_path,
+                )
+            {
+                media_overlays.insert(item.full_path.clone(), pkg);
             }
         }
 
@@ -413,7 +486,8 @@ impl Book {
             lcp_license,
             before_display_hooks: Vec::new(),
             media_overlays,
-            render_cache: parking_lot::Mutex::new(AHashMap::new()),
+            render_cache: parking_lot::Mutex::new(RenderCache::default()),
+            hydrated_cache: parking_lot::Mutex::new(HydratedSectionCache::default()),
         })
     }
 
@@ -433,6 +507,12 @@ impl Book {
         &self.opf
     }
 
+    /// Access mutable reference to OPF package document. Automatically invalidates render cache.
+    pub fn opf_mut(&mut self) -> &mut crate::opf::OpfPackage {
+        self.invalidate_render_cache();
+        &mut self.opf
+    }
+
     /// Access list of parsed ebook sections.
     pub fn sections(&self) -> &[Section] {
         &self.sections
@@ -444,9 +524,20 @@ impl Book {
         &mut self.sections
     }
 
+    /// Access mutable `Vec` of parsed ebook sections. Automatically invalidates render cache.
+    pub fn sections_vec_mut(&mut self) -> &mut Vec<Section> {
+        self.invalidate_render_cache();
+        &mut self.sections
+    }
+
     /// Access reference to location and CFI index.
     pub fn locations(&self) -> &Locations {
         &self.locations
+    }
+
+    /// Access mutable reference to location and CFI index.
+    pub fn locations_mut(&mut self) -> &mut Locations {
+        &mut self.locations
     }
 
     /// Access reference to annotations manager.
@@ -464,9 +555,30 @@ impl Book {
         &self.layout
     }
 
+    /// Access mutable rendition layout property. Automatically invalidates render cache.
+    pub fn layout_mut(&mut self) -> &mut RenditionLayout {
+        self.invalidate_render_cache();
+        &mut self.layout
+    }
+
     /// Access font deobfuscator.
     pub fn font_deobfuscator(&self) -> &FontDeobfuscator {
         &self.font_deobfuscator
+    }
+
+    /// Access parsed Readium LCP license, if present.
+    pub fn lcp_license(&self) -> Option<&crate::lcp::LcpLicense> {
+        self.lcp_license.as_ref()
+    }
+
+    /// Access Readium LCP passphrase supplied at load time, if present.
+    pub fn lcp_passphrase(&self) -> Option<&str> {
+        self.lcp_passphrase.as_deref()
+    }
+
+    /// Access parsed EPUB 3 Media Overlays (SMIL) packages keyed by full path.
+    pub fn media_overlays(&self) -> &AHashMap<String, crate::media_overlay::MediaOverlayPackage> {
+        &self.media_overlays
     }
 
     /// Access registered before-display hooks.
@@ -474,9 +586,10 @@ impl Book {
         &self.before_display_hooks
     }
 
-    /// Invalidate the section render cache when layout, hooks, or assets change.
+    /// Invalidate the section render and lazy hydration caches when layout, hooks, or assets change.
     pub fn invalidate_render_cache(&self) {
         self.render_cache.lock().clear();
+        self.hydrated_cache.lock().clear();
     }
 
     /// Update rendition layout and automatically invalidate stale render cache.
@@ -514,6 +627,11 @@ impl Book {
         &self.toc
     }
 
+    /// Mutable Table of Contents.
+    pub fn toc_mut(&mut self) -> &mut Vec<NavPoint> {
+        &mut self.toc
+    }
+
     /// Generate AI / RAG document chunks with EPUB CFI citations and heading hierarchy.
     pub fn to_rag_chunks(&self, config: &crate::rag::RagChunkConfig) -> Vec<crate::rag::RagChunk> {
         crate::rag::RagChunker::chunk_book(self, config)
@@ -545,19 +663,19 @@ impl Book {
                 if let Ok(bytes) = self.archive.read_bytes(href) {
                     return Some((bytes, mime));
                 }
-            } else if mime == "application/xhtml+xml" {
-                if let Ok(html) = self.archive.read_string(href) {
-                    let base_dir = if let Some(idx) = href.rfind('/') {
-                        &href[..idx]
-                    } else {
-                        ""
-                    };
-                    if let Some(img_src) = extract_first_img_src(&html) {
-                        let img_path = crate::archive::resolve_relative_path(base_dir, &img_src);
-                        if let Ok(bytes) = self.archive.read_bytes(&img_path) {
-                            let img_mime = EpubArchive::get_mime_type(&img_path);
-                            return Some((bytes, img_mime));
-                        }
+            } else if mime == "application/xhtml+xml"
+                && let Ok(html) = self.archive.read_string(href)
+            {
+                let base_dir = if let Some(idx) = href.rfind('/') {
+                    &href[..idx]
+                } else {
+                    ""
+                };
+                if let Some(img_src) = extract_first_img_src(&html) {
+                    let img_path = crate::archive::resolve_relative_path(base_dir, &img_src);
+                    if let Ok(bytes) = self.archive.read_bytes(&img_path) {
+                        let img_mime = EpubArchive::get_mime_type(&img_path);
+                        return Some((bytes, img_mime));
                     }
                 }
             }
@@ -566,12 +684,9 @@ impl Book {
     }
 
     /// Retrieve raw resource bytes and MIME type for on-demand HTTP streaming or WASM Blob URL creation.
-    pub fn get_resource_bytes(&self, path: &str) -> Result<(Vec<u8>, &'static str), String> {
+    pub fn get_resource_bytes(&self, path: &str) -> Result<(Vec<u8>, &'static str), EbookError> {
         let clean_path = path.strip_prefix("resource/").unwrap_or(path);
-        let bytes = self
-            .archive
-            .read_bytes(clean_path)
-            .map_err(|e| format!("Resource not found in archive: {} ({})", clean_path, e))?;
+        let bytes = self.archive.read_bytes(clean_path)?;
         let mime = EpubArchive::get_mime_type(clean_path);
         Ok((bytes, mime))
     }
@@ -594,7 +709,7 @@ impl Book {
     /// Compresses and serializes the parsed `Book` state into a `zstd`-compressed byte buffer (`Vec<u8>`).
     /// This enables sub-millisecond instant caching and restoration of parsed books.
     #[cfg(feature = "zstd")]
-    pub fn export_zstd_cache(&self) -> Result<Vec<u8>, String> {
+    pub fn export_zstd_cache(&self) -> Result<Vec<u8>, EbookError> {
         // Serialize a *hydrated* snapshot. In lazy mode `archive.files()` holds only the eagerly
         // loaded XML metadata and `sections` are never hydrated, so exporting as-is produced a
         // cache describing a book with no body content and no assets: the restored book had
@@ -610,9 +725,7 @@ impl Book {
         // Lazily-decompressed entries live outside `files`; decompress them so the cache is
         // self-contained. A book in lazy mode cannot be exported cheaply, but it can at least be
         // exported *correctly*.
-        self.archive
-            .hydrate_into(&mut archive_files)
-            .map_err(|e| format!("Cannot export lazy-mode archive to cache: {e}"))?;
+        self.archive.hydrate_into(&mut archive_files)?;
         let cache = BookCacheState {
             opf: self.opf.clone(),
             toc: self.toc.clone(),
@@ -625,14 +738,16 @@ impl Book {
             annotations: self.annotations.clone(),
             media_overlays: self.media_overlays.clone(),
         };
-        let json_bytes = serde_json::to_vec(&cache)
-            .map_err(|e| format!("Failed to serialize Book state to JSON: {}", e))?;
-        zstd::encode_all(&json_bytes[..], 3).map_err(|e| format!("Zstd compression failed: {}", e))
+        let json_bytes = serde_json::to_vec(&cache).map_err(|e| {
+            EbookError::Custom(format!("Failed to serialize Book state to JSON: {}", e))
+        })?;
+        zstd::encode_all(&json_bytes[..], 3)
+            .map_err(|e| EbookError::Io(format!("Zstd compression failed: {}", e)))
     }
 
     /// Deserializes and restores a `Book` state from a `zstd`-compressed byte buffer (`&[u8]`).
     #[cfg(feature = "zstd")]
-    pub fn from_zstd_cache(zstd_bytes: &[u8]) -> Result<Self, String> {
+    pub fn from_zstd_cache(zstd_bytes: &[u8]) -> Result<Self, EbookError> {
         // `zstd::decode_all` grows its output without any bound, so a few hundred KB of
         // compressed zeros would expand to tens of GB. Decompress incrementally against an
         // explicit ceiling instead, matching the hand-rolled limits used for ZIP entries.
@@ -640,19 +755,20 @@ impl Book {
         use std::io::Read as _;
         let mut json_bytes = Vec::new();
         let decoder = zstd::Decoder::new(zstd_bytes)
-            .map_err(|e| format!("Zstd decompression failed: {}", e))?;
+            .map_err(|e| EbookError::Io(format!("Zstd decompression failed: {}", e)))?;
         let mut limited = decoder.take(MAX_CACHE_DECODED_SIZE as u64 + 1);
         limited
             .read_to_end(&mut json_bytes)
-            .map_err(|e| format!("Zstd decompression failed: {}", e))?;
+            .map_err(|e| EbookError::Io(format!("Zstd decompression failed: {}", e)))?;
         if json_bytes.len() > MAX_CACHE_DECODED_SIZE {
-            return Err(format!(
+            return Err(EbookError::InvalidFormat(format!(
                 "Zstd cache exceeds the {} byte decoded-size safety limit",
                 MAX_CACHE_DECODED_SIZE
-            ));
+            )));
         }
-        let mut cache: BookCacheState = serde_json::from_slice(&json_bytes)
-            .map_err(|e| format!("Failed to deserialize Book state from JSON: {}", e))?;
+        let mut cache: BookCacheState = serde_json::from_slice(&json_bytes).map_err(|e| {
+            EbookError::CorruptedData(format!("Failed to deserialize Book state from JSON: {}", e))
+        })?;
 
         for sec in &mut cache.sections {
             if sec.processed_html.is_empty() {
@@ -676,11 +792,6 @@ impl Book {
         }
 
         // B6 Fix: Enforce Readium LCP DRM protection check on restored cache.
-        //
-        // Reject on *presence* of a license file, exactly like `from_archive_internal`. The old
-        // check only fired when the license was readable *and* parsed with an `<encryption>`
-        // block, so a cache blob carrying a malformed or unreadable `license.lcpl`/`rights.xml`
-        // restored successfully with no passphrase validation at all.
         if archive.contains("META-INF/license.lcpl") || archive.contains("META-INF/rights.xml") {
             let parsed = archive
                 .read_string("META-INF/license.lcpl")
@@ -688,9 +799,9 @@ impl Book {
                 .and_then(|s| crate::lcp::LcpLicense::parse(&s).ok());
             let protected = parsed.as_ref().is_some_and(|l| l.encryption.is_some());
             if parsed.is_none() || protected {
-                return Err(
-                    "Readium LCP protected eBook requires passphrase validation".to_string()
-                );
+                return Err(EbookError::DrmProtected(
+                    "Readium LCP protected eBook requires passphrase validation".to_string(),
+                ));
             }
         }
 
@@ -709,7 +820,8 @@ impl Book {
             lcp_license: None,
             before_display_hooks: Vec::new(),
             media_overlays: cache.media_overlays,
-            render_cache: parking_lot::Mutex::new(AHashMap::new()),
+            render_cache: parking_lot::Mutex::new(RenderCache::default()),
+            hydrated_cache: parking_lot::Mutex::new(HydratedSectionCache::default()),
         })
     }
 
@@ -717,13 +829,13 @@ impl Book {
     pub fn get_tts_tokens(
         &self,
         index: usize,
-    ) -> Result<Vec<crate::section::TtsWordToken>, String> {
+    ) -> Result<Vec<crate::section::TtsWordToken>, EbookError> {
         let section = self.get_section(index)?;
         Ok(section.tokenize_tts_words())
     }
 
     /// Retrieve section HTML annotated with `<span id="tts-w-{index}">` tags for live SpeechSynthesis word-by-word visual highlighting.
-    pub fn get_tts_section_html(&self, index: usize) -> Result<String, String> {
+    pub fn get_tts_section_html(&self, index: usize) -> Result<String, EbookError> {
         let section = self.get_section(index)?;
         Ok(section.to_tts_annotated_html())
     }
@@ -731,16 +843,17 @@ impl Book {
     /// Lazy-load a section by spine index directly from the archive without caching in `self.sections`.
     /// This is ideal for large books (1000+ pages) where eager-loading all sections wastes RAM.
     /// The returned `Section` is fully processed (inlined assets, RTL injection, hooks applied).
-    pub fn load_section_lazy(&self, index: usize) -> Result<Section, String> {
-        let spine_item = self
-            .opf
-            .spine
-            .get(index)
-            .ok_or_else(|| format!("Spine index out of bounds: {}", index))?;
-        let man_item =
-            self.opf.manifest.get(&spine_item.idref).ok_or_else(|| {
-                format!("Manifest item not found for idref: {}", spine_item.idref)
+    pub fn load_section_lazy(&self, index: usize) -> Result<Section, EbookError> {
+        let spine_item =
+            self.opf.spine.get(index).ok_or_else(|| {
+                EbookError::NotFound(format!("Spine index out of bounds: {}", index))
             })?;
+        let man_item = self.opf.manifest.get(&spine_item.idref).ok_or_else(|| {
+            EbookError::NotFound(format!(
+                "Manifest item not found for idref: {}",
+                spine_item.idref
+            ))
+        })?;
         let mut section = Section::new(
             index,
             spine_item.idref.clone(),
@@ -756,16 +869,14 @@ impl Book {
             &self.layout.asset_delivery,
         );
         // RTL injection
-        if self.opf.metadata.direction == crate::metadata::PageProgressionDirection::Rtl {
-            if !section.processed_html.contains("dir=\"rtl\"")
-                && !section.processed_html.contains("dir='rtl'")
-            {
+        if self.opf.metadata.direction == crate::metadata::PageProgressionDirection::Rtl
+            && !section.processed_html.contains("dir=\"rtl\"")
+            && !section.processed_html.contains("dir='rtl'")
+        {
+            section.processed_html = section.processed_html.replace("<html", "<html dir=\"rtl\"");
+            if !section.processed_html.contains("dir=\"rtl\"") {
                 section.processed_html =
-                    section.processed_html.replace("<html", "<html dir=\"rtl\"");
-                if !section.processed_html.contains("dir=\"rtl\"") {
-                    section.processed_html =
-                        section.processed_html.replace("<body", "<body dir=\"rtl\"");
-                }
+                    section.processed_html.replace("<body", "<body dir=\"rtl\"");
             }
         }
         // Script sanitization
@@ -789,18 +900,19 @@ impl Book {
 
     /// Retrieve a section by spine index (applying pre-display hooks and automatic RTL dir="rtl" injection).
     fn hydrate_section_data(archive: &EpubArchive, section: &mut Section) {
-        if section.raw_html.is_empty() && !section.full_path.is_empty() {
-            if let Ok(raw) = archive.read_string(&section.full_path) {
-                if let (Some(w), Some(h)) = crate::section::parse_viewport_meta(&raw) {
-                    section.viewport_width = Some(w);
-                    section.viewport_height = Some(h);
-                }
-                section.raw_html = raw.clone();
-                section.processed_html = raw;
-                section.plain_text = crate::section::extract_plain_text(&section.raw_html);
-                section.plain_text_lower = section.plain_text.to_lowercase();
-                section.char_count = section.plain_text.chars().count();
+        if section.raw_html.is_empty()
+            && !section.full_path.is_empty()
+            && let Ok(raw) = archive.read_string(&section.full_path)
+        {
+            if let (Some(w), Some(h)) = crate::section::parse_viewport_meta(&raw) {
+                section.viewport_width = Some(w);
+                section.viewport_height = Some(h);
             }
+            section.raw_html = raw.clone();
+            section.processed_html = raw;
+            section.plain_text = crate::section::extract_plain_text(&section.raw_html);
+            section.plain_text_lower = section.plain_text.to_lowercase();
+            section.char_count = section.plain_text.chars().count();
         }
     }
 
@@ -811,43 +923,67 @@ impl Book {
         }
     }
 
+    /// Hydrate a single section using the bounded `hydrated_cache` so repeated lazy reads
+    /// do not re-decompress from the archive and exhaust `lazy_budget`.
+    fn hydrate_section_data_cached(&self, section: &mut Section) {
+        if !section.raw_html.is_empty() || section.full_path.is_empty() {
+            return;
+        }
+        if let Some(cached) = self.hydrated_cache.lock().get(section.index).cloned() {
+            section.raw_html = cached.raw_html;
+            section.processed_html = cached.processed_html;
+            section.plain_text = cached.plain_text;
+            section.plain_text_lower = cached.plain_text_lower;
+            section.char_count = cached.char_count;
+            section.viewport_width = cached.viewport_width;
+            section.viewport_height = cached.viewport_height;
+            return;
+        }
+        Self::hydrate_section_data(&self.archive, section);
+        if !section.raw_html.is_empty() {
+            self.hydrated_cache
+                .lock()
+                .insert(section.index, section.clone());
+        }
+    }
+
     /// Retrieve all sections with content hydrated on demand (safe for lazy streaming mode).
     pub fn get_all_sections_hydrated(&self) -> Vec<Section> {
         self.sections
             .iter()
             .map(|s| {
                 let mut sec = s.clone();
-                Self::hydrate_section_data(&self.archive, &mut sec);
+                self.hydrate_section_data_cached(&mut sec);
                 sec
             })
             .collect()
     }
 
     /// Retrieve a section by spine index (applying pre-display hooks and automatic RTL dir="rtl" injection).
-    pub fn get_section(&self, index: usize) -> Result<Section, String> {
+    pub fn get_section(&self, index: usize) -> Result<Section, EbookError> {
         let mut section = self
             .sections
             .iter()
             .find(|s| s.index == index)
             .cloned()
             .or_else(|| {
-                // Positional fallback for books whose stored `index` fields do not match their
-                // positions (e.g. a restored zstd cache). The dictionary lookup above is
-                // authoritative: when it fails, `sections[index]` is a *different* section and
-                // its `index` field is used from here on, so the CFI we emit and the cache key
-                // both describe the section that was actually returned.
                 let sec = self.sections.get(index)?.clone();
                 Some(sec)
             })
-            .ok_or_else(|| format!("Section index out of bounds: {}", index))?;
+            .ok_or_else(|| {
+                EbookError::NotFound(format!("Section index out of bounds: {}", index))
+            })?;
         let effective_index = section.index;
 
-        // On-demand lazy hydration if raw_html has not yet been loaded
-        Self::hydrate_section_data(&self.archive, &mut section);
+        // On-demand lazy hydration (cached) if raw_html has not yet been loaded
+        self.hydrate_section_data_cached(&mut section);
 
+        let is_rtl = self.opf.metadata.direction == PageProgressionDirection::Rtl;
         let cache_key = RenderCacheKey {
             index: effective_index,
             allow_scripted_content: self.layout.allow_scripted_content,
+            asset_delivery: self.layout.asset_delivery,
+            is_rtl,
             hook_count: self.before_display_hooks.len(),
             source_len: section.raw_html.len(),
         };
@@ -867,16 +1003,14 @@ impl Book {
         }
 
         // F6 Fix: Automatic RTL dir="rtl" injection at render time
-        if self.opf.metadata.direction == crate::metadata::PageProgressionDirection::Rtl {
-            if !section.processed_html.contains("dir=\"rtl\"")
-                && !section.processed_html.contains("dir='rtl'")
-            {
+        if is_rtl
+            && !section.processed_html.contains("dir=\"rtl\"")
+            && !section.processed_html.contains("dir='rtl'")
+        {
+            section.processed_html = section.processed_html.replace("<html", "<html dir=\"rtl\"");
+            if !section.processed_html.contains("dir=\"rtl\"") {
                 section.processed_html =
-                    section.processed_html.replace("<html", "<html dir=\"rtl\"");
-                if !section.processed_html.contains("dir=\"rtl\"") {
-                    section.processed_html =
-                        section.processed_html.replace("<body", "<body dir=\"rtl\"");
-                }
+                    section.processed_html.replace("<body", "<body dir=\"rtl\"");
             }
         }
 
@@ -890,17 +1024,9 @@ impl Book {
             hook(&mut section.processed_html, &section.full_path);
         }
 
-        // Bounded render cache. Entries hold base64-inlined asset data URIs (roughly a third
-        // larger than the source HTML), so an unbounded map plus walking every section index
-        // retained an entire inflated book for the process lifetime. At the cap the oldest entry
-        // is evicted, which bounds memory without needing an eviction policy.
+        // Bounded FIFO render cache.
         {
             let mut cache = self.render_cache.lock();
-            if cache.len() >= MAX_RENDER_CACHE_ENTRIES {
-                if let Some(oldest) = cache.keys().min().copied() {
-                    cache.remove(&oldest);
-                }
-            }
             cache.insert(cache_key, section.processed_html.clone());
         }
 
@@ -908,7 +1034,7 @@ impl Book {
     }
 
     /// Retrieve section by relative href string (E6 Fix: strict path matching).
-    pub fn get_section_by_href(&self, href: &str) -> Result<Section, String> {
+    pub fn get_section_by_href(&self, href: &str) -> Result<Section, EbookError> {
         let clean = href.trim();
         let target = clean.split('#').next().unwrap_or(clean);
 
@@ -921,7 +1047,10 @@ impl Book {
                 return self.get_section(section.index);
             }
         }
-        Err(format!("Section not found for href: {}", href))
+        Err(EbookError::NotFound(format!(
+            "Section not found for href: {}",
+            href
+        )))
     }
 
     /// Retrieve section for a given CFI string.
@@ -929,8 +1058,8 @@ impl Book {
     /// Only the spine index is consumed; the in-section character offset carried by the CFI is
     /// discarded. Use [`Self::get_section_and_offset_by_cfi`] (or [`Self::resolve_cfi`]) when
     /// restoring an exact reading position.
-    pub fn get_section_by_cfi(&self, cfi_str: &str) -> Result<Section, String> {
-        let cfi = Cfi::parse(cfi_str)?;
+    pub fn get_section_by_cfi(&self, cfi_str: &str) -> Result<Section, EbookError> {
+        let cfi = Cfi::parse(cfi_str).map_err(EbookError::InvalidFormat)?;
         let spine_idx = cfi.spine_index();
         self.get_section(spine_idx)
     }
@@ -941,8 +1070,11 @@ impl Book {
     /// `plain_text` (the same coordinate space produced by [`Cfi::char_offset`] and consumed by
     /// [`Self::to_readium_locator`]). Enables exact-position restore/scroll without re-parsing
     /// the CFI app-side.
-    pub fn get_section_and_offset_by_cfi(&self, cfi_str: &str) -> Result<(Section, usize), String> {
-        let cfi = Cfi::parse(cfi_str)?;
+    pub fn get_section_and_offset_by_cfi(
+        &self,
+        cfi_str: &str,
+    ) -> Result<(Section, usize), EbookError> {
+        let cfi = Cfi::parse(cfi_str).map_err(EbookError::InvalidFormat)?;
         let spine_idx = cfi.spine_index();
         let offset = cfi.char_offset();
         let section = self.get_section(spine_idx)?;
@@ -958,12 +1090,12 @@ impl Book {
         &self,
         cfi_str: &str,
         html: &str,
-    ) -> Result<(Section, usize, crate::cfi::CfiDomTarget), String> {
-        let cfi = Cfi::parse(cfi_str)?;
+    ) -> Result<(Section, usize, crate::cfi::CfiDomTarget), EbookError> {
+        let cfi = Cfi::parse(cfi_str).map_err(EbookError::InvalidFormat)?;
         let (section, offset) = self.get_section_and_offset_by_cfi(cfi_str)?;
-        let dom = cfi
-            .resolve_dom_path(html)
-            .ok_or_else(|| "CFI could not be resolved to a DOM target".to_string())?;
+        let dom = cfi.resolve_dom_path(html).ok_or_else(|| {
+            EbookError::NotFound("CFI could not be resolved to a DOM target".to_string())
+        })?;
         Ok((section, offset, dom))
     }
 
@@ -1051,7 +1183,7 @@ impl Book {
         &self,
         spine_index: usize,
         char_offset: usize,
-    ) -> Result<crate::locations::ReadiumLocator, String> {
+    ) -> Result<crate::locations::ReadiumLocator, EbookError> {
         let section = self.get_section(spine_index)?;
         let cfi = Cfi::from_spine_index(spine_index, None, char_offset).to_string();
 
@@ -1084,7 +1216,10 @@ impl Book {
     }
 
     /// Perform full-text regular expression search across all book sections (hydrating lazy sections if needed).
-    pub fn search_regex(&self, pattern: &str) -> Result<Vec<crate::search::SearchResult>, String> {
+    pub fn search_regex(
+        &self,
+        pattern: &str,
+    ) -> Result<Vec<crate::search::SearchResult>, EbookError> {
         let sections = self.get_all_sections_hydrated();
         crate::search::SearchEngine::search_regex(&sections, pattern)
     }
@@ -1097,7 +1232,7 @@ impl Book {
         &self,
         pattern: &str,
         max_results: Option<usize>,
-    ) -> Result<Vec<crate::search::SearchResult>, String> {
+    ) -> Result<Vec<crate::search::SearchResult>, EbookError> {
         let sections = self.get_all_sections_hydrated();
         crate::search::SearchEngine::search_regex_limited(&sections, pattern, max_results)
     }
@@ -1152,7 +1287,7 @@ impl Book {
         &self,
         left_spine_index: usize,
         right_spine_index: Option<usize>,
-    ) -> Result<crate::layout::SyntheticSpread, String> {
+    ) -> Result<crate::layout::SyntheticSpread, EbookError> {
         let left_section = self.get_section(left_spine_index)?;
         let right_section = match right_spine_index {
             Some(idx) => Some(self.get_section(idx)?),
@@ -1214,7 +1349,7 @@ impl Book {
 
     /// Export any loaded eBook (EPUB, MOBI, AZW3, FB2, LIT, CBZ, PDF, ODT, TXT, MD) as a clean,
     /// compliant EPUB 3 ZIP archive buffer.
-    pub fn export_epub3_bytes(&self) -> Result<Vec<u8>, String> {
+    pub fn export_epub3_bytes(&self) -> Result<Vec<u8>, EbookError> {
         use std::io::Write;
         use zip::write::FileOptions;
 
@@ -1226,29 +1361,30 @@ impl Book {
                 .compression_method(zip::CompressionMethod::Stored)
                 .unix_permissions(0o644);
             zip.start_file("mimetype", stored_options)
-                .map_err(|e| format!("Failed to write mimetype: {}", e))?;
+                .map_err(|e| EbookError::Zip(format!("Failed to write mimetype: {}", e)))?;
             zip.write_all(b"application/epub+zip")
-                .map_err(|e| format!("Failed to write mimetype content: {}", e))?;
+                .map_err(|e| EbookError::Io(format!("Failed to write mimetype content: {}", e)))?;
 
             let deflated_options = FileOptions::<()>::default()
                 .compression_method(zip::CompressionMethod::Deflated)
                 .unix_permissions(0o644);
 
             zip.start_file("META-INF/container.xml", deflated_options)
-                .map_err(|e| format!("Failed to write container.xml: {}", e))?;
+                .map_err(|e| EbookError::Zip(format!("Failed to write container.xml: {}", e)))?;
             let container_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
   <rootfiles>
     <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
   </rootfiles>
 </container>"#;
-            zip.write_all(container_xml.as_bytes())
-                .map_err(|e| format!("Failed to write container.xml content: {}", e))?;
+            zip.write_all(container_xml.as_bytes()).map_err(|e| {
+                EbookError::Io(format!("Failed to write container.xml content: {}", e))
+            })?;
 
             for section in self.get_all_sections_hydrated() {
                 let sec_path = format!("OEBPS/section_{}.html", section.index);
                 zip.start_file(&sec_path, deflated_options)
-                    .map_err(|e| format!("Failed to write {}: {}", sec_path, e))?;
+                    .map_err(|e| EbookError::Zip(format!("Failed to write {}: {}", sec_path, e)))?;
 
                 let html_source = if section.raw_html.is_empty() {
                     &section.processed_html
@@ -1256,10 +1392,6 @@ impl Book {
                     &section.raw_html
                 };
 
-                // Inline the section's assets (images, fonts, stylesheets) as data URIs. Writing
-                // the raw source instead produced an EPUB whose manifest still referenced
-                // `style.css`, fonts and images that were never copied into the new archive, so
-                // the export parsed cleanly but rendered unstyled with broken images.
                 let inlined = crate::section::process_section_resources_with_strategy(
                     html_source,
                     &section.full_path,
@@ -1286,24 +1418,30 @@ impl Book {
                         html_source
                     )
                 };
-                zip.write_all(doc_html.as_bytes())
-                    .map_err(|e| format!("Failed to write {} content: {}", sec_path, e))?;
+                zip.write_all(doc_html.as_bytes()).map_err(|e| {
+                    EbookError::Io(format!("Failed to write {} content: {}", sec_path, e))
+                })?;
             }
 
             zip.start_file("OEBPS/nav.xhtml", deflated_options)
-                .map_err(|e| format!("Failed to write nav.xhtml: {}", e))?;
+                .map_err(|e| EbookError::Zip(format!("Failed to write nav.xhtml: {}", e)))?;
             let mut nav_html = String::from(
                 "<!DOCTYPE html>\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\">\n<head><title>Navigation</title></head>\n<body>\n<nav epub:type=\"toc\" id=\"toc\">\n",
             );
             render_nav_points_xml(&self.toc, &mut nav_html, &self.sections);
             nav_html.push_str("</nav>\n</body>\n</html>");
             zip.write_all(nav_html.as_bytes())
-                .map_err(|e| format!("Failed to write nav.xhtml content: {}", e))?;
+                .map_err(|e| EbookError::Io(format!("Failed to write nav.xhtml content: {}", e)))?;
 
             zip.start_file("OEBPS/content.opf", deflated_options)
-                .map_err(|e| format!("Failed to write content.opf: {}", e))?;
+                .map_err(|e| EbookError::Zip(format!("Failed to write content.opf: {}", e)))?;
 
-            let uuid_str = generate_rfc4122_uuid_v4(&self.opf.metadata.title);
+            let uuid_str = generate_rfc9562_uuid_v5(
+                self.opf.metadata.identifier.as_deref(),
+                &self.opf.metadata.title,
+                &self.opf.metadata.creators,
+                self.sections.len(),
+            );
             let lang = self
                 .opf
                 .metadata
@@ -1348,11 +1486,13 @@ impl Book {
             }
             opf_xml.push_str("  </spine>\n</package>");
 
-            zip.write_all(opf_xml.as_bytes())
-                .map_err(|e| format!("Failed to write content.opf content: {}", e))?;
+            zip.write_all(opf_xml.as_bytes()).map_err(|e| {
+                EbookError::Io(format!("Failed to write content.opf content: {}", e))
+            })?;
 
-            zip.finish()
-                .map_err(|e| format!("Failed to finalize EPUB ZIP archive: {}", e))?;
+            zip.finish().map_err(|e| {
+                EbookError::Zip(format!("Failed to finalize EPUB ZIP archive: {}", e))
+            })?;
         }
 
         Ok(zip_buf)
@@ -1366,21 +1506,21 @@ impl Book {
     ///
     /// # Examples
     /// ```
-    /// # use ebook_rs::Book;
-    /// # fn demo(book: &Book) -> Result<Vec<u8>, String> {
+    /// # use ebook_rs::{Book, EbookError};
+    /// # fn demo(book: &Book) -> Result<Vec<u8>, EbookError> {
     /// let kfx = book.export_kfx_bytes()?;
     /// # Ok(kfx)
     /// # }
     /// ```
-    pub fn export_kfx_bytes(&self) -> Result<Vec<u8>, String> {
-        crate::UniversalKfxExporter::export(self)
+    pub fn export_kfx_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::UniversalKfxExporter::export(self).map_err(EbookError::Custom)
     }
 
     /// Export loaded eBook as a minified, asset-deduplicated, and CSS-purged EPUB 3 archive.
     pub fn export_optimized_epub3_bytes(
         &self,
         options: &crate::optimizer::EpubOptimizerOptions,
-    ) -> Result<Vec<u8>, String> {
+    ) -> Result<Vec<u8>, EbookError> {
         let mut cloned = self.clone();
         crate::optimizer::EpubOptimizer::optimize(&mut cloned, options);
         cloned.export_epub3_bytes()
@@ -1413,12 +1553,11 @@ fn find_ignore_case(s: &str, pat: &str) -> Option<usize> {
         return None;
     }
     for i in 0..=s.len() - pat.len() {
-        if s.is_char_boundary(i) {
-            if let Some(sub) = s.get(i..i + pat.len()) {
-                if sub.eq_ignore_ascii_case(pat) {
-                    return Some(i);
-                }
-            }
+        if s.is_char_boundary(i)
+            && let Some(sub) = s.get(i..i + pat.len())
+            && sub.eq_ignore_ascii_case(pat)
+        {
+            return Some(i);
         }
     }
     None
@@ -1428,7 +1567,8 @@ fn extract_first_img_src(html: &str) -> Option<String> {
     let mut i = 0;
     while i < html.len() {
         if starts_with_ignore_case(&html[i..], "<img") {
-            let rem = &html[i..];
+            let tag_end = crate::section::find_tag_end(html, i).unwrap_or(html.len());
+            let rem = &html[i..tag_end];
             let mut j = 0;
             while j < rem.len() {
                 if starts_with_ignore_case(&rem[j..], "src=\"") {
@@ -1448,6 +1588,8 @@ fn extract_first_img_src(html: &str) -> Option<String> {
                     break;
                 }
             }
+            i = tag_end;
+            continue;
         }
         if let Some(ch) = html[i..].chars().next() {
             i += ch.len_utf8();
@@ -1522,26 +1664,36 @@ fn remap_toc_href(href: &str, sections: &[Section]) -> String {
     }
 }
 
-fn generate_rfc4122_uuid_v4(seed_text: &str) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
+fn generate_rfc9562_uuid_v5(
+    identifier: Option<&str>,
+    title: &str,
+    creators: &[String],
+    section_count: usize,
+) -> String {
+    // URL namespace UUID (RFC 9562 / RFC 4122 Appendix C: 6ba7b811-9dad-11d1-80b4-00c04fd430c8)
+    const NAMESPACE_URL: [u8; 16] = [
+        0x6b, 0xa7, 0xb8, 0x11, 0x9d, 0xad, 0x11, 0xd1, 0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30,
+        0xc8,
+    ];
+    let mut sha1 = sha1_smol::Sha1::new();
+    sha1.update(&NAMESPACE_URL);
+    if let Some(id) = identifier {
+        sha1.update(id.as_bytes());
+    }
+    sha1.update(b"\0");
+    sha1.update(title.as_bytes());
+    sha1.update(b"\0");
+    for creator in creators {
+        sha1.update(creator.as_bytes());
+        sha1.update(b"\0");
+    }
+    sha1.update(&section_count.to_le_bytes());
 
-    let mut hasher = DefaultHasher::new();
-    seed_text.hash(&mut hasher);
-    let h1 = hasher.finish();
-
-    let mut hasher2 = DefaultHasher::new();
-    (h1, seed_text).hash(&mut hasher2);
-    let h2 = hasher2.finish();
-
-    let bytes1 = h1.to_be_bytes();
-    let bytes2 = h2.to_be_bytes();
-
+    let digest = sha1.digest().bytes();
     let mut b = [0u8; 16];
-    b[..8].copy_from_slice(&bytes1);
-    b[8..].copy_from_slice(&bytes2);
-
-    b[6] = (b[6] & 0x0f) | 0x40;
+    b.copy_from_slice(&digest[..16]);
+    // Version 5 (0101) and RFC 9562 variant (10xx)
+    b[6] = (b[6] & 0x0f) | 0x50;
     b[8] = (b[8] & 0x3f) | 0x80;
 
     format!(
@@ -1584,14 +1736,14 @@ fn find_nearest_element_id_anchor(html: &str, char_offset: usize) -> Option<Stri
         }
     }
 
-    if last_id.is_none() {
-        if let Some(idx) = find_ignore_case(html, " id=\"") {
-            let abs_idx = idx + 5;
-            if let Some(end_quote) = html[abs_idx..].find('"') {
-                let id_val = &html[abs_idx..abs_idx + end_quote];
-                if !id_val.trim().is_empty() {
-                    return Some(id_val.to_string());
-                }
+    if last_id.is_none()
+        && let Some(idx) = find_ignore_case(html, " id=\"")
+    {
+        let abs_idx = idx + 5;
+        if let Some(end_quote) = html[abs_idx..].find('"') {
+            let id_val = &html[abs_idx..abs_idx + end_quote];
+            if !id_val.trim().is_empty() {
+                return Some(id_val.to_string());
             }
         }
     }
@@ -1653,9 +1805,9 @@ pub mod async_api {
     pub async fn load_section_lazy_async(
         book: std::sync::Arc<Book>,
         index: usize,
-    ) -> Result<super::super::section::Section, String> {
+    ) -> Result<super::super::section::Section, EbookError> {
         tokio::task::spawn_blocking(move || book.load_section_lazy(index))
             .await
-            .map_err(|e| format!("Async section load task failed: {}", e))?
+            .map_err(|e| EbookError::Custom(format!("Async section load task failed: {}", e)))?
     }
 }

@@ -73,18 +73,20 @@ rendering whenever any of those inputs changed — flipping the public `layout` 
 64 entries, evicting the oldest.
 
 ```rust
-use ebook_rs::{Book, RenderCacheKey};
+use ebook_rs::{Book, PageProgressionDirection, RenderCacheKey};
 
 let book = Book::from_file("sample.epub")?;
 
-// Keying the cache on the render inputs makes the entry order-insensitive:
+// Keying the cache on all render inputs makes the entry order-insensitive:
 let key = RenderCacheKey {
     index: 0,
-    allow_scripted_content: book.layout.allow_scripted_content,
-    hook_count: book.before_display_hooks.len(),
-    source_len: book.sections[0].raw_html.len(),
+    allow_scripted_content: book.layout().allow_scripted_content,
+    asset_delivery: book.layout().asset_delivery,
+    is_rtl: book.opf().metadata.direction == PageProgressionDirection::Rtl,
+    hook_count: book.before_display_hooks().len(),
+    source_len: book.sections()[0].raw_html.len(),
 };
-assert!(book.render_cache.lock().get(&key).is_none()); // not yet rendered
+let _section = book.get_section(key.index)?;
 ```
 
 ### CFI Position Resolution & DOM Anchoring
@@ -147,7 +149,7 @@ fn build(book: &Book) -> Locations {
 To regenerate and *store* the map on the book instead, use the mutating
 `Book::generate_locations(chunk_size)`.
 
-**Related:** `book.locations` holds the map computed at load time; `Locations::new`,
+**Related:** `book.locations()` holds the map computed at load time; `Locations::new`,
 `add_spine_section`, and `finalize` are public for custom chunking strategies.
 
 ---
@@ -560,7 +562,7 @@ Load multi-gigabyte eBook files with instantaneous startup using kernel memory p
 use ebook_rs::Book;
 
 let book = Book::from_mmap("huge_volume.epub")?;
-println!("Sections loaded: {}", book.sections.len());
+println!("Sections loaded: {}", book.sections().len());
 ```
 
 ---
@@ -893,7 +895,7 @@ let book = DocxBook::parse(&docx_bytes, "Fallback Title")?;
 
 println!("Title: {}", book.metadata().title);
 println!("Authors: {:?}", book.metadata().creators);
-println!("Sections: {}", book.sections.len());
+println!("Sections: {}", book.sections().len());
 
 // 2. Auto-detection via Book::from_bytes
 let book = Book::from_bytes(&docx_bytes)?;
@@ -916,7 +918,7 @@ let rtf_bytes = std::fs::read("manuscript.rtf")?;
 let book = RtfBook::parse(&rtf_bytes, "Default Title")?;
 
 println!("Title: {}", book.metadata().title);
-println!("Sections: {}", book.sections.len());
+println!("Sections: {}", book.sections().len());
 
 // 2. Auto-detection via Book::from_bytes
 let book = Book::from_bytes(&rtf_bytes)?;

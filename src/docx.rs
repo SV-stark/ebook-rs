@@ -82,30 +82,28 @@ impl DocxBook {
                 .take(MAX_DOCX_META_SIZE)
                 .read_to_string(&mut core_xml)
                 .is_ok()
+                && let Ok(doc) = crate::dom::parse_xml_document(&core_xml)
             {
-                if let Ok(doc) = crate::dom::parse_xml_document(&core_xml) {
-                    for node in doc.descendants() {
-                        if node.is_element() {
-                            let tag = node.tag_name().name();
-                            if tag == "title" {
-                                if let Some(t) = node.text() {
-                                    if !t.trim().is_empty() {
-                                        title = t.trim().to_string();
-                                    }
-                                }
-                            } else if tag == "creator" {
-                                if let Some(c) = node.text() {
-                                    if !c.trim().is_empty() {
-                                        creators.push(c.trim().to_string());
-                                    }
-                                }
-                            } else if tag == "description" {
-                                if let Some(d) = node.text() {
-                                    if !d.trim().is_empty() {
-                                        description = Some(d.trim().to_string());
-                                    }
-                                }
+                for node in doc.descendants() {
+                    if node.is_element() {
+                        let tag = node.tag_name().name();
+                        if tag == "title" {
+                            if let Some(t) = node.text()
+                                && !t.trim().is_empty()
+                            {
+                                title = t.trim().to_string();
                             }
+                        } else if tag == "creator" {
+                            if let Some(c) = node.text()
+                                && !c.trim().is_empty()
+                            {
+                                creators.push(c.trim().to_string());
+                            }
+                        } else if tag == "description"
+                            && let Some(d) = node.text()
+                            && !d.trim().is_empty()
+                        {
+                            description = Some(d.trim().to_string());
                         }
                     }
                 }
@@ -121,16 +119,15 @@ impl DocxBook {
                 .take(MAX_DOCX_META_SIZE)
                 .read_to_string(&mut rels_xml)
                 .is_ok()
+                && let Ok(doc) = crate::dom::parse_xml_document(&rels_xml)
             {
-                if let Ok(doc) = crate::dom::parse_xml_document(&rels_xml) {
-                    for node in doc.descendants() {
-                        if node.is_element() && node.tag_name().name() == "Relationship" {
-                            if let (Some(id), Some(target)) =
-                                (node.attribute("Id"), node.attribute("Target"))
-                            {
-                                rels_map.insert(id.to_string(), target.to_string());
-                            }
-                        }
+                for node in doc.descendants() {
+                    if node.is_element()
+                        && node.tag_name().name() == "Relationship"
+                        && let (Some(id), Some(target)) =
+                            (node.attribute("Id"), node.attribute("Target"))
+                    {
+                        rels_map.insert(id.to_string(), target.to_string());
                     }
                 }
             }
@@ -166,8 +163,7 @@ impl DocxBook {
                         if child.tag_name().name() == "pPr" {
                             for ppr_child in child.children() {
                                 if ppr_child.is_element() && ppr_child.tag_name().name() == "pStyle"
-                                {
-                                    if let Some(val) = ppr_child
+                                    && let Some(val) = ppr_child
                                         .attribute((
                                             "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
                                             "val",
@@ -183,20 +179,17 @@ impl DocxBook {
                                             heading_level = Some(3);
                                         }
                                     }
-                                }
                             }
                         } else if child.tag_name().name() == "r" {
                             for r_child in child.children() {
-                                if r_child.is_element() && r_child.tag_name().name() == "br" {
-                                    if let Some(typ) = r_child.attribute((
+                                if r_child.is_element() && r_child.tag_name().name() == "br"
+                                    && let Some(typ) = r_child.attribute((
                                         "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
                                         "type",
-                                    )).or_else(|| r_child.attribute("type")) {
-                                        if typ == "page" {
+                                    )).or_else(|| r_child.attribute("type"))
+                                        && typ == "page" {
                                             has_page_break = true;
                                         }
-                                    }
-                                }
                             }
                         }
                     }
@@ -370,7 +363,8 @@ impl DocxBook {
             lcp_passphrase: None,
             lcp_license: None,
             media_overlays: AHashMap::new(),
-            render_cache: parking_lot::Mutex::new(AHashMap::new()),
+            render_cache: Default::default(),
+            hydrated_cache: Default::default(),
         };
 
         book.generate_locations(1000);
@@ -381,10 +375,11 @@ impl DocxBook {
 fn extract_node_text(node: &roxmltree::Node) -> String {
     let mut buf = String::new();
     for desc in node.descendants() {
-        if desc.is_element() && desc.tag_name().name() == "t" {
-            if let Some(t) = desc.text() {
-                buf.push_str(t);
-            }
+        if desc.is_element()
+            && desc.tag_name().name() == "t"
+            && let Some(t) = desc.text()
+        {
+            buf.push_str(t);
         }
     }
     buf
@@ -433,19 +428,16 @@ fn render_paragraph_html(node: &roxmltree::Node, rels: &AHashMap<String, String>
                     }
                 } else if r_tag == "drawing" {
                     for desc in r_child.descendants() {
-                        if desc.is_element() && desc.tag_name().name() == "blip" {
-                            if let Some(embed_id) = desc
+                        if desc.is_element() && desc.tag_name().name() == "blip"
+                            && let Some(embed_id) = desc
                                 .attribute((
                                     "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
                                     "embed",
                                 ))
                                 .or_else(|| desc.attribute("r:embed"))
-                            {
-                                if let Some(target) = rels.get(embed_id) {
+                                && let Some(target) = rels.get(embed_id) {
                                     img_src = Some(target.clone());
                                 }
-                            }
-                        }
                     }
                 }
             }

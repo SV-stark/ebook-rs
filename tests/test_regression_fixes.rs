@@ -252,7 +252,7 @@ fn treesitter_fallback_node_row_is_in_range() {
 #[test]
 fn treesitter_extracts_pre_tags_with_attributes() {
     let mut book = book_from_txt("<pre class=\"source\"><code>let x = 1;</code></pre>");
-    book.sections.push(ebook_rs::section::Section {
+    book.sections_vec_mut().push(ebook_rs::section::Section {
         index: 0,
         idref: "s0".into(),
         href: "s0.xhtml".into(),
@@ -304,7 +304,7 @@ fn hashtags_are_not_headings() {
 fn rtf_nested_destination_text_stays_out_of_the_body() {
     let rtf = r"{\rtf1\ansi{\fonttbl{\f0\froman Times New Roman;}{\f1\fswiss Arial;}}{\stylesheet{\s1 heading 1;}{\s2 heading 2;}}Hello World}";
     let book = ebook_rs::RtfBook::parse(rtf.as_bytes(), "RTF").unwrap();
-    let body = &book.sections[0].plain_text;
+    let body = &book.sections()[0].plain_text;
     assert!(body.contains("Hello World"), "body lost: {body}");
     assert!(
         !body.contains("Times New Roman"),
@@ -321,10 +321,10 @@ fn rtf_section_indices_stay_contiguous() {
     // Two consecutive `\page`s with no text between them produce a blank intermediate page.
     let rtf = r"{\rtf1\ansi First\page \page Second}";
     let book = ebook_rs::RtfBook::parse(rtf.as_bytes(), "RTF").unwrap();
-    for (i, sec) in book.sections.iter().enumerate() {
+    for (i, sec) in book.sections().iter().enumerate() {
         assert_eq!(sec.index, i, "index gap at position {i}");
     }
-    let hrefs: Vec<&str> = book.sections.iter().map(|s| s.href.as_str()).collect();
+    let hrefs: Vec<&str> = book.sections().iter().map(|s| s.href.as_str()).collect();
     assert!(hrefs.contains(&"section_0.html"), "{hrefs:?}");
     assert!(hrefs.contains(&"section_1.html"), "{hrefs:?}");
 }
@@ -346,9 +346,9 @@ fn rtf_section_indices_stay_contiguous() {
 fn render_cache_tracks_script_gate() {
     let mut book = book_from_txt("# T\n\nhi");
     // Replace the sections so index 0 is the section under test.
-    book.sections.clear();
+    book.sections_vec_mut().clear();
     // `processed_html` must mirror `raw_html` for the render path to take the processing branch.
-    book.sections.push(ebook_rs::section::Section {
+    book.sections_vec_mut().push(ebook_rs::section::Section {
         index: 0,
         idref: "s0".into(),
         href: "s0.xhtml".into(),
@@ -363,12 +363,12 @@ fn render_cache_tracks_script_gate() {
     });
 
     // Scripted content allowed: the script is preserved and cached under that key.
-    book.layout.allow_scripted_content = true;
+    book.layout_mut().allow_scripted_content = true;
     let with_script = book.get_section(0).unwrap();
     assert!(with_script.processed_html.contains("<script>"));
 
-    // Directly mutating the public field must not return the stale cached rendering.
-    book.layout.allow_scripted_content = false;
+    // Directly mutating the layout must not return the stale cached rendering.
+    book.layout_mut().allow_scripted_content = false;
     let sanitized = book.get_section(0).unwrap();
     assert!(
         !sanitized.processed_html.contains("<script>"),
@@ -406,8 +406,8 @@ fn dom_tag_parts_parses_boolean_and_valued_attributes() {
 #[test]
 fn scheme_prefix_consumes_literal_whitespace_in_scheme() {
     let mut book = book_from_txt("# T\n\nhi");
-    book.sections.clear();
-    book.sections.push(ebook_rs::section::Section {
+    book.sections_vec_mut().clear();
+    book.sections_vec_mut().push(ebook_rs::section::Section {
         index: 0,
         idref: "s0".into(),
         href: "s0.xhtml".into(),
@@ -515,4 +515,74 @@ fn footnote_nested_same_tag_preserves_full_content() {
         "footnote was cut off at inner closing tag: {}",
         fns[0].plain_text
     );
+}
+
+#[test]
+fn render_cache_tracks_rtl_direction_changes() {
+    let mut book = book_from_txt("# T\n\nhi");
+    book.sections_vec_mut().clear();
+    book.sections_vec_mut().push(ebook_rs::section::Section {
+        index: 0,
+        idref: "s0".into(),
+        href: "s0.xhtml".into(),
+        full_path: "OEBPS/s0.xhtml".into(),
+        raw_html: "<html><body><p>hi</p></body></html>".into(),
+        processed_html: "<html><body><p>hi</p></body></html>".into(),
+        plain_text: "hi".into(),
+        plain_text_lower: "hi".into(),
+        char_count: 2,
+        viewport_width: None,
+        viewport_height: None,
+    });
+
+    let ltr = book.get_section(0).unwrap();
+    assert!(!ltr.processed_html.contains("dir=\"rtl\""));
+
+    book.opf_mut().metadata.direction = ebook_rs::PageProgressionDirection::Rtl;
+    let rtl = book.get_section(0).unwrap();
+    assert!(rtl.processed_html.contains("dir=\"rtl\""));
+}
+
+#[test]
+fn tts_annotated_html_handles_multibyte_utf8() {
+    let sec = ebook_rs::section::Section {
+        index: 0,
+        idref: "s0".into(),
+        href: "s0.xhtml".into(),
+        full_path: "OEBPS/s0.xhtml".into(),
+        raw_html: "<p>Café naïve — 日本語</p>".into(),
+        processed_html: "<p>Café naïve — 日本語</p>".into(),
+        plain_text: "Café naïve — 日本語".into(),
+        plain_text_lower: "café naïve — 日本語".into(),
+        char_count: 16,
+        viewport_width: None,
+        viewport_height: None,
+    };
+    let annotated = sec.to_tts_annotated_html();
+    assert!(annotated.contains("id=\"tts-w-0\""));
+    assert!(annotated.contains(">Café</span>"));
+    assert!(annotated.contains(">naïve</span>"));
+    assert!(annotated.contains(">日本語</span>"));
+}
+
+#[test]
+fn extract_plain_text_handles_unclosed_script_linearly() {
+    let mut html = String::from("<script>if (a < b && c < d) {}");
+    for _ in 0..5000 {
+        html.push_str("<x><y><z>");
+    }
+    html.push_str("<p>Recovered body</p>");
+    let extracted = ebook_rs::section::extract_plain_text(&html);
+    assert!(extracted.contains("Recovered body"));
+}
+
+#[test]
+fn stream_zip_parse_central_directory_handles_crafted_eocd() {
+    // Minimal 22-byte EOCD with huge declared entry_count and cd_size
+    let mut tail = vec![0u8; 22];
+    tail[0..4].copy_from_slice(b"PK\x05\x06");
+    tail[10..12].copy_from_slice(&u16::MAX.to_le_bytes());
+    tail[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
+    let entries = ebook_rs::ZipHeaderReader::parse_central_directory(&tail).unwrap();
+    assert!(entries.is_empty());
 }

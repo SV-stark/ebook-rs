@@ -33,16 +33,19 @@ pub unsafe extern "C" fn ebook_rs_book_from_bytes(
     if bytes_ptr.is_null() || bytes_len == 0 {
         return ptr::null_mut();
     }
-    let res = catch_unwind(AssertUnwindSafe(|| unsafe {
-        let slice = std::slice::from_raw_parts(bytes_ptr, bytes_len);
-        match Book::from_bytes(slice) {
-            Ok(book) => {
-                let arc = Arc::new(book);
-                let raw = Arc::into_raw(arc.clone()) as *mut Book;
-                LIVE_BOOKS.lock().insert(raw as usize, arc);
-                raw
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        // SAFETY: Caller guarantees `bytes_ptr` is valid for `bytes_len` bytes.
+        unsafe {
+            let slice = std::slice::from_raw_parts(bytes_ptr, bytes_len);
+            match Book::from_bytes(slice) {
+                Ok(book) => {
+                    let arc = Arc::new(book);
+                    let raw = Arc::into_raw(arc.clone()) as *mut Book;
+                    LIVE_BOOKS.lock().insert(raw as usize, arc);
+                    raw
+                }
+                Err(_) => ptr::null_mut(),
             }
-            Err(_) => ptr::null_mut(),
         }
     }));
     res.unwrap_or(ptr::null_mut())
@@ -166,15 +169,18 @@ pub unsafe extern "C" fn ebook_rs_search_json(
         Some(b) => b,
         None => return ptr::null_mut(),
     };
-    let res = catch_unwind(AssertUnwindSafe(|| unsafe {
-        let query = match CStr::from_ptr(query_ptr).to_str() {
-            Ok(q) => q,
-            Err(_) => return ptr::null_mut(),
-        };
-        let results = book.search(query);
-        match serde_json::to_string(&results) {
-            Ok(json) => alloc_c_string(json),
-            Err(_) => ptr::null_mut(),
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        // SAFETY: Caller guarantees `query_ptr` is a valid NUL-terminated C string.
+        unsafe {
+            let query = match CStr::from_ptr(query_ptr).to_str() {
+                Ok(q) => q,
+                Err(_) => return ptr::null_mut(),
+            };
+            let results = book.search(query);
+            match serde_json::to_string(&results) {
+                Ok(json) => alloc_c_string(json),
+                Err(_) => ptr::null_mut(),
+            }
         }
     }));
     res.unwrap_or(ptr::null_mut())
@@ -237,6 +243,7 @@ mod tests {
 
     #[test]
     fn test_c_ffi_lifecycle() {
+        // SAFETY: `bytes` is a valid owned buffer and all FFI-allocated pointers are freed via `ebook_rs_*_free`.
         unsafe {
             let bytes = generate_sample_epub().unwrap();
             let handle = ebook_rs_book_from_bytes(bytes.as_ptr(), bytes.len());

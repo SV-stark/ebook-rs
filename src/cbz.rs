@@ -157,7 +157,8 @@ impl CbzBook {
             lcp_passphrase: None,
             lcp_license: None,
             media_overlays: AHashMap::new(),
-            render_cache: parking_lot::Mutex::new(AHashMap::new()),
+            render_cache: Default::default(),
+            hydrated_cache: Default::default(),
         };
 
         book.generate_locations(1000);
@@ -198,12 +199,11 @@ impl CbzBook {
             .min(book.sections.len());
 
         for idx in current_index..end {
-            if let Some(sec) = book.sections.get(idx) {
-                if let Some(img_src) = extract_img_src_from_html(&sec.raw_html) {
-                    if let Ok((bytes, _mime)) = book.get_resource_bytes(&img_src) {
-                        result.push((idx, img_src, bytes));
-                    }
-                }
+            if let Some(sec) = book.sections.get(idx)
+                && let Some(img_src) = extract_img_src_from_html(&sec.raw_html)
+                && let Ok((bytes, _mime)) = book.get_resource_bytes(&img_src)
+            {
+                result.push((idx, img_src, bytes));
             }
         }
         result
@@ -212,14 +212,14 @@ impl CbzBook {
 
 fn extract_img_src_from_html(html: &str) -> Option<String> {
     for (idx, _) in html.char_indices() {
-        if let Some(sub) = html.as_bytes().get(idx..idx + 5) {
-            if sub.eq_ignore_ascii_case(b"src=\"") {
-                let start = idx + 5;
-                if start <= html.len() {
-                    if let Some(end) = html[start..].find('"') {
-                        return Some(html[start..start + end].to_string());
-                    }
-                }
+        if let Some(sub) = html.as_bytes().get(idx..idx + 5)
+            && sub.eq_ignore_ascii_case(b"src=\"")
+        {
+            let start = idx + 5;
+            if start <= html.len()
+                && let Some(end) = html[start..].find('"')
+            {
+                return Some(html[start..start + end].to_string());
             }
         }
     }

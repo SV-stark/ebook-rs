@@ -17,11 +17,11 @@ pub enum DomNode {
 /// Decodes a raw byte slice into a UTF-8 String using `encoding_rs`.
 /// Supports legacy non-UTF-8 encodings such as "windows-1252", "shift_jis", "gbk", "iso-8859-1", etc.
 pub fn decode_bytes_with_encoding(bytes: &[u8], encoding_label: Option<&str>) -> String {
-    if let Some(label) = encoding_label {
-        if let Some(encoding) = encoding_rs::Encoding::for_label(label.as_bytes()) {
-            let (cow, _malformed, _replacements) = encoding.decode(bytes);
-            return cow.into_owned();
-        }
+    if let Some(label) = encoding_label
+        && let Some(encoding) = encoding_rs::Encoding::for_label(label.as_bytes())
+    {
+        let (cow, _malformed, _replacements) = encoding.decode(bytes);
+        return cow.into_owned();
     }
     let (cow, _malformed, _replacements) = encoding_rs::UTF_8.decode(bytes);
     cow.into_owned()
@@ -223,16 +223,16 @@ impl EbookDomTree {
             );
         }
         // Inline style overrides everything.
-        if let DomNode::Element { attributes, .. } = node {
-            if let Some(inline) = attributes.get("style") {
-                for part in inline.split(';') {
-                    let part = part.trim();
-                    if part.is_empty() {
-                        continue;
-                    }
-                    if let Some((k, v)) = part.split_once(':') {
-                        out.insert(CompactString::new(k.trim()), CompactString::new(v.trim()));
-                    }
+        if let DomNode::Element { attributes, .. } = node
+            && let Some(inline) = attributes.get("style")
+        {
+            for part in inline.split(';') {
+                let part = part.trim();
+                if part.is_empty() {
+                    continue;
+                }
+                if let Some((k, v)) = part.split_once(':') {
+                    out.insert(CompactString::new(k.trim()), CompactString::new(v.trim()));
                 }
             }
         }
@@ -1062,10 +1062,10 @@ fn simple_matches(node: &DomNode, simple: &SimpleSel) -> bool {
         return false;
     };
     if simple.universal {
-    } else if let Some(t) = &simple.tag {
-        if tag_name.to_lowercase() != *t {
-            return false;
-        }
+    } else if let Some(t) = &simple.tag
+        && tag_name.to_lowercase() != *t
+    {
+        return false;
     }
     if let Some(id) = &simple.id {
         match attributes.get("id") {
@@ -1083,10 +1083,10 @@ fn simple_matches(node: &DomNode, simple: &SimpleSel) -> bool {
     for (attr, val) in &simple.attrs {
         match attributes.get(attr.as_str()) {
             Some(v) => {
-                if let Some(expected) = val {
-                    if v != expected {
-                        return false;
-                    }
+                if let Some(expected) = val
+                    && v != expected
+                {
+                    return false;
                 }
             }
             None => return false,

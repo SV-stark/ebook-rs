@@ -42,20 +42,18 @@ impl LitBook {
             .or_else(|| extract_tag_content(&raw_lossy, "dc:title"))
             .or_else(|| extract_meta_attr(&text_content, "title"))
             .or_else(|| extract_meta_attr(&raw_lossy, "title"))
+            && !t.trim().is_empty()
         {
-            if !t.trim().is_empty() {
-                title = t.trim().to_string();
-            }
+            title = t.trim().to_string();
         }
 
         if let Some(a) = extract_tag_content(&text_content, "author")
             .or_else(|| extract_tag_content(&raw_lossy, "dc:creator"))
             .or_else(|| extract_meta_attr(&text_content, "author"))
             .or_else(|| extract_meta_attr(&raw_lossy, "author"))
+            && !a.trim().is_empty()
         {
-            if !a.trim().is_empty() {
-                creators.push(a.trim().to_string());
-            }
+            creators.push(a.trim().to_string());
         }
 
         if creators.is_empty() {
@@ -155,7 +153,8 @@ impl LitBook {
             lcp_passphrase: None,
             lcp_license: None,
             media_overlays: AHashMap::new(),
-            render_cache: parking_lot::Mutex::new(AHashMap::new()),
+            render_cache: Default::default(),
+            hydrated_cache: Default::default(),
         };
 
         book.generate_locations(1000);
@@ -260,12 +259,12 @@ fn extract_meta_name(html: &str, name: &str) -> Option<String> {
                     && remaining.as_bytes()[c_idx..c_idx + 9].eq_ignore_ascii_case(b"content=\"")
                 {
                     let val_start = byte_idx + c_idx + 9;
-                    if val_start < html.len() {
-                        if let Some(val_end) = html[val_start..].find('"') {
-                            let val = html[val_start..val_start + val_end].trim();
-                            if !val.is_empty() {
-                                return Some(val.to_string());
-                            }
+                    if val_start < html.len()
+                        && let Some(val_end) = html[val_start..].find('"')
+                    {
+                        let val = html[val_start..val_start + val_end].trim();
+                        if !val.is_empty() {
+                            return Some(val.to_string());
                         }
                     }
                 }
@@ -332,11 +331,11 @@ fn split_lit_html(html: &str) -> Vec<String> {
             }
             let slice = &html[byte_idx..];
             for &tag in patterns {
-                if let Some(sub) = slice.get(..tag.len()) {
-                    if sub.eq_ignore_ascii_case(tag) {
-                        boundaries.push(byte_idx);
-                        break;
-                    }
+                if let Some(sub) = slice.get(..tag.len())
+                    && sub.eq_ignore_ascii_case(tag)
+                {
+                    boundaries.push(byte_idx);
+                    break;
                 }
             }
         }

@@ -213,7 +213,7 @@ fn test_lazy_archive_bulk_apis() {
     // 2. Generate locations populates locations accurately in lazy mode
     book.generate_locations(100);
     assert!(
-        book.locations.total_locations >= 1,
+        book.locations().total_locations >= 1,
         "Locations should be generated in lazy mode"
     );
 
@@ -237,6 +237,6 @@ fn test_lazy_archive_bulk_apis() {
     assert!(!exported_bytes.is_empty());
 
     let exported_book = Book::from_bytes(&exported_bytes).expect("Parse exported EPUB 3 failed");
-    assert_eq!(exported_book.sections.len(), book.sections.len());
-    assert!(!exported_book.sections[0].plain_text.is_empty());
+    assert_eq!(exported_book.sections().len(), book.sections().len());
+    assert!(!exported_book.sections()[0].plain_text.is_empty());
 }

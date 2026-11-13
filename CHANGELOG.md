@@ -5,6 +5,35 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.1] - 2026-11-13
+
+### Fixed & Hardened
+
+- **Lazy Hydration Budget Exhaustion (`src/book.rs`)**:
+  - Added a bounded FIFO `hydrated_cache` on `Book` (`MAX_HYDRATED_CACHE_ENTRIES = 128`) so repeated lazy reads (`get_section`, `search`, `locations_from_sections`, `get_merged_stylesheet`) do not re-decompress the same ZIP entry and exhaust `EpubArchive::lazy_budget`.
+- **ZIP Central Directory Bounds & Overflow Safety (`src/stream_zip.rs`)**:
+  - Fixed `ZipHeaderReader::parse_central_directory` pre-allocation capacity to use `cd_size.min(eocd_idx) / 46` instead of the EOCD tail length, and switched offset advancement to `saturating_add` to prevent 32-bit/WASM integer overflow panics.
+- **Archive Stream Safety & Double-Buffering (`src/archive.rs`, `src/book.rs`)**:
+  - Added `EpubArchive::from_vec` to eliminate duplicate byte-buffer copies when opening archives, capped `from_reader` streams at 2 GiB, and replaced silent 64 MB truncation in eager ZIP extraction with an explicit `EbookError::InvalidFormat` error.
+- **MCP Sandbox Symlink Resolution (`src/mcp.rs`)**:
+  - Updated `resolve_sandboxed_path` to walk up to the nearest existing ancestor directory and canonicalize it before re-appending non-existent child segments, closing a symlink escape when writing to nested non-existent subdirectories.
+- **Quadratic HTML Scanning Elimination (`src/section.rs`, `src/book.rs`)**:
+  - Eliminated $O(N^2)$ `find_ignore_case` rescans in `extract_plain_text` inside `<style>`, `<script>`, and `<title>` blocks, and bounded `extract_first_img_src` attribute scanning to `find_tag_end`.
+
+### Changed & Improved
+
+- **Unified `EbookError` Return Types (`src/book.rs`, `src/section.rs`, `src/search.rs`, `src/stream_zip.rs`, `src/uniffi_api.rs`, `src/wasm.rs`)**:
+  - Replaced ad-hoc `Result<_, String>` signatures across `Book`, `Section`, `SearchEngine`, and `ZipHeaderReader` with structured `Result<_, EbookError>`.
+- **Book Encapsulation & FIFO Render Cache (`src/book.rs`, `src/layout.rs`)**:
+  - Encapsulated `Book` internal fields as `pub(crate)` with safe mutator/accessor methods (`opf_mut`, `toc_mut`, `locations_mut`, `layout_mut`, `sections_vec_mut`, `lcp_license`, `lcp_passphrase`, `media_overlays`).
+  - Added `asset_delivery` and `is_rtl` to `RenderCacheKey` and replaced `keys().min()` eviction with a true bounded FIFO `RenderCache`.
+- **Deterministic RFC 9562 UUID v5 Export IDs (`src/book.rs`)**:
+  - Replaced `DefaultHasher`-based `generate_rfc4122_uuid_v4` with deterministic `sha1_smol` UUID v5 generation over `(identifier, title, creators, section_count)`.
+- **Zero-`Vec<char>` TTS Annotation (`src/section.rs`)**:
+  - Rewrote `Section::to_tts_annotated_html` to iterate over UTF-8 byte indices directly without allocating `Vec<char>` or `Vec<Vec<char>>`.
+- **Workspace Lints & Clippy Cleanup (`Cargo.toml`, `src/lib.rs`)**:
+  - Added `[lints.rust]` (`unsafe_op_in_unsafe_fn`) and `[lints.clippy]` (`undocumented_unsafe_blocks`, `needless_pass_by_value`, `fallible_impl_from`) to `Cargo.toml`, removed crate-wide `collapsible_if`/`collapsible_match` suppressions from `src/lib.rs`, and resolved all clippy warnings.
+
 ## [0.18.0] - 2026-10-27
 
 ### Changed & Improved

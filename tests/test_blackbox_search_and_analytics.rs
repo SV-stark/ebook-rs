@@ -38,7 +38,7 @@ fn test_blackbox_reading_analytics_nlp() {
     let md = "# Analytics Test\n\nThis is a sample book section with 12 words to measure reading time and word count.";
     let book = TxtBook::parse(md.as_bytes(), "Analytics Test", true).unwrap();
 
-    let analytics = ReadingAnalytics::analyze_text(&book.sections[0].plain_text);
+    let analytics = ReadingAnalytics::analyze_text(&book.sections()[0].plain_text);
     assert!(analytics.word_count >= 10);
     assert!(analytics.reading_time_minutes >= 0.0);
 }

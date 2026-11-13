@@ -1,4 +1,5 @@
 use crate::archive::{EpubArchive, resolve_relative_path};
+use crate::error::EbookError;
 use crate::layout::AssetDeliveryStrategy;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -36,7 +37,7 @@ impl Section {
         href: String,
         full_path: String,
         archive: &EpubArchive,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, EbookError> {
         Self::new_with_strategy(
             index,
             idref,
@@ -55,7 +56,7 @@ impl Section {
         full_path: String,
         archive: &EpubArchive,
         _strategy: &AssetDeliveryStrategy,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, EbookError> {
         let raw_html = archive.read_string(&full_path)?;
         let plain_text = extract_plain_text(&raw_html);
         let plain_text_lower = plain_text.to_lowercase();
@@ -140,61 +141,63 @@ impl Section {
             return self.processed_html.clone();
         }
 
-        let mut annotated = String::with_capacity(self.processed_html.len() + tokens.len() * 50);
+        let html = &self.processed_html;
+        let bytes = html.as_bytes();
+        let mut annotated = String::with_capacity(html.len() + tokens.len() * 50);
         let mut token_idx = 0;
         let mut in_tag = false;
-        let mut in_quote: Option<char> = None;
-
-        let html_chars: Vec<char> = self.processed_html.chars().collect();
+        let mut in_quote: Option<u8> = None;
         let mut i = 0;
 
-        let token_char_vecs: Vec<Vec<char>> =
-            tokens.iter().map(|t| t.word.chars().collect()).collect();
-
-        while i < html_chars.len() {
-            let ch = html_chars[i];
-            if !in_tag && ch == '<' {
+        while i < bytes.len() {
+            let b = bytes[i];
+            if !in_tag && b == b'<' {
                 in_tag = true;
                 in_quote = None;
-                annotated.push(ch);
+                annotated.push('<');
                 i += 1;
                 continue;
             }
 
             if in_tag {
-                annotated.push(ch);
                 if let Some(q) = in_quote {
-                    if ch == q {
+                    if b == q {
                         in_quote = None;
                     }
-                } else if ch == '"' || ch == '\'' {
-                    in_quote = Some(ch);
-                } else if ch == '>' {
+                } else if b == b'"' || b == b'\'' {
+                    in_quote = Some(b);
+                } else if b == b'>' {
                     in_tag = false;
                 }
-                i += 1;
+                if let Some(ch) = html[i..].chars().next() {
+                    annotated.push(ch);
+                    i += ch.len_utf8();
+                } else {
+                    i += 1;
+                }
                 continue;
             }
 
             if token_idx < tokens.len() {
                 let token = &tokens[token_idx];
-                let token_chars = &token_char_vecs[token_idx];
-                let t_len = token_chars.len();
-
-                if i + t_len <= html_chars.len() && html_chars[i..i + t_len] == token_chars[..] {
+                if html[i..].starts_with(&token.word) {
                     let _ = write!(
                         annotated,
                         "<span id=\"tts-w-{}\" class=\"tts-word\" data-start=\"{}\" data-end=\"{}\">{}</span>",
                         token.index, token.char_start, token.char_end, token.word
                     );
-                    i += t_len;
+                    i += token.word.len();
                     token_idx += 1;
                     continue;
                 }
             }
 
-            annotated.push(ch);
-            i += 1;
+            if let Some(ch) = html[i..].chars().next() {
+                annotated.push(ch);
+                i += ch.len_utf8();
+            } else {
+                i += 1;
+            }
         }
 
         annotated
@@ -263,6 +266,7 @@ pub fn extract_plain_text(html: &str) -> String {
     let mut in_quote: Option<u8> = None;
     let mut text = String::with_capacity(html.len());
     let mut skipping_tag: Option<&'static str> = None;
+    let mut skipping_has_close = false;
 
     let len = html.len();
     let mut i = 0;
@@ -275,12 +279,15 @@ pub fn extract_plain_text(html: &str) -> String {
             if skipping_tag.is_none() {
                 if starts_with_ignore_case(slice, "<style") {
                     skipping_tag = Some("style");
+                    skipping_has_close = find_ignore_case(slice, "</style").is_some();
                 } else if starts_with_ignore_case(slice, "<script") {
                     skipping_tag = Some("script");
+                    skipping_has_close = find_ignore_case(slice, "</script").is_some();
                 } else if starts_with_ignore_case(slice, "<title") {
                     // <title> belongs in <head> and must never contribute to body
                     // plain text (search index, TTS stream, RAG chunks, char counts).
                     skipping_tag = Some("title");
+                    skipping_has_close = find_ignore_case(slice, "</title").is_some();
                 }
             } else if let Some(tag) = skipping_tag {
                 let close_tag = if tag == "style" {
@@ -292,7 +299,8 @@ pub fn extract_plain_text(html: &str) -> String {
                 };
                 if starts_with_ignore_case(slice, close_tag) {
                     skipping_tag = None;
-                } else if find_ignore_case(slice, close_tag).is_none() {
+                    skipping_has_close = false;
+                } else if !skipping_has_close {
                     // Unclosed style/script recovery: if no closing tag exists anywhere in document,
                     // recover when encountering structural HTML block tags (<p, <div, <body, <h, <section)
                     if starts_with_ignore_case(slice, "<p")
@@ -544,10 +552,8 @@ fn find_ignore_case(s: &str, pat: &str) -> Option<usize> {
     }
     for (i, _) in s.char_indices() {
         let end = i + pat.len();
-        if end <= s.len() && s.is_char_boundary(end) {
-            if s[i..end].eq_ignore_ascii_case(pat) {
-                return Some(i);
-            }
+        if end <= s.len() && s.is_char_boundary(end) && s[i..end].eq_ignore_ascii_case(pat) {
+            return Some(i);
         }
     }
     None
@@ -569,12 +575,11 @@ pub fn regex_find_link_css(html: &str) -> Vec<(usize, usize, String)> {
             let abs_link = search_idx + link_idx;
             if let Some(abs_close) = find_tag_end(html, abs_link) {
                 let tag_str = &html[abs_link..=abs_close];
-                if let Some((attr_start, attr_end, val)) = extract_attr(tag_str, "href") {
-                    if find_ignore_case(&val, ".css").is_some()
-                        || find_ignore_case(tag_str, "rel=\"stylesheet\"").is_some()
-                    {
-                        list.push((abs_link + attr_start, abs_link + attr_end, val));
-                    }
+                if let Some((attr_start, attr_end, val)) = extract_attr(tag_str, "href")
+                    && (find_ignore_case(&val, ".css").is_some()
+                        || find_ignore_case(tag_str, "rel=\"stylesheet\"").is_some())
+                {
+                    list.push((abs_link + attr_start, abs_link + attr_end, val));
                 }
                 search_idx = abs_close + 1;
             } else {
@@ -601,18 +606,17 @@ fn extract_attr(tag_str: &str, attr: &str) -> Option<(usize, usize, String)> {
                 let attr_start = pos + 1;
                 let val_start = pos + pat.len();
 
-                if tag_str.is_char_boundary(val_start) {
-                    if let Some(quote_idx) =
+                if tag_str.is_char_boundary(val_start)
+                    && let Some(quote_idx) =
                         memchr::memchr(quote as u8, &tag_str.as_bytes()[val_start..])
+                {
+                    let val_end = val_start + quote_idx;
+                    if tag_str.is_char_boundary(attr_start)
+                        && tag_str.is_char_boundary(val_end)
+                        && val_end < tag_str.len()
                     {
-                        let val_end = val_start + quote_idx;
-                        if tag_str.is_char_boundary(attr_start)
-                            && tag_str.is_char_boundary(val_end)
-                            && val_end < tag_str.len()
-                        {
-                            let val = tag_str[val_start..val_end].to_string();
-                            return Some((attr_start, val_end, val));
-                        }
+                        let val = tag_str[val_start..val_end].to_string();
+                        return Some((attr_start, val_end, val));
                     }
                 }
             }
@@ -686,22 +690,22 @@ fn regex_find_svg_image_href(html: &str) -> Vec<(usize, usize, String, &'static 
             if let Some(rel) = find_ignore_case(&html[tag_start..tag_end], &pat) {
                 let abs = tag_start + rel;
                 let val_start = abs + attr.len() + 2; // skip attr="
-                if val_start <= tag_end {
-                    if let Some(q) = html[val_start..tag_end].find('"') {
-                        let abs_end = val_start + q;
-                        let val = html[val_start..abs_end].to_string();
-                        found = Some((
-                            abs,
-                            abs_end,
-                            val,
-                            if attr == "xlink:href" {
-                                "xlink:href"
-                            } else {
-                                "href"
-                            },
-                        ));
-                        break;
-                    }
+                if val_start <= tag_end
+                    && let Some(q) = html[val_start..tag_end].find('"')
+                {
+                    let abs_end = val_start + q;
+                    let val = html[val_start..abs_end].to_string();
+                    found = Some((
+                        abs,
+                        abs_end,
+                        val,
+                        if attr == "xlink:href" {
+                            "xlink:href"
+                        } else {
+                            "href"
+                        },
+                    ));
+                    break;
                 }
             }
         }
@@ -758,15 +762,15 @@ fn regex_find_attr(html: &str, attr: &str) -> Vec<(usize, usize, String)> {
         }
 
         let val_start = abs_start + attr.len() + 2;
-        if html.is_char_boundary(val_start) {
-            if let Some(end) = html[val_start..].find('"') {
-                let abs_end = val_start + end;
-                if html.is_char_boundary(abs_end) {
-                    let val = html[val_start..abs_end].to_string();
-                    list.push((abs_start, abs_end, val));
-                    search_idx = abs_end + 1;
-                    continue;
-                }
+        if html.is_char_boundary(val_start)
+            && let Some(end) = html[val_start..].find('"')
+        {
+            let abs_end = val_start + end;
+            if html.is_char_boundary(abs_end) {
+                let val = html[val_start..abs_end].to_string();
+                list.push((abs_start, abs_end, val));
+                search_idx = abs_end + 1;
+                continue;
             }
         }
         search_idx = abs_start + 1;
@@ -855,25 +859,25 @@ pub fn parse_viewport_meta(html: &str) -> (Option<f64>, Option<f64>) {
             let abs_idx = search_idx + idx;
             if let Some(abs_close) = find_tag_end(html, abs_idx) {
                 let tag = &html[abs_idx..=abs_close];
-                if find_ignore_case(tag, "viewport").is_some() {
-                    if let Some((_, _, content)) = extract_attr(tag, "content") {
-                        let mut width = None;
-                        let mut height = None;
+                if find_ignore_case(tag, "viewport").is_some()
+                    && let Some((_, _, content)) = extract_attr(tag, "content")
+                {
+                    let mut width = None;
+                    let mut height = None;
 
-                        for pair in content.split(',') {
-                            if let Some((k, v)) = pair.split_once('=') {
-                                let k = k.trim();
-                                let v = v.trim();
-                                if k.eq_ignore_ascii_case("width") {
-                                    width = v.parse::<f64>().ok();
-                                } else if k.eq_ignore_ascii_case("height") {
-                                    height = v.parse::<f64>().ok();
-                                }
+                    for pair in content.split(',') {
+                        if let Some((k, v)) = pair.split_once('=') {
+                            let k = k.trim();
+                            let v = v.trim();
+                            if k.eq_ignore_ascii_case("width") {
+                                width = v.parse::<f64>().ok();
+                            } else if k.eq_ignore_ascii_case("height") {
+                                height = v.parse::<f64>().ok();
                             }
                         }
-                        if width.is_some() || height.is_some() {
-                            return (width, height);
-                        }
+                    }
+                    if width.is_some() || height.is_some() {
+                        return (width, height);
                     }
                 }
                 search_idx = abs_close + 1;
@@ -1198,14 +1202,14 @@ fn decode_html_entities_for_uri(input: &str) -> String {
                     } else {
                         num_str.parse::<u32>().ok()
                     };
-                    if let Some(code) = parsed {
-                        if let Some(ch) = char::from_u32(code) {
-                            if !ch.is_control() {
-                                out.push(ch);
-                            }
-                            i = end + 1;
-                            continue 'outer;
+                    if let Some(code) = parsed
+                        && let Some(ch) = char::from_u32(code)
+                    {
+                        if !ch.is_control() {
+                            out.push(ch);
                         }
+                        i = end + 1;
+                        continue 'outer;
                     }
                 }
             }

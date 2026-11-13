@@ -204,21 +204,19 @@ impl EpubArchive {
 
     /// Create an `EpubArchive` from raw ZIP byte data with Zip Bomb protection and lazy decompression.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, EbookError> {
-        Self::from_reader(Cursor::new(bytes))
+        Self::from_vec(bytes.to_vec())
     }
 
-    /// Construct `EpubArchive` from any `Read + Seek` source.
-    /// If total uncompressed size exceeds 500MB, seamlessly switches to lazy on-demand decompression mode.
-    pub fn from_reader<R: Read + Seek>(mut reader: R) -> Result<Self, EbookError> {
-        let mut raw_bytes = Vec::new();
-        reader
-            .seek(std::io::SeekFrom::Start(0))
-            .map_err(|e| EbookError::Io(format!("Failed to seek reader: {}", e)))?;
-        reader
-            .read_to_end(&mut raw_bytes)
-            .map_err(|e| EbookError::Io(format!("Failed to read archive bytes: {}", e)))?;
-
+    /// Create an `EpubArchive` from an owned ZIP byte buffer without extra copying.
+    pub fn from_vec(raw_bytes: Vec<u8>) -> Result<Self, EbookError> {
+        const MAX_ARCHIVE_INPUT_BYTES: u64 = 2 * 1024 * 1024 * 1024; // 2 GiB ceiling
         let compressed_len = raw_bytes.len() as u64;
+        if compressed_len > MAX_ARCHIVE_INPUT_BYTES {
+            return Err(EbookError::InvalidFormat(format!(
+                "Archive size ({} bytes) exceeds maximum {} byte safety limit",
+                compressed_len, MAX_ARCHIVE_INPUT_BYTES
+            )));
+        }
         let mut zip = ZipArchive::new(Cursor::new(raw_bytes))
             .map_err(|e| EbookError::Zip(format!("Failed to parse ZIP archive: {}", e)))?;
 
@@ -241,12 +239,13 @@ impl EpubArchive {
 
         // Decompression ratio protection (e.g. 100:1 ratio check against zip-bombs)
         const MAX_DECOMPRESSION_RATIO: u64 = 100;
-        if compressed_len > 0 && total_uncompressed_estimate > 20 * 1024 * 1024 {
-            if total_uncompressed_estimate / compressed_len > MAX_DECOMPRESSION_RATIO {
-                return Err(EbookError::InvalidFormat(
-                    "Zip bomb detected: uncompressed ratio exceeds 100:1 safety limit".to_string(),
-                ));
-            }
+        if compressed_len > 0
+            && total_uncompressed_estimate > 20 * 1024 * 1024
+            && total_uncompressed_estimate / compressed_len > MAX_DECOMPRESSION_RATIO
+        {
+            return Err(EbookError::InvalidFormat(
+                "Zip bomb detected: uncompressed ratio exceeds 100:1 safety limit".to_string(),
+            ));
         }
 
         const MAX_EAGER_TOTAL_SIZE: u64 = 256 * 1024 * 1024; // 256 MB threshold for eager loading
@@ -324,11 +323,17 @@ impl EpubArchive {
 
                 let mut content = Vec::new();
                 file.by_ref()
-                    .take(MAX_SINGLE_FILE_SIZE)
+                    .take(MAX_SINGLE_FILE_SIZE + 1)
                     .read_to_end(&mut content)
                     .map_err(|e| {
                         EbookError::Io(format!("Failed to read entry content {}: {}", name, e))
                     })?;
+                if content.len() as u64 > MAX_SINGLE_FILE_SIZE {
+                    return Err(EbookError::InvalidFormat(format!(
+                        "Archive entry '{}' exceeds maximum eager entry size ({} bytes)",
+                        name, MAX_SINGLE_FILE_SIZE
+                    )));
+                }
 
                 total_decompressed = total_decompressed.saturating_add(content.len());
                 if total_decompressed > MAX_EAGER_BUDGET {
@@ -352,6 +357,27 @@ impl EpubArchive {
                 ))),
             })
         }
+    }
+
+    /// Construct `EpubArchive` from any `Read + Seek` source.
+    /// If total uncompressed size exceeds 256MB, seamlessly switches to lazy on-demand decompression mode.
+    pub fn from_reader<R: Read + Seek>(mut reader: R) -> Result<Self, EbookError> {
+        const MAX_ARCHIVE_INPUT_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+        let mut raw_bytes = Vec::new();
+        reader
+            .seek(std::io::SeekFrom::Start(0))
+            .map_err(|e| EbookError::Io(format!("Failed to seek reader: {}", e)))?;
+        reader
+            .take(MAX_ARCHIVE_INPUT_BYTES + 1)
+            .read_to_end(&mut raw_bytes)
+            .map_err(|e| EbookError::Io(format!("Failed to read archive bytes: {}", e)))?;
+        if raw_bytes.len() as u64 > MAX_ARCHIVE_INPUT_BYTES {
+            return Err(EbookError::InvalidFormat(format!(
+                "Archive stream exceeds maximum {} byte safety limit",
+                MAX_ARCHIVE_INPUT_BYTES
+            )));
+        }
+        Self::from_vec(raw_bytes)
     }
 
     /// Whether archive operates in lazy on-demand decompression mode.

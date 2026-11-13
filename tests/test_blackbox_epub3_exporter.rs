@@ -19,9 +19,9 @@ fn test_blackbox_universal_epub3_exporter() {
         "Title was: {}",
         reloaded.metadata().title
     );
-    assert_eq!(reloaded.sections.len(), 1);
+    assert_eq!(reloaded.sections().len(), 1);
     assert!(
-        reloaded.sections[0]
+        reloaded.sections()[0]
             .plain_text
             .contains("universal EPUB3 exporter")
     );

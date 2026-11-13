@@ -42,8 +42,11 @@ fn test_blackbox_zstd_state_caching() {
     let restored =
         ebook_rs::Book::from_zstd_cache(&compressed_zstd).expect("Zstd decompression error");
     assert!(!restored.metadata().title.is_empty());
-    assert_eq!(restored.sections.len(), 2);
-    assert_eq!(restored.sections[0].plain_text, book.sections[0].plain_text);
+    assert_eq!(restored.sections().len(), 2);
+    assert_eq!(
+        restored.sections()[0].plain_text,
+        book.sections()[0].plain_text
+    );
 }
 
 #[test]

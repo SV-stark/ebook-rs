@@ -1,4 +1,5 @@
 use crate::cfi::Cfi;
+use crate::error::EbookError;
 use crate::section::Section;
 use serde::{Deserialize, Serialize};
 
@@ -260,7 +261,10 @@ impl SearchEngine {
     ///
     /// `pattern` is compiled with the `regex` crate, which is linear-time, but the number of
     /// matches is still bounded so a broad pattern cannot build an unbounded result set.
-    pub fn search_regex(sections: &[Section], pattern: &str) -> Result<Vec<SearchResult>, String> {
+    pub fn search_regex(
+        sections: &[Section],
+        pattern: &str,
+    ) -> Result<Vec<SearchResult>, EbookError> {
         Self::search_regex_limited(sections, pattern, None)
     }
 
@@ -272,12 +276,13 @@ impl SearchEngine {
         sections: &[Section],
         pattern: &str,
         max_results: Option<usize>,
-    ) -> Result<Vec<SearchResult>, String> {
+    ) -> Result<Vec<SearchResult>, EbookError> {
         let limit = max_results
             .unwrap_or(DEFAULT_MAX_RESULTS)
             .min(ABSOLUTE_MAX_RESULTS);
-        let re = regex::Regex::new(pattern)
-            .map_err(|e| format!("Invalid regex pattern '{}': {}", pattern, e))?;
+        let re = regex::Regex::new(pattern).map_err(|e| {
+            EbookError::InvalidFormat(format!("Invalid regex pattern '{}': {}", pattern, e))
+        })?;
         let mut results = Vec::new();
         if limit == 0 {
             return Ok(results);
@@ -329,7 +334,10 @@ impl SearchEngine {
     }
 
     /// Format search results into Readium Standard Search Collection JSON (application/vnd.readium.search+json).
-    pub fn to_readium_search_json(results: &[SearchResult], query: &str) -> Result<String, String> {
+    pub fn to_readium_search_json(
+        results: &[SearchResult],
+        query: &str,
+    ) -> Result<String, EbookError> {
         let locators: Vec<serde_json::Value> = results
             .iter()
             .map(|r| {
@@ -356,8 +364,9 @@ impl SearchEngine {
             "locators": locators
         });
 
-        serde_json::to_string_pretty(&collection)
-            .map_err(|e| format!("Failed to serialize Readium Search JSON: {}", e))
+        serde_json::to_string_pretty(&collection).map_err(|e| {
+            EbookError::Custom(format!("Failed to serialize Readium Search JSON: {}", e))
+        })
     }
 }
 

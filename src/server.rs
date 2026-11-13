@@ -467,41 +467,40 @@ impl ReaderServer {
                                     mime
                                 };
 
-                                if let Some(range_val) = header_value(&request, "Range") {
-                                    if let Some((start, end_opt)) =
+                                if let Some(range_val) = header_value(&request, "Range")
+                                    && let Some((start, end_opt)) =
                                         crate::archive::HttpRangeRequest::parse_range_header(
                                             &range_val,
                                         )
-                                    {
-                                        let total = bytes.len() as u64;
-                                        if total > 0 && start < total {
-                                            let end = end_opt.unwrap_or(total - 1).min(total - 1);
-                                            if start <= end {
-                                                let slice = &bytes[start as usize..=end as usize];
-                                                let cr_hdr = format!("bytes {start}-{end}/{total}");
-                                                send_bytes_with_headers(
-                                                    request,
-                                                    StatusCode(206),
-                                                    effective_mime,
-                                                    slice,
-                                                    &[
-                                                        ("Content-Range", &cr_hdr),
-                                                        ("Accept-Ranges", "bytes"),
-                                                    ],
-                                                );
-                                                return;
-                                            }
+                                {
+                                    let total = bytes.len() as u64;
+                                    if total > 0 && start < total {
+                                        let end = end_opt.unwrap_or(total - 1).min(total - 1);
+                                        if start <= end {
+                                            let slice = &bytes[start as usize..=end as usize];
+                                            let cr_hdr = format!("bytes {start}-{end}/{total}");
+                                            send_bytes_with_headers(
+                                                request,
+                                                StatusCode(206),
+                                                effective_mime,
+                                                slice,
+                                                &[
+                                                    ("Content-Range", &cr_hdr),
+                                                    ("Accept-Ranges", "bytes"),
+                                                ],
+                                            );
+                                            return;
                                         }
-                                        let cr_hdr = format!("bytes */{total}");
-                                        send_bytes_with_headers(
-                                            request,
-                                            StatusCode(416),
-                                            "text/plain; charset=utf-8",
-                                            b"416 Range Not Satisfiable",
-                                            &[("Content-Range", &cr_hdr)],
-                                        );
-                                        return;
                                     }
+                                    let cr_hdr = format!("bytes */{total}");
+                                    send_bytes_with_headers(
+                                        request,
+                                        StatusCode(416),
+                                        "text/plain; charset=utf-8",
+                                        b"416 Range Not Satisfiable",
+                                        &[("Content-Range", &cr_hdr)],
+                                    );
+                                    return;
                                 }
 
                                 send_bytes_with_headers(
@@ -678,10 +677,10 @@ fn read_body_capped(
 ) -> Result<String, BodyReadError> {
     use std::io::Read;
 
-    if let Some(len) = request.body_length() {
-        if len as u64 > max_bytes {
-            return Err(BodyReadError::TooLarge);
-        }
+    if let Some(len) = request.body_length()
+        && len as u64 > max_bytes
+    {
+        return Err(BodyReadError::TooLarge);
     }
 
     let mut buf = String::new();

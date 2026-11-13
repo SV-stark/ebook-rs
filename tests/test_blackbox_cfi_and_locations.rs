@@ -36,12 +36,12 @@ fn test_blackbox_locations_generation() {
 
     // Generate reading locations (1 location per 50 chars)
     book.generate_locations(50);
-    assert!(book.locations.total_locations > 0);
+    assert!(book.locations().total_locations > 0);
 
-    let loc1 = book.locations.location_from_char_offset(0, 5);
+    let loc1 = book.locations().location_from_char_offset(0, 5);
     assert!(loc1.is_some());
     assert_eq!(loc1.unwrap().location, 1);
 
-    let pct = book.locations.percentage_from_location(1);
+    let pct = book.locations().percentage_from_location(1);
     assert!((0.0..=1.0).contains(&pct));
 }

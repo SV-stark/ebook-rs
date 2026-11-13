@@ -1,5 +1,3 @@
-#![allow(clippy::collapsible_if, clippy::collapsible_match)]
-
 pub mod analytics;
 pub mod annotations;
 pub mod archive;

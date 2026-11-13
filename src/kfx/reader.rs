@@ -36,16 +36,15 @@ impl KfxBook {
         // 1. First, attempt to extract structured storylines from container index entries
         let mut storyline_sections: Vec<String> = Vec::new();
         for entry in &container.index_entries {
-            if entry.type_id == crate::kfx::symbols::SYM_STORYLINE_FRAGMENT
+            if (entry.type_id == crate::kfx::symbols::SYM_STORYLINE_FRAGMENT
                 || entry.type_id == crate::kfx::symbols::SYM_SECTION_BLOCK
-                || entry.type_id == crate::kfx::symbols::SYM_CONTENT_BODY
+                || entry.type_id == crate::kfx::symbols::SYM_CONTENT_BODY)
+                && let Some(payload_slice) = container.get_entry_payload(entry)
             {
-                if let Some(payload_slice) = container.get_entry_payload(entry) {
-                    let sec_str = String::from_utf8_lossy(payload_slice);
-                    let clean = sec_str.trim();
-                    if !clean.is_empty() && is_valid_kfx_text_paragraph(clean) {
-                        storyline_sections.push(clean.to_string());
-                    }
+                let sec_str = String::from_utf8_lossy(payload_slice);
+                let clean = sec_str.trim();
+                if !clean.is_empty() && is_valid_kfx_text_paragraph(clean) {
+                    storyline_sections.push(clean.to_string());
                 }
             }
         }
@@ -251,7 +250,8 @@ impl KfxBook {
             lcp_license: None,
             before_display_hooks: Vec::new(),
             media_overlays: AHashMap::new(),
-            render_cache: parking_lot::Mutex::new(AHashMap::new()),
+            render_cache: Default::default(),
+            hydrated_cache: Default::default(),
         };
 
         let mut locations = crate::locations::Locations::new(1000);
@@ -270,10 +270,10 @@ fn find_ascii_ignore_case(haystack: &str, needle: &str) -> Option<usize> {
     }
     let needle_bytes = needle.as_bytes();
     for (idx, _) in haystack.char_indices() {
-        if let Some(sub) = haystack.as_bytes().get(idx..idx + needle_bytes.len()) {
-            if sub.eq_ignore_ascii_case(needle_bytes) {
-                return Some(idx);
-            }
+        if let Some(sub) = haystack.as_bytes().get(idx..idx + needle_bytes.len())
+            && sub.eq_ignore_ascii_case(needle_bytes)
+        {
+            return Some(idx);
         }
     }
     None
@@ -283,18 +283,18 @@ fn extract_first_heading(html: &str) -> Option<String> {
     for tag in &["<p>chapter ", "<p>chapter", "<h1>", "<h2>", "<h3>"] {
         if let Some(idx) = find_ascii_ignore_case(html, tag) {
             let start = idx + tag.len();
-            if start <= html.len() {
-                if let Some(end) = html[start..].find('<') {
-                    let txt = html[start..start + end].trim();
-                    if !txt.is_empty() && txt.len() < 100 {
-                        let mut heading = if !tag.starts_with("<p>") {
-                            txt.to_string()
-                        } else {
-                            format!("CHAPTER {}", txt)
-                        };
-                        heading = heading.replace("CHAPTER CHAPTER", "CHAPTER");
-                        return Some(heading);
-                    }
+            if start <= html.len()
+                && let Some(end) = html[start..].find('<')
+            {
+                let txt = html[start..start + end].trim();
+                if !txt.is_empty() && txt.len() < 100 {
+                    let mut heading = if !tag.starts_with("<p>") {
+                        txt.to_string()
+                    } else {
+                        format!("CHAPTER {}", txt)
+                    };
+                    heading = heading.replace("CHAPTER CHAPTER", "CHAPTER");
+                    return Some(heading);
                 }
             }
         }

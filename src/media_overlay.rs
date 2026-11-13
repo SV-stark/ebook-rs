@@ -96,10 +96,10 @@ fn find_attribute(tag: &str, name: &str) -> Option<(usize, char)> {
             at == 0 || matches!(bytes[at - 1], b' ' | b'\t' | b'\r' | b'\n' | b'/' | b'<');
         if boundary {
             let after = at + needle.len();
-            if let Some(ch) = tag[after..].chars().next() {
-                if ch == '"' || ch == '\'' {
-                    return Some((after + ch.len_utf8(), ch));
-                }
+            if let Some(ch) = tag[after..].chars().next()
+                && (ch == '"' || ch == '\'')
+            {
+                return Some((after + ch.len_utf8(), ch));
             }
         }
         from = at + needle.len();
@@ -275,26 +275,26 @@ impl MediaOverlayPackage {
                                         element_id,
                                     });
                                 }
-                            } else if par_child.has_tag_name("audio") {
-                                if let Some(src) = par_child.attribute("src") {
-                                    let full_path =
-                                        crate::archive::resolve_relative_path(smil_dir, src);
-                                    let clip_begin = par_child
-                                        .attribute("clipBegin")
-                                        .map(SmilClock::parse_npt_seconds)
-                                        .unwrap_or(0.0);
-                                    let clip_end = par_child
-                                        .attribute("clipEnd")
-                                        .map(SmilClock::parse_npt_seconds)
-                                        .unwrap_or(0.0);
+                            } else if par_child.has_tag_name("audio")
+                                && let Some(src) = par_child.attribute("src")
+                            {
+                                let full_path =
+                                    crate::archive::resolve_relative_path(smil_dir, src);
+                                let clip_begin = par_child
+                                    .attribute("clipBegin")
+                                    .map(SmilClock::parse_npt_seconds)
+                                    .unwrap_or(0.0);
+                                let clip_end = par_child
+                                    .attribute("clipEnd")
+                                    .map(SmilClock::parse_npt_seconds)
+                                    .unwrap_or(0.0);
 
-                                    audio_clip = Some(SmilAudioClip {
-                                        src: src.to_string(),
-                                        full_path,
-                                        clip_begin,
-                                        clip_end,
-                                    });
-                                }
+                                audio_clip = Some(SmilAudioClip {
+                                    src: src.to_string(),
+                                    full_path,
+                                    clip_begin,
+                                    clip_end,
+                                });
                             }
                         }
 
@@ -407,14 +407,13 @@ impl MediaOverlayPackage {
         let clean = href.trim();
         for seq in &self.sequences {
             for par in &seq.parallels {
-                if let Some(ref text) = par.text {
-                    if text.src == clean
+                if let Some(ref text) = par.text
+                    && (text.src == clean
                         || text.full_path == clean
                         || text.src.ends_with(clean)
-                        || text.element_id.as_deref() == Some(clean)
-                    {
-                        return par.audio.clone();
-                    }
+                        || text.element_id.as_deref() == Some(clean))
+                {
+                    return par.audio.clone();
                 }
             }
         }

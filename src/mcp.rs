@@ -64,24 +64,39 @@ pub fn resolve_sandboxed_path(
     let normalized = normalize_lexically(&joined);
 
     // Resolve symlinks so a link inside the sandbox cannot point out of it. For a path that does
-    // not exist yet (`convert_ebook` output), canonicalize the parent directory and re-append the
-    // file name.
+    // not exist yet (`convert_ebook` output), walk up to the nearest existing ancestor,
+    // canonicalize that ancestor, and re-append the remaining non-existent components.
     let resolved = if normalized.exists() {
         normalized
             .canonicalize()
             .map(|p| strip_verbatim(&p))
             .unwrap_or_else(|_| strip_verbatim(&normalized))
     } else {
-        match (normalized.parent(), normalized.file_name()) {
-            (Some(parent), Some(name)) => {
-                let real_parent = parent
-                    .canonicalize()
-                    .map(|p| strip_verbatim(&p))
-                    .unwrap_or_else(|_| strip_verbatim(parent));
-                real_parent.join(name)
+        let mut missing_tail: Vec<std::ffi::OsString> = Vec::new();
+        let mut cursor: &Path = &normalized;
+        while !cursor.exists() {
+            if let Some(name) = cursor.file_name() {
+                missing_tail.push(name.to_os_string());
+            } else {
+                break;
             }
-            _ => strip_verbatim(&normalized),
+            match cursor.parent() {
+                Some(parent) => cursor = parent,
+                None => break,
+            }
         }
+        let mut base = if cursor.exists() {
+            cursor
+                .canonicalize()
+                .map(|p| strip_verbatim(&p))
+                .unwrap_or_else(|_| strip_verbatim(cursor))
+        } else {
+            strip_verbatim(cursor)
+        };
+        for part in missing_tail.into_iter().rev() {
+            base.push(part);
+        }
+        base
     };
 
     let canonical_root = root
@@ -126,20 +141,18 @@ pub fn get_cached_mcp_book(
 
     {
         let cache = MCP_BOOK_CACHE.read();
-        if let Some(entry) = cache.get(&key) {
-            if entry.modified == mod_time {
-                return Ok(entry.book.clone());
-            }
+        if let Some(entry) = cache.get(&key)
+            && entry.modified == mod_time
+        {
+            return Ok(entry.book.clone());
         }
     }
 
     // Reject oversized inputs before parsing.
-    if let Ok(meta) = std::fs::metadata(&resolved) {
-        if meta.len() > MAX_MCP_INPUT_BYTES {
-            return Err(
-                format!("Input file exceeds the {} byte limit", MAX_MCP_INPUT_BYTES).into(),
-            );
-        }
+    if let Ok(meta) = std::fs::metadata(&resolved)
+        && meta.len() > MAX_MCP_INPUT_BYTES
+    {
+        return Err(format!("Input file exceeds the {} byte limit", MAX_MCP_INPUT_BYTES).into());
     }
 
     let book = Arc::new(Book::from_file(&resolved)?);
@@ -172,6 +185,7 @@ pub struct JsonRpcRequest {
 ///
 /// `sandbox_root` confines every filesystem-touching tool to that directory. Tools that read or
 /// write arbitrary paths are refused when it is `None`.
+#[allow(clippy::needless_pass_by_value)] // Public API takes owned Option<PathBuf>
 pub fn run_mcp_server(
     sandbox_root: Option<std::path::PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -994,10 +1008,11 @@ fn handle_tool_call(
                 return Err("Unsupported output extension. Expected .epub, .kfx, or .json".into());
             }
 
-            if let Some(parent) = resolved_output.parent() {
-                if !parent.as_os_str().is_empty() && !parent.exists() {
-                    std::fs::create_dir_all(parent)?;
-                }
+            if let Some(parent) = resolved_output.parent()
+                && !parent.as_os_str().is_empty()
+                && !parent.exists()
+            {
+                std::fs::create_dir_all(parent)?;
             }
 
             let book = Book::from_file(&resolved_input)?;

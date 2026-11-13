@@ -53,11 +53,9 @@ impl SyntaxHighlightEngine {
                             break;
                         }
                     }
-                    ']' => {
-                        if stack.pop() != Some('[') {
-                            mismatch = true;
-                            break;
-                        }
+                    ']' if stack.pop() != Some('[') => {
+                        mismatch = true;
+                        break;
                     }
                     _ => {}
                 }
@@ -98,11 +96,9 @@ impl SyntaxHighlightEngine {
                                 break;
                             }
                         }
-                        ']' => {
-                            if l_stack.pop() != Some('[') {
-                                l_err = true;
-                                break;
-                            }
+                        ']' if l_stack.pop() != Some('[') => {
+                            l_err = true;
+                            break;
                         }
                         _ => {}
                     }

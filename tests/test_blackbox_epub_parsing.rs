@@ -74,7 +74,7 @@ fn test_blackbox_epub_parsing_and_metadata() {
     assert_eq!(book.metadata().title, "Synthetic Test Book");
     assert_eq!(book.metadata().creators, vec!["Author Name"]);
     assert_eq!(book.metadata().languages, vec!["en"]);
-    assert_eq!(book.sections.len(), 1);
+    assert_eq!(book.sections().len(), 1);
     assert_eq!(book.spine().len(), 1);
 
     // Verify section content retrieval

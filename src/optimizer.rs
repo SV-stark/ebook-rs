@@ -422,7 +422,7 @@ impl EpubOptimizer {
         let all_files = archive.list_files();
         for path in all_files {
             let lower = path.to_lowercase();
-            if lower.ends_with(".png")
+            if (lower.ends_with(".png")
                 || lower.ends_with(".jpg")
                 || lower.ends_with(".jpeg")
                 || lower.ends_with(".webp")
@@ -431,16 +431,15 @@ impl EpubOptimizer {
                 || lower.ends_with(".ttf")
                 || lower.ends_with(".otf")
                 || lower.ends_with(".woff")
-                || lower.ends_with(".woff2")
+                || lower.ends_with(".woff2"))
+                && let Ok(bytes) = archive.read_bytes(&path)
             {
-                if let Ok(bytes) = archive.read_bytes(&path) {
-                    let hash = sha1_smol::Sha1::from(&bytes).digest().to_string();
-                    if let Some(canonical) = hash_to_canonical_path.get(&hash) {
-                        path_redirects.insert(path.clone(), canonical.clone());
-                        dedup_count += 1;
-                    } else {
-                        hash_to_canonical_path.insert(hash, path.clone());
-                    }
+                let hash = sha1_smol::Sha1::from(&bytes).digest().to_string();
+                if let Some(canonical) = hash_to_canonical_path.get(&hash) {
+                    path_redirects.insert(path.clone(), canonical.clone());
+                    dedup_count += 1;
+                } else {
+                    hash_to_canonical_path.insert(hash, path.clone());
                 }
             }
         }
@@ -625,12 +624,13 @@ fn extract_dom_identifiers(
                 if let Some(class_pos) = tag_body.find("class=") {
                     let after = &tag_body[class_pos + 6..].trim_start();
                     let quote = after.chars().next().unwrap_or('"');
-                    if (quote == '"' || quote == '\'') && after.len() > 1 {
-                        if let Some(end_q) = after[1..].find(quote) {
-                            let class_str = &after[1..=end_q];
-                            for cls in class_str.split_whitespace() {
-                                classes.insert(cls.to_string());
-                            }
+                    if (quote == '"' || quote == '\'')
+                        && after.len() > 1
+                        && let Some(end_q) = after[1..].find(quote)
+                    {
+                        let class_str = &after[1..=end_q];
+                        for cls in class_str.split_whitespace() {
+                            classes.insert(cls.to_string());
                         }
                     }
                 }
@@ -639,11 +639,12 @@ fn extract_dom_identifiers(
                 if let Some(id_pos) = tag_body.find("id=") {
                     let after = &tag_body[id_pos + 3..].trim_start();
                     let quote = after.chars().next().unwrap_or('"');
-                    if (quote == '"' || quote == '\'') && after.len() > 1 {
-                        if let Some(end_q) = after[1..].find(quote) {
-                            let id_str = &after[1..=end_q];
-                            ids.insert(id_str.trim().to_string());
-                        }
+                    if (quote == '"' || quote == '\'')
+                        && after.len() > 1
+                        && let Some(end_q) = after[1..].find(quote)
+                    {
+                        let id_str = &after[1..=end_q];
+                        ids.insert(id_str.trim().to_string());
                     }
                 }
 

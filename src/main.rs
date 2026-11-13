@@ -81,9 +81,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let book = Book::from_file(path)?;
             println!(
                 "📍 Generated Locations ({} total):",
-                book.locations.total_locations
+                book.locations().total_locations
             );
-            println!("{}", serde_json::to_string_pretty(&book.locations.entries)?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&book.locations().entries)?
+            );
         }
         "sample" => {
             let out_path = args.get(2).map_or("sample.epub", String::as_str);
@@ -171,7 +174,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("✨ Title: {}", book.metadata().title);
             println!("✨ Author(s): {}", book.metadata().creators.join(", "));
             println!("✨ Spine Sections: {}", book.spine().len());
-            println!("✨ Locations Generated: {}", book.locations.total_locations);
+            println!(
+                "✨ Locations Generated: {}",
+                book.locations().total_locations
+            );
 
             // Same sandbox the MCP mode reports, so the two modes cannot claim contradictory
             // states. `None` means "filesystem tools refused".

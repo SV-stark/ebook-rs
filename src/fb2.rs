@@ -47,10 +47,10 @@ impl Fb2Book {
                         "author" => {
                             let mut name_parts = Vec::new();
                             for a in child.children() {
-                                if let Some(t) = a.text() {
-                                    if !t.trim().is_empty() {
-                                        name_parts.push(t.trim());
-                                    }
+                                if let Some(t) = a.text()
+                                    && !t.trim().is_empty()
+                                {
+                                    name_parts.push(t.trim());
                                 }
                             }
                             if !name_parts.is_empty() {
@@ -78,47 +78,46 @@ impl Fb2Book {
         let mut archive = EpubArchive::empty();
 
         for node in root.descendants() {
-            if node.has_tag_name("binary") {
-                if let Some(id) = node.attribute("id") {
-                    let text_raw = collect_descendant_text(&node);
-                    let b64_clean = text_raw.replace(['\r', '\n', ' ', '\t'], "");
-                    let mime = node.attribute("content-type").unwrap_or("image/jpeg");
-                    let ext = match mime {
-                        "image/jpeg" => "jpg",
-                        "image/png" => "png",
-                        "image/gif" => "gif",
-                        "image/webp" => "webp",
-                        "image/svg+xml" => "svg",
-                        _ => "jpg",
-                    };
+            if node.has_tag_name("binary")
+                && let Some(id) = node.attribute("id")
+            {
+                let text_raw = collect_descendant_text(&node);
+                let b64_clean = text_raw.replace(['\r', '\n', ' ', '\t'], "");
+                let mime = node.attribute("content-type").unwrap_or("image/jpeg");
+                let ext = match mime {
+                    "image/jpeg" => "jpg",
+                    "image/png" => "png",
+                    "image/gif" => "gif",
+                    "image/webp" => "webp",
+                    "image/svg+xml" => "svg",
+                    _ => "jpg",
+                };
 
-                    let clean_id = id.trim_start_matches('#').to_string();
-                    // `id` is attacker-controlled. `EpubArchive::insert` normalizes the key and
-                    // silently drops `..` segments, so an id like `../../container.xml` would
-                    // otherwise overwrite `META-INF/container.xml` in the in-memory index.
-                    // Reject any id that is not a plain filename.
-                    if clean_id.is_empty()
-                        || clean_id.contains('/')
-                        || clean_id.contains('\\')
-                        || clean_id.contains("..")
-                        || clean_id.starts_with('.')
-                    {
-                        continue;
-                    }
-                    let filename = if clean_id.contains('.') {
-                        clean_id.clone()
-                    } else {
-                        format!("{}.{}", clean_id, ext)
-                    };
+                let clean_id = id.trim_start_matches('#').to_string();
+                // `id` is attacker-controlled. `EpubArchive::insert` normalizes the key and
+                // silently drops `..` segments, so an id like `../../container.xml` would
+                // otherwise overwrite `META-INF/container.xml` in the in-memory index.
+                // Reject any id that is not a plain filename.
+                if clean_id.is_empty()
+                    || clean_id.contains('/')
+                    || clean_id.contains('\\')
+                    || clean_id.contains("..")
+                    || clean_id.starts_with('.')
+                {
+                    continue;
+                }
+                let filename = if clean_id.contains('.') {
+                    clean_id.clone()
+                } else {
+                    format!("{}.{}", clean_id, ext)
+                };
 
-                    let rel_path = format!("images/{}", filename);
-                    let full_archive_path = format!("OEBPS/{}", rel_path);
+                let rel_path = format!("images/{}", filename);
+                let full_archive_path = format!("OEBPS/{}", rel_path);
 
-                    if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(&b64_clean)
-                    {
-                        archive.insert(full_archive_path, bytes);
-                        binary_map.insert(clean_id, rel_path);
-                    }
+                if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(&b64_clean) {
+                    archive.insert(full_archive_path, bytes);
+                    binary_map.insert(clean_id, rel_path);
                 }
             }
         }
@@ -261,7 +260,8 @@ impl Fb2Book {
             lcp_passphrase: None,
             lcp_license: None,
             media_overlays: AHashMap::new(),
-            render_cache: parking_lot::Mutex::new(AHashMap::new()),
+            render_cache: Default::default(),
+            hydrated_cache: Default::default(),
         };
 
         book.generate_locations(1000);
@@ -272,10 +272,10 @@ impl Fb2Book {
 fn collect_descendant_text(node: &roxmltree::Node) -> String {
     let mut buf = String::new();
     for descendant in node.descendants() {
-        if descendant.is_text() {
-            if let Some(t) = descendant.text() {
-                buf.push_str(t);
-            }
+        if descendant.is_text()
+            && let Some(t) = descendant.text()
+        {
+            buf.push_str(t);
         }
     }
     buf

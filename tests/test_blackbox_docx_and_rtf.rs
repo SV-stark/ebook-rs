@@ -75,10 +75,10 @@ fn test_docx_parsing_and_auto_detection() {
     let book = DocxBook::parse(&docx_bytes, "Fallback").expect("Should parse synthetic DOCX");
     assert_eq!(book.metadata().title, "Test Word Document");
     assert_eq!(book.metadata().creators, vec!["Test Author"]);
-    assert_eq!(book.sections.len(), 2);
-    assert_eq!(book.toc.len(), 2);
-    assert_eq!(book.toc[0].label, "Chapter 1: The Beginning");
-    assert_eq!(book.toc[1].label, "Chapter 2: The Journey");
+    assert_eq!(book.sections().len(), 2);
+    assert_eq!(book.toc().len(), 2);
+    assert_eq!(book.toc()[0].label, "Chapter 1: The Beginning");
+    assert_eq!(book.toc()[1].label, "Chapter 2: The Journey");
 
     let sec0 = book.get_section(0).unwrap();
     assert!(sec0.raw_html.contains("<strong>Bold intro text. </strong>"));
@@ -90,7 +90,7 @@ fn test_docx_parsing_and_auto_detection() {
     // 2. Book::from_bytes auto-detection
     let detected_book = Book::from_bytes(&docx_bytes).expect("Should auto-detect DOCX");
     assert_eq!(detected_book.metadata().title, "Test Word Document");
-    assert_eq!(detected_book.sections.len(), 2);
+    assert_eq!(detected_book.sections().len(), 2);
 
     // 3. Universal EPUB3 export
     let epub_bytes = book
@@ -99,7 +99,7 @@ fn test_docx_parsing_and_auto_detection() {
     assert!(epub_bytes.starts_with(b"PK\x03\x04"));
     let exported_epub = Book::from_bytes(&epub_bytes).expect("Should parse exported EPUB3");
     assert_eq!(exported_epub.metadata().title, "Test Word Document");
-    assert_eq!(exported_epub.sections.len(), 2);
+    assert_eq!(exported_epub.sections().len(), 2);
 }
 
 #[test]
@@ -119,7 +119,7 @@ Section 2 after explicit page break with Unicode \u12371?\u12435?\u12395?\u12385
     let book = RtfBook::parse(rtf_bytes, "Default Title").expect("Should parse RTF");
     assert_eq!(book.metadata().title, "My RTF Masterpiece");
     assert_eq!(book.metadata().creators, vec!["Rust Ace"]);
-    assert_eq!(book.sections.len(), 2);
+    assert_eq!(book.sections().len(), 2);
 
     let sec0 = book.get_section(0).unwrap();
     assert!(sec0.raw_html.contains("<strong>Bold RTF Header</strong>"));
@@ -135,7 +135,7 @@ Section 2 after explicit page break with Unicode \u12371?\u12435?\u12395?\u12385
     // 2. Book::from_bytes auto-detection
     let detected_book = Book::from_bytes(rtf_bytes).expect("Should auto-detect RTF");
     assert_eq!(detected_book.metadata().title, "My RTF Masterpiece");
-    assert_eq!(detected_book.sections.len(), 2);
+    assert_eq!(detected_book.sections().len(), 2);
 
     // 3. AI RAG chunking & BM25 ranking
     let chunks = detected_book.to_rag_chunks(&RagChunkConfig::default());
@@ -219,7 +219,7 @@ fn test_odt_parsing_with_embedded_images() {
 
     assert_eq!(book.metadata().title, "Test ODT With Images");
     assert_eq!(book.metadata().creators, vec!["Stark ODT Author"]);
-    assert_eq!(book.sections.len(), 1);
+    assert_eq!(book.sections().len(), 1);
 
     let sec = book.get_section(0).expect("Failed to get section 0");
     assert!(sec.raw_html.contains("<h2>Chapter 1: Visuals</h2>"));

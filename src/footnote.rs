@@ -28,41 +28,38 @@ pub fn parse_footnotes_from_html(html: &str) -> Vec<Footnote> {
                 || tag_lower.contains("footnote")
                 || tag_lower.contains("endnote");
 
-            if is_noteref {
-                if let Some((_, href_val)) = extract_attr(tag, "href") {
-                    if let Some(target_id) = href_val.split('#').nth(1) {
-                        let label = if let Some(end_a) = find_ignore_case(&html[abs_a..], "</a>") {
-                            let label_start = abs_a + close_idx + 1;
-                            let label_end = abs_a + end_a;
-                            if label_start <= label_end
-                                && html.is_char_boundary(label_start)
-                                && html.is_char_boundary(label_end)
-                            {
-                                extract_plain_text(&html[label_start..label_end])
-                            } else {
-                                target_id.to_string()
-                            }
-                        } else {
-                            target_id.to_string()
-                        };
-
-                        if let Some((target_html, target_text)) =
-                            extract_footnote_target(html, target_id)
-                        {
-                            let id_val = extract_attr(tag, "id")
-                                .map(|(_, id)| id)
-                                .unwrap_or_else(|| format!("fn_ref_{}", list.len() + 1));
-
-                            list.push(Footnote {
-                                id: id_val,
-                                href: href_val.to_string(),
-                                target_id: target_id.to_string(),
-                                label: label.trim().to_string(),
-                                html_content: target_html,
-                                plain_text: target_text,
-                            });
-                        }
+            if is_noteref
+                && let Some((_, href_val)) = extract_attr(tag, "href")
+                && let Some(target_id) = href_val.split('#').nth(1)
+            {
+                let label = if let Some(end_a) = find_ignore_case(&html[abs_a..], "</a>") {
+                    let label_start = abs_a + close_idx + 1;
+                    let label_end = abs_a + end_a;
+                    if label_start <= label_end
+                        && html.is_char_boundary(label_start)
+                        && html.is_char_boundary(label_end)
+                    {
+                        extract_plain_text(&html[label_start..label_end])
+                    } else {
+                        target_id.to_string()
                     }
+                } else {
+                    target_id.to_string()
+                };
+
+                if let Some((target_html, target_text)) = extract_footnote_target(html, target_id) {
+                    let id_val = extract_attr(tag, "id")
+                        .map(|(_, id)| id)
+                        .unwrap_or_else(|| format!("fn_ref_{}", list.len() + 1));
+
+                    list.push(Footnote {
+                        id: id_val,
+                        href: href_val.to_string(),
+                        target_id: target_id.to_string(),
+                        label: label.trim().to_string(),
+                        html_content: target_html,
+                        plain_text: target_text,
+                    });
                 }
             }
             search_idx = abs_a + close_idx + 1;
@@ -77,23 +74,19 @@ pub fn parse_footnotes_from_html(html: &str) -> Vec<Footnote> {
         let abs_aside = search_idx + aside_idx;
         if let Some(close_idx) = html[abs_aside..].find('>') {
             let tag = &html[abs_aside..=abs_aside + close_idx];
-            if tag.to_lowercase().contains("footnote") {
-                if let Some((_, id_val)) = extract_attr(tag, "id") {
-                    if !list.iter().any(|fn_item| fn_item.target_id == id_val) {
-                        if let Some((target_html, target_text)) =
-                            extract_footnote_target(html, &id_val)
-                        {
-                            list.push(Footnote {
-                                id: format!("fn_{}", id_val),
-                                href: format!("#{}", id_val),
-                                target_id: id_val.clone(),
-                                label: id_val,
-                                html_content: target_html,
-                                plain_text: target_text,
-                            });
-                        }
-                    }
-                }
+            if tag.to_lowercase().contains("footnote")
+                && let Some((_, id_val)) = extract_attr(tag, "id")
+                && !list.iter().any(|fn_item| fn_item.target_id == id_val)
+                && let Some((target_html, target_text)) = extract_footnote_target(html, &id_val)
+            {
+                list.push(Footnote {
+                    id: format!("fn_{}", id_val),
+                    href: format!("#{}", id_val),
+                    target_id: id_val.clone(),
+                    label: id_val,
+                    html_content: target_html,
+                    plain_text: target_text,
+                });
             }
             search_idx = abs_aside + close_idx + 1;
         } else {
@@ -111,10 +104,8 @@ fn find_ignore_case(s: &str, pat: &str) -> Option<usize> {
     }
     for (i, _) in s.char_indices() {
         let end = i + pat.len();
-        if end <= s.len() && s.is_char_boundary(end) {
-            if s[i..end].eq_ignore_ascii_case(pat) {
-                return Some(i);
-            }
+        if end <= s.len() && s.is_char_boundary(end) && s[i..end].eq_ignore_ascii_case(pat) {
+            return Some(i);
         }
     }
     None
@@ -215,12 +206,12 @@ fn extract_attr(tag_str: &str, attr: &str) -> Option<(String, String)> {
         let pattern = format!("{}={}", attr, quote);
         if let Some(start) = find_ignore_case(tag_str, &pattern) {
             let val_start = start + pattern.len();
-            if tag_str.is_char_boundary(val_start) {
-                if let Some(end) = tag_str[val_start..].find(quote) {
-                    let val = &tag_str[val_start..val_start + end];
-                    let orig = &tag_str[start..=val_start + end];
-                    return Some((orig.to_string(), val.to_string()));
-                }
+            if tag_str.is_char_boundary(val_start)
+                && let Some(end) = tag_str[val_start..].find(quote)
+            {
+                let val = &tag_str[val_start..val_start + end];
+                let orig = &tag_str[start..=val_start + end];
+                return Some((orig.to_string(), val.to_string()));
             }
         }
     }

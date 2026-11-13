@@ -42,7 +42,7 @@ impl WasmBook {
         let sec = self
             .inner
             .get_section(index)
-            .map_err(|e| JsValue::from_str(&e))?;
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
         Ok(sec.processed_html.clone())
     }
 
@@ -51,7 +51,7 @@ impl WasmBook {
         let tokens = self
             .inner
             .get_tts_tokens(index)
-            .map_err(|e| JsValue::from_str(&e))?;
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
         serde_json::to_string(&tokens).map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
@@ -59,7 +59,7 @@ impl WasmBook {
     pub fn get_tts_annotated_html(&self, index: usize) -> Result<String, JsValue> {
         self.inner
             .get_tts_section_html(index)
-            .map_err(|e| JsValue::from_str(&e))
+            .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
     /// Perform full-text search across chapters.
@@ -70,7 +70,7 @@ impl WasmBook {
 
     /// Parse CFI string and return spine index.
     pub fn cfi_to_spine_index(&self, cfi_str: &str) -> Result<usize, JsValue> {
-        let cfi = Cfi::parse(cfi_str).map_err(|e| JsValue::from_str(&e))?;
+        let cfi = Cfi::parse(cfi_str).map_err(|e| JsValue::from_str(&e.to_string()))?;
         Ok(cfi.spine_index())
     }
 
@@ -79,7 +79,7 @@ impl WasmBook {
         let (bytes, _) = self
             .inner
             .get_resource_bytes(path)
-            .map_err(|e| JsValue::from_str(&e))?;
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
         Ok(bytes)
     }
 
@@ -88,7 +88,7 @@ impl WasmBook {
         let sec = self
             .inner
             .get_section(index)
-            .map_err(|e| JsValue::from_str(&e))?;
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
         serde_json::to_string(&sec.analytics()).map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
@@ -97,7 +97,7 @@ impl WasmBook {
         let sec = self
             .inner
             .get_section(index)
-            .map_err(|e| JsValue::from_str(&e))?;
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
         serde_json::to_string(&sec.paginate(None)).map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
@@ -107,11 +107,11 @@ impl WasmBook {
         cfi_str: &str,
         section_index: usize,
     ) -> Result<String, JsValue> {
-        let cfi = Cfi::parse(cfi_str).map_err(|e| JsValue::from_str(&e))?;
+        let cfi = Cfi::parse(cfi_str).map_err(|e| JsValue::from_str(&e.to_string()))?;
         let sec = self
             .inner
             .get_section(section_index)
-            .map_err(|e| JsValue::from_str(&e))?;
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
         let target = cfi.resolve_dom_path(&sec.raw_html);
         serde_json::to_string(&target).map_err(|e| JsValue::from_str(&e.to_string()))
     }

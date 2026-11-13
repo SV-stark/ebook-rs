@@ -1,6 +1,6 @@
 [package]
 name = "ebook-rs"
-version = "0.18.0"
+version = "0.18.1"
 edition = "2024"
 rust-version = "1.88"
 authors = ["SV-Stark"]
@@ -94,4 +94,12 @@ codegen-units = 1
 strip = true
 rpath = false
 overflow-checks = true
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "warn"
+needless_pass_by_value = "warn"
+fallible_impl_from = "warn"
 

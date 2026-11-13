@@ -100,10 +100,10 @@ impl OpdsFeed {
 
             let mut authors = Vec::new();
             for author_node in entry_node.children().filter(|n| n.has_tag_name("author")) {
-                if let Some(name_node) = author_node.children().find(|n| n.has_tag_name("name")) {
-                    if let Some(text) = name_node.text() {
-                        authors.push(text.to_string());
-                    }
+                if let Some(name_node) = author_node.children().find(|n| n.has_tag_name("name"))
+                    && let Some(text) = name_node.text()
+                {
+                    authors.push(text.to_string());
                 }
             }
 

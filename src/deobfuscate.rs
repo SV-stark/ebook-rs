@@ -35,10 +35,10 @@ impl FontDeobfuscator {
                             }
                         } else if child.has_tag_name("CipherData") {
                             for sub in child.children() {
-                                if sub.has_tag_name("CipherReference") {
-                                    if let Some(u) = sub.attribute("URI") {
-                                        uri = u.to_string();
-                                    }
+                                if sub.has_tag_name("CipherReference")
+                                    && let Some(u) = sub.attribute("URI")
+                                {
+                                    uri = u.to_string();
                                 }
                             }
                         }

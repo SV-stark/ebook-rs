@@ -21,10 +21,10 @@ pub fn parse_container_xml(xml_content: &str) -> Result<String, String> {
         .map_err(|e| format!("XML parse error in container.xml: {}", e))?;
 
     for node in doc.descendants() {
-        if node.has_tag_name("rootfile") {
-            if let Some(full_path) = node.attribute("full-path") {
-                return Ok(full_path.to_string());
-            }
+        if node.has_tag_name("rootfile")
+            && let Some(full_path) = node.attribute("full-path")
+        {
+            return Ok(full_path.to_string());
         }
     }
 
@@ -77,41 +77,41 @@ pub fn parse_opf(xml_content: &str, opf_path: &str) -> Result<OpfPackage, String
             }
             "manifest" => {
                 for item_node in child.children() {
-                    if item_node.has_tag_name("item") {
-                        if let (Some(id), Some(href), Some(media_type)) = (
+                    if item_node.has_tag_name("item")
+                        && let (Some(id), Some(href), Some(media_type)) = (
                             item_node.attribute("id"),
                             item_node.attribute("href"),
                             item_node.attribute("media-type"),
-                        ) {
-                            let properties_str = item_node.attribute("properties").unwrap_or("");
-                            let properties: Vec<String> = properties_str
-                                .split_whitespace()
-                                .map(|s| s.to_string())
-                                .collect();
+                        )
+                    {
+                        let properties_str = item_node.attribute("properties").unwrap_or("");
+                        let properties: Vec<String> = properties_str
+                            .split_whitespace()
+                            .map(|s| s.to_string())
+                            .collect();
 
-                            let full_path = resolve_relative_path(opf_dir, href);
+                        let full_path = resolve_relative_path(opf_dir, href);
 
-                            if properties.contains(&"nav".to_string()) {
-                                nav_item_id = Some(id.to_string());
-                            }
-                            if properties.contains(&"cover-image".to_string()) {
-                                metadata.cover_id = Some(id.to_string());
-                                metadata.cover_href = Some(full_path.clone());
-                            }
-
-                            let item = ManifestItem {
-                                id: id.to_string(),
-                                href: href.to_string(),
-                                full_path,
-                                media_type: media_type.to_string(),
-                                properties,
-                                fallback: item_node.attribute("fallback").map(|s| s.to_string()),
-                                media_overlay: item_node
-                                    .attribute("media-overlay")
-                                    .map(|s| s.to_string()),
-                            };
-                            manifest.insert(id.to_string(), item);
+                        if properties.contains(&"nav".to_string()) {
+                            nav_item_id = Some(id.to_string());
                         }
+                        if properties.contains(&"cover-image".to_string()) {
+                            metadata.cover_id = Some(id.to_string());
+                            metadata.cover_href = Some(full_path.clone());
+                        }
+
+                        let item = ManifestItem {
+                            id: id.to_string(),
+                            href: href.to_string(),
+                            full_path,
+                            media_type: media_type.to_string(),
+                            properties,
+                            fallback: item_node.attribute("fallback").map(|s| s.to_string()),
+                            media_overlay: item_node
+                                .attribute("media-overlay")
+                                .map(|s| s.to_string()),
+                        };
+                        manifest.insert(id.to_string(), item);
                     }
                 }
             }
@@ -130,50 +130,49 @@ pub fn parse_opf(xml_content: &str, opf_path: &str) -> Result<OpfPackage, String
 
                 let mut spine_idx = 0;
                 for itemref in child.children() {
-                    if itemref.has_tag_name("itemref") {
-                        if let Some(idref) = itemref.attribute("idref") {
-                            let linear = itemref.attribute("linear").unwrap_or("yes") != "no";
-                            let properties_str = itemref.attribute("properties").unwrap_or("");
-                            let properties: Vec<String> = properties_str
-                                .split_whitespace()
-                                .map(|s| s.to_string())
-                                .collect();
+                    if itemref.has_tag_name("itemref")
+                        && let Some(idref) = itemref.attribute("idref")
+                    {
+                        let linear = itemref.attribute("linear").unwrap_or("yes") != "no";
+                        let properties_str = itemref.attribute("properties").unwrap_or("");
+                        let properties: Vec<String> = properties_str
+                            .split_whitespace()
+                            .map(|s| s.to_string())
+                            .collect();
 
-                            if let Some(manifest_item) = manifest.get(idref) {
-                                spine.push(SpineItem {
-                                    idref: idref.to_string(),
-                                    linear,
-                                    properties,
-                                    index: spine_idx,
-                                    href: manifest_item.full_path.clone(),
-                                    media_type: manifest_item.media_type.clone(),
-                                });
-                                spine_idx += 1;
-                            }
+                        if let Some(manifest_item) = manifest.get(idref) {
+                            spine.push(SpineItem {
+                                idref: idref.to_string(),
+                                linear,
+                                properties,
+                                index: spine_idx,
+                                href: manifest_item.full_path.clone(),
+                                media_type: manifest_item.media_type.clone(),
+                            });
+                            spine_idx += 1;
                         }
                     }
                 }
             }
             "guide" => {
                 for reference in child.children() {
-                    if reference.has_tag_name("reference") {
-                        if let (Some(type_), Some(href)) =
+                    if reference.has_tag_name("reference")
+                        && let (Some(type_), Some(href)) =
                             (reference.attribute("type"), reference.attribute("href"))
-                        {
-                            let title = reference.attribute("title").unwrap_or("").to_string();
-                            let full_path = resolve_relative_path(opf_dir, href);
+                    {
+                        let title = reference.attribute("title").unwrap_or("").to_string();
+                        let full_path = resolve_relative_path(opf_dir, href);
 
-                            if type_ == "cover" && metadata.cover_href.is_none() {
-                                metadata.cover_href = Some(full_path.clone());
-                            }
-
-                            guide.push(GuideItem {
-                                type_: type_.to_string(),
-                                title,
-                                href: href.to_string(),
-                                full_path,
-                            });
+                        if type_ == "cover" && metadata.cover_href.is_none() {
+                            metadata.cover_href = Some(full_path.clone());
                         }
+
+                        guide.push(GuideItem {
+                            type_: type_.to_string(),
+                            title,
+                            href: href.to_string(),
+                            full_path,
+                        });
                     }
                 }
             }
@@ -182,12 +181,11 @@ pub fn parse_opf(xml_content: &str, opf_path: &str) -> Result<OpfPackage, String
     }
 
     // Secondary fallback for cover image if meta name="cover" was used
-    if metadata.cover_href.is_none() {
-        if let Some(cover_id) = &metadata.cover_id {
-            if let Some(item) = manifest.get(cover_id) {
-                metadata.cover_href = Some(item.full_path.clone());
-            }
-        }
+    if metadata.cover_href.is_none()
+        && let Some(cover_id) = &metadata.cover_id
+        && let Some(item) = manifest.get(cover_id)
+    {
+        metadata.cover_href = Some(item.full_path.clone());
     }
 
     Ok(OpfPackage {
@@ -247,12 +245,11 @@ fn parse_metadata_node(node: &roxmltree::Node, metadata: &mut Metadata) -> Resul
                 }
             }
             "meta" => {
-                if let Some(name_attr) = child.attribute("name") {
-                    if name_attr == "cover" {
-                        if let Some(content) = child.attribute("content") {
-                            metadata.cover_id = Some(content.to_string());
-                        }
-                    }
+                if let Some(name_attr) = child.attribute("name")
+                    && name_attr == "cover"
+                    && let Some(content) = child.attribute("content")
+                {
+                    metadata.cover_id = Some(content.to_string());
                 }
                 if let Some(property) = child.attribute("property") {
                     metadata

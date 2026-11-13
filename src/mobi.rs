@@ -230,10 +230,8 @@ impl MobiBook {
                                     }
                                 }
                                 // EXTH 503 = updated title (overrides PDB name)
-                                503 => {
-                                    if !val_str.is_empty() {
-                                        title = val_str;
-                                    }
+                                503 if !val_str.is_empty() => {
+                                    title = val_str;
                                 }
                                 _ => {}
                             }
@@ -431,7 +429,8 @@ impl MobiBook {
             lcp_passphrase: None,
             lcp_license: None,
             media_overlays: AHashMap::new(),
-            render_cache: parking_lot::Mutex::new(AHashMap::new()),
+            render_cache: Default::default(),
+            hydrated_cache: Default::default(),
         };
 
         book.generate_locations(1000);
@@ -447,12 +446,11 @@ fn find_ignore_case(s: &str, pat: &str) -> Option<usize> {
         return None;
     }
     for i in 0..=s.len() - pat.len() {
-        if s.is_char_boundary(i) {
-            if let Some(sub) = s.get(i..i + pat.len()) {
-                if sub.eq_ignore_ascii_case(pat) {
-                    return Some(i);
-                }
-            }
+        if s.is_char_boundary(i)
+            && let Some(sub) = s.get(i..i + pat.len())
+            && sub.eq_ignore_ascii_case(pat)
+        {
+            return Some(i);
         }
     }
     None
@@ -501,11 +499,11 @@ fn split_mobi_html(html: &str) -> Vec<String> {
             if byte_idx > 200 {
                 let slice = &html[byte_idx..];
                 for tag in &["<h1", "<h2", "<h3"] {
-                    if let Some(sub) = slice.get(..tag.len()) {
-                        if sub.eq_ignore_ascii_case(tag) {
-                            boundaries.push(byte_idx);
-                            break;
-                        }
+                    if let Some(sub) = slice.get(..tag.len())
+                        && sub.eq_ignore_ascii_case(tag)
+                    {
+                        boundaries.push(byte_idx);
+                        break;
                     }
                 }
             }

@@ -27,7 +27,7 @@ fn test_golden_real_epub2() {
         !book.metadata().title.is_empty(),
         "Title should not be empty"
     );
-    assert!(!book.sections.is_empty(), "Sections should not be empty");
+    assert!(!book.sections().is_empty(), "Sections should not be empty");
 
     // Test search on real content
     let search_res = book.search("Rabbit");
@@ -61,7 +61,7 @@ fn test_golden_real_epub3() {
 
     let book = Book::from_file(&path).expect("Failed to parse real EPUB3 sample");
     assert!(!book.metadata().title.is_empty());
-    assert!(!book.sections.is_empty());
+    assert!(!book.sections().is_empty());
 
     // Test Table of Contents extraction
     assert!(
@@ -71,7 +71,7 @@ fn test_golden_real_epub3() {
 
     // Test location generation
     assert!(
-        !book.locations.entries.is_empty(),
+        !book.locations().entries.is_empty(),
         "Locations should be generated"
     );
 }
@@ -85,7 +85,7 @@ fn test_golden_real_kepub() {
 
     let book = Book::from_file(&path).expect("Failed to parse real KEPUB sample");
     assert!(!book.metadata().title.is_empty());
-    assert!(!book.sections.is_empty());
+    assert!(!book.sections().is_empty());
 }
 
 #[test]
@@ -97,7 +97,7 @@ fn test_golden_real_azw3() {
 
     let book = Book::from_file(&path).expect("Failed to parse real AZW3 sample");
     assert!(!book.metadata().title.is_empty());
-    assert!(!book.sections.is_empty());
+    assert!(!book.sections().is_empty());
 }
 
 #[test]
@@ -108,7 +108,7 @@ fn test_golden_real_mobi() {
     };
 
     let book = Book::from_file(&path).expect("Failed to parse real MOBI sample");
-    assert!(!book.sections.is_empty());
+    assert!(!book.sections().is_empty());
 }
 
 #[test]
@@ -120,7 +120,7 @@ fn test_golden_real_fb2() {
 
     let book = Book::from_file(&path).expect("Failed to parse real FB2 sample");
     assert!(!book.metadata().title.is_empty());
-    let total_text_len: usize = book.sections.iter().map(|s| s.plain_text.len()).sum();
+    let total_text_len: usize = book.sections().iter().map(|s| s.plain_text.len()).sum();
     assert!(
         total_text_len > 1000,
         "FB2 document should contain text content"
@@ -136,7 +136,7 @@ fn test_golden_real_kfx() {
 
     let book = Book::from_file(&path).expect("Failed to parse real KFX sample");
     assert!(
-        !book.sections.is_empty(),
+        !book.sections().is_empty(),
         "KFX sections should be populated"
     );
     assert!(
@@ -144,7 +144,7 @@ fn test_golden_real_kfx() {
         "KFX title should not be empty"
     );
 
-    let total_chars: usize = book.sections.iter().map(|s| s.char_count).sum();
+    let total_chars: usize = book.sections().iter().map(|s| s.char_count).sum();
     assert!(
         total_chars > 20_000,
         "Real KFX book should extract substantial text content, got {}",
@@ -189,7 +189,7 @@ fn test_golden_real_kfx() {
 
     let roundtrip_book = Book::from_bytes(&kfx_bytes).expect("Roundtrip KFX should parse cleanly");
     assert_eq!(roundtrip_book.metadata().title, book.metadata().title);
-    assert!(!roundtrip_book.sections.is_empty());
+    assert!(!roundtrip_book.sections().is_empty());
 }
 
 #[test]
@@ -200,7 +200,7 @@ fn test_golden_real_lit() {
     };
 
     let book = Book::from_file(&path).expect("Failed to parse real LIT sample");
-    assert!(!book.sections.is_empty());
+    assert!(!book.sections().is_empty());
 }
 
 #[test]
@@ -211,8 +211,8 @@ fn test_golden_real_txt() {
     };
 
     let book = Book::from_file(&path).expect("Failed to parse real TXT sample");
-    assert!(!book.sections.is_empty());
-    assert!(book.sections[0].plain_text.contains("Alice"));
+    assert!(!book.sections().is_empty());
+    assert!(book.sections()[0].plain_text.contains("Alice"));
 }
 
 #[test]
@@ -223,7 +223,7 @@ fn test_golden_real_cbz() {
     };
 
     let book = Book::from_file(&path).expect("Failed to parse real CBZ sample");
-    assert!(!book.sections.is_empty());
+    assert!(!book.sections().is_empty());
 
     let pages = CbzBook::prefetch_page_images(&book, 0, 5);
     assert!(
@@ -264,7 +264,7 @@ fn test_golden_real_pdf() {
     #[cfg(feature = "pdf")]
     {
         let book = Book::from_file(&_path).expect("Failed to parse real PDF sample");
-        assert!(!book.sections.is_empty());
+        assert!(!book.sections().is_empty());
     }
 }
 
@@ -281,11 +281,11 @@ fn test_golden_real_docx() {
         "DOCX title should not be empty"
     );
     assert!(
-        !book.sections.is_empty(),
+        !book.sections().is_empty(),
         "DOCX sections should not be empty"
     );
 
-    let total_len: usize = book.sections.iter().map(|s| s.plain_text.len()).sum();
+    let total_len: usize = book.sections().iter().map(|s| s.plain_text.len()).sum();
     assert!(total_len > 1000, "DOCX plain text should be extracted");
 
     // Test search
@@ -305,11 +305,11 @@ fn test_golden_real_rtf() {
 
     let book = Book::from_file(&path).expect("Failed to parse real RTF sample");
     assert!(
-        !book.sections.is_empty(),
+        !book.sections().is_empty(),
         "RTF sections should not be empty"
     );
 
-    let total_len: usize = book.sections.iter().map(|s| s.plain_text.len()).sum();
+    let total_len: usize = book.sections().iter().map(|s| s.plain_text.len()).sum();
     assert!(total_len > 1000, "RTF plain text should be extracted");
 
     // Test search

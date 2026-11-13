@@ -30,6 +30,7 @@ fn test_blackbox_rag_chunking_engine() {
 fn test_blackbox_c_ffi_bindings() {
     use ebook_rs::ffi::*;
 
+    // SAFETY: `bytes` is a valid owned buffer and all FFI-allocated pointers are freed via `ebook_rs_*_free`.
     unsafe {
         let bytes = generate_sample_epub().expect("Failed to build sample epub");
         let handle = ebook_rs_book_from_bytes(bytes.as_ptr(), bytes.len());
@@ -70,6 +71,7 @@ fn test_blackbox_c_ffi_bindings() {
 fn test_blackbox_c_ffi_concurrent_access() {
     use ebook_rs::ffi::*;
 
+    // SAFETY: `bytes` is a valid owned buffer and `handle` is shared thread-safely across reads before being freed.
     unsafe {
         let bytes = generate_sample_epub().expect("Failed to build sample epub");
         let handle = ebook_rs_book_from_bytes(bytes.as_ptr(), bytes.len());

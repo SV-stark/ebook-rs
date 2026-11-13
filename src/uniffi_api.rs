@@ -35,6 +35,7 @@ pub struct UniBook {
 impl UniBook {
     /// Open an eBook from a filesystem path (EPUB, MOBI, AZW3, FB2, KFX, PDF, CBZ, ODT, TXT, MD).
     #[cfg_attr(feature = "uniffi", uniffi::constructor)]
+    #[allow(clippy::needless_pass_by_value)] // UniFFI scaffolding requires owned String
     pub fn open(path: String) -> Result<Arc<Self>, String> {
         let book = Book::from_file(&path).map_err(|e| format!("Failed to open eBook: {}", e))?;
         Ok(Arc::new(Self {
@@ -44,6 +45,7 @@ impl UniBook {
 
     /// Load an eBook from raw memory bytes.
     #[cfg_attr(feature = "uniffi", uniffi::constructor)]
+    #[allow(clippy::needless_pass_by_value)] // UniFFI scaffolding requires owned Vec<u8>
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Arc<Self>, String> {
         let book =
             Book::from_bytes(&bytes).map_err(|e| format!("Failed to parse eBook bytes: {}", e))?;
@@ -94,6 +96,7 @@ impl UniBook {
     }
 
     /// Search across all book sections for query matches with Readium CFIs.
+    #[allow(clippy::needless_pass_by_value)] // UniFFI scaffolding requires owned String
     pub fn search(&self, query: String, case_sensitive: bool) -> Vec<UniSearchResult> {
         let book = self.inner.read();
         let results = crate::search::SearchEngine::search(&book.sections, &query, case_sensitive);
@@ -158,7 +161,7 @@ impl UniBook {
     /// Export loaded eBook as a universal standard EPUB 3 ZIP archive buffer.
     pub fn export_epub3(&self) -> Result<Vec<u8>, String> {
         let book = self.inner.read();
-        book.export_epub3_bytes()
+        Ok(book.export_epub3_bytes()?)
     }
 
     /// Export loaded eBook as a minified, asset-deduplicated, CSS-purged EPUB 3 archive.
@@ -166,6 +169,6 @@ impl UniBook {
         let mut cloned = self.inner.read().clone();
         let options = EpubOptimizerOptions::default();
         EpubOptimizer::optimize(&mut cloned, &options);
-        cloned.export_epub3_bytes()
+        Ok(cloned.export_epub3_bytes()?)
     }
 }

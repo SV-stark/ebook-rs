@@ -74,25 +74,22 @@ impl OdtBook {
                 .take(MAX_ODT_XML_SIZE)
                 .read_to_string(&mut meta_xml)
                 .is_ok()
+                && let Ok(doc) = crate::dom::parse_xml_document(&meta_xml)
             {
-                if let Ok(doc) = crate::dom::parse_xml_document(&meta_xml) {
-                    for node in doc.descendants() {
-                        if node.is_element() {
-                            if node.tag_name().name() == "title" {
-                                if let Some(t) = node.text() {
-                                    if !t.trim().is_empty() {
-                                        title = t.trim().to_string();
-                                    }
-                                }
-                            } else if node.tag_name().name() == "initial-creator"
-                                || node.tag_name().name() == "creator"
+                for node in doc.descendants() {
+                    if node.is_element() {
+                        if node.tag_name().name() == "title" {
+                            if let Some(t) = node.text()
+                                && !t.trim().is_empty()
                             {
-                                if let Some(c) = node.text() {
-                                    if !c.trim().is_empty() {
-                                        creator = c.trim().to_string();
-                                    }
-                                }
+                                title = t.trim().to_string();
                             }
+                        } else if (node.tag_name().name() == "initial-creator"
+                            || node.tag_name().name() == "creator")
+                            && let Some(c) = node.text()
+                            && !c.trim().is_empty()
+                        {
+                            creator = c.trim().to_string();
                         }
                     }
                 }
@@ -113,10 +110,10 @@ impl OdtBook {
         fn collect_descendant_text(node: &roxmltree::Node) -> String {
             let mut buf = String::new();
             for descendant in node.descendants() {
-                if descendant.is_text() {
-                    if let Some(t) = descendant.text() {
-                        buf.push_str(t);
-                    }
+                if descendant.is_text()
+                    && let Some(t) = descendant.text()
+                {
+                    buf.push_str(t);
                 }
             }
             buf
@@ -315,7 +312,8 @@ impl OdtBook {
             lcp_passphrase: None,
             lcp_license: None,
             media_overlays: AHashMap::new(),
-            render_cache: parking_lot::Mutex::new(AHashMap::new()),
+            render_cache: Default::default(),
+            hydrated_cache: Default::default(),
         };
 
         book.generate_locations(1000);

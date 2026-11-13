@@ -186,14 +186,15 @@ fn documented_book_api_exists() {
         locs.total_locations > 0,
         "expected a non-empty location map"
     );
-    assert_eq!(locs.entries.len(), book.sections.len());
+    assert_eq!(locs.entries.len(), book.sections().len());
 
     // Non-mutating: the book's stored map must be left alone.
-    let stored = book.locations.total_locations;
+    let stored = book.locations().total_locations;
     let again = book.locations_from_sections(1000);
     assert_eq!(again.total_locations, locs.total_locations);
     assert_eq!(
-        book.locations.total_locations, stored,
+        book.locations().total_locations,
+        stored,
         "locations_from_sections must not mutate self.locations"
     );
 
@@ -211,7 +212,7 @@ fn documented_book_api_exists() {
 
     // The exported EPUB must itself be a valid, parseable book.
     let round_trip = Book::from_bytes(&epub).expect("re-parse exported EPUB");
-    assert!(!round_trip.sections.is_empty());
+    assert!(!round_trip.sections().is_empty());
 
     // README: "Regex Search | `Book::search_regex()`"
     let _ = book.search_regex("the").expect("regex search");

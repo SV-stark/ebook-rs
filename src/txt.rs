@@ -458,7 +458,8 @@ impl TxtBook {
             lcp_passphrase: None,
             lcp_license: None,
             media_overlays: AHashMap::new(),
-            render_cache: parking_lot::Mutex::new(AHashMap::new()),
+            render_cache: Default::default(),
+            hydrated_cache: Default::default(),
         };
 
         book.generate_locations(1000);
@@ -565,95 +566,99 @@ fn parse_inline_markdown(input: &str) -> String {
 
     while i < chars.len() {
         // 1. Obsidian-style wikilinks `[[target|label]]` or `[[target]]`
-        if i + 1 < chars.len() && chars[i] == '[' && chars[i + 1] == '[' {
-            if let Some(end_pos) = chars[i + 2..].windows(2).position(|w| w == [']', ']']) {
-                let abs_end = i + 2 + end_pos;
-                let link_content: String = chars[i + 2..abs_end].iter().collect();
-                let parts: Vec<&str> = link_content.split('|').collect();
+        if i + 1 < chars.len()
+            && chars[i] == '['
+            && chars[i + 1] == '['
+            && let Some(end_pos) = chars[i + 2..].windows(2).position(|w| w == [']', ']'])
+        {
+            let abs_end = i + 2 + end_pos;
+            let link_content: String = chars[i + 2..abs_end].iter().collect();
+            let parts: Vec<&str> = link_content.split('|').collect();
 
-                let (target, label) = match parts.len() {
-                    1 => {
-                        let t = parts[0].trim();
-                        let l = if t.starts_with('#') {
-                            t.trim_start_matches('#')
-                        } else {
-                            t
-                        };
-                        (t, l)
-                    }
-                    _ => (parts[0].trim(), parts[1].trim()),
-                };
+            let (target, label) = match parts.len() {
+                1 => {
+                    let t = parts[0].trim();
+                    let l = if t.starts_with('#') {
+                        t.trim_start_matches('#')
+                    } else {
+                        t
+                    };
+                    (t, l)
+                }
+                _ => (parts[0].trim(), parts[1].trim()),
+            };
 
-                let href = if target.starts_with('#') {
-                    target.to_string()
-                } else {
-                    format!("#{}", target.to_lowercase().replace(' ', "-"))
-                };
+            let href = if target.starts_with('#') {
+                target.to_string()
+            } else {
+                format!("#{}", target.to_lowercase().replace(' ', "-"))
+            };
 
-                out.push_str(&format!(
-                    "<a href=\"{}\" class=\"wikilink\">{}</a>",
-                    xml_escape(&href),
-                    xml_escape(label)
-                ));
-                i = abs_end + 2;
-                continue;
-            }
+            out.push_str(&format!(
+                "<a href=\"{}\" class=\"wikilink\">{}</a>",
+                xml_escape(&href),
+                xml_escape(label)
+            ));
+            i = abs_end + 2;
+            continue;
         }
 
         // 2. Standard Markdown links `[label](url)`
-        if chars[i] == '[' {
-            if let Some(close_bracket) = chars[i + 1..].iter().position(|c| *c == ']') {
-                let abs_close = i + 1 + close_bracket;
-                if abs_close + 1 < chars.len() && chars[abs_close + 1] == '(' {
-                    if let Some(close_paren) = chars[abs_close + 2..].iter().position(|c| *c == ')')
-                    {
-                        let abs_paren = abs_close + 2 + close_paren;
-                        let label: String = chars[i + 1..abs_close].iter().collect();
-                        let url: String = chars[abs_close + 2..abs_paren].iter().collect();
+        if chars[i] == '['
+            && let Some(close_bracket) = chars[i + 1..].iter().position(|c| *c == ']')
+        {
+            let abs_close = i + 1 + close_bracket;
+            if abs_close + 1 < chars.len()
+                && chars[abs_close + 1] == '('
+                && let Some(close_paren) = chars[abs_close + 2..].iter().position(|c| *c == ')')
+            {
+                let abs_paren = abs_close + 2 + close_paren;
+                let label: String = chars[i + 1..abs_close].iter().collect();
+                let url: String = chars[abs_close + 2..abs_paren].iter().collect();
 
-                        out.push_str(&format!(
-                            "<a href=\"{}\">{}</a>",
-                            xml_escape(&url),
-                            xml_escape(&label)
-                        ));
-                        i = abs_paren + 1;
-                        continue;
-                    }
-                }
+                out.push_str(&format!(
+                    "<a href=\"{}\">{}</a>",
+                    xml_escape(&url),
+                    xml_escape(&label)
+                ));
+                i = abs_paren + 1;
+                continue;
             }
         }
 
         // 3. Inline code `` `code` ``
-        if chars[i] == '`' {
-            if let Some(close_tick) = chars[i + 1..].iter().position(|c| *c == '`') {
-                let abs_tick = i + 1 + close_tick;
-                let code_content: String = chars[i + 1..abs_tick].iter().collect();
-                out.push_str(&format!("<code>{}</code>", xml_escape(&code_content)));
-                i = abs_tick + 1;
-                continue;
-            }
+        if chars[i] == '`'
+            && let Some(close_tick) = chars[i + 1..].iter().position(|c| *c == '`')
+        {
+            let abs_tick = i + 1 + close_tick;
+            let code_content: String = chars[i + 1..abs_tick].iter().collect();
+            out.push_str(&format!("<code>{}</code>", xml_escape(&code_content)));
+            i = abs_tick + 1;
+            continue;
         }
 
         // 4. Bold `**text**`
-        if i + 1 < chars.len() && chars[i] == '*' && chars[i + 1] == '*' {
-            if let Some(close_bold) = chars[i + 2..].windows(2).position(|w| w == ['*', '*']) {
-                let abs_bold = i + 2 + close_bold;
-                let bold_content: String = chars[i + 2..abs_bold].iter().collect();
-                out.push_str(&format!("<strong>{}</strong>", xml_escape(&bold_content)));
-                i = abs_bold + 2;
-                continue;
-            }
+        if i + 1 < chars.len()
+            && chars[i] == '*'
+            && chars[i + 1] == '*'
+            && let Some(close_bold) = chars[i + 2..].windows(2).position(|w| w == ['*', '*'])
+        {
+            let abs_bold = i + 2 + close_bold;
+            let bold_content: String = chars[i + 2..abs_bold].iter().collect();
+            out.push_str(&format!("<strong>{}</strong>", xml_escape(&bold_content)));
+            i = abs_bold + 2;
+            continue;
         }
 
         // 5. Italic `*text*`
-        if chars[i] == '*' {
-            if let Some(close_italic) = chars[i + 1..].iter().position(|c| *c == '*') {
-                let abs_italic = i + 1 + close_italic;
-                let italic_content: String = chars[i + 1..abs_italic].iter().collect();
-                out.push_str(&format!("<em>{}</em>", xml_escape(&italic_content)));
-                i = abs_italic + 1;
-                continue;
-            }
+        if chars[i] == '*'
+            && let Some(close_italic) = chars[i + 1..].iter().position(|c| *c == '*')
+        {
+            let abs_italic = i + 1 + close_italic;
+            let italic_content: String = chars[i + 1..abs_italic].iter().collect();
+            out.push_str(&format!("<em>{}</em>", xml_escape(&italic_content)));
+            i = abs_italic + 1;
+            continue;
         }
 
         // Escape HTML special characters

@@ -5,10 +5,10 @@ use ebook_rs::layout::{LayoutMode, RenditionLayout};
 fn test_blackbox_fxl_synthetic_spread_generation() {
     let md = "# Page 1\nContent page 1\n\n# Page 2\nContent page 2";
     let mut book = TxtBook::parse(md.as_bytes(), "FXL Spread Test", true).unwrap();
-    book.layout = RenditionLayout {
+    book.set_layout(RenditionLayout {
         layout_mode: LayoutMode::PrePaginated,
         ..Default::default()
-    };
+    });
 
     let spread = book.get_synthetic_spread(0, Some(1)).unwrap();
     assert_eq!(spread.left_index, 0);

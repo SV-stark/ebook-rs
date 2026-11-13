@@ -141,10 +141,10 @@ pub fn parse_ncx(xml_content: &str, ncx_path: &str) -> Result<Vec<NavPoint>, Str
     for node in doc.descendants() {
         if node.has_tag_name("navMap") {
             for child in node.children() {
-                if child.has_tag_name("navPoint") {
-                    if let Some(nav_pt) = parse_ncx_navpoint(&child, ncx_dir, 0) {
-                        points.push(nav_pt);
-                    }
+                if child.has_tag_name("navPoint")
+                    && let Some(nav_pt) = parse_ncx_navpoint(&child, ncx_dir, 0)
+                {
+                    points.push(nav_pt);
                 }
             }
         }
@@ -367,10 +367,10 @@ fn parse_nav_list(ol_node: &roxmltree::Node, base_dir: &str, depth: usize) -> Ve
                         if label.is_empty() {
                             let mut texts = Vec::new();
                             for sub in child.descendants() {
-                                if let Some(t) = sub.text() {
-                                    if !t.trim().is_empty() {
-                                        texts.push(t.trim());
-                                    }
+                                if let Some(t) = sub.text()
+                                    && !t.trim().is_empty()
+                                {
+                                    texts.push(t.trim());
                                 }
                             }
                             label = texts.join(" ");

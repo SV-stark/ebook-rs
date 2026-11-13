@@ -1,3 +1,4 @@
+use crate::error::EbookError;
 use serde::{Deserialize, Serialize};
 
 /// Location index of a file entry inside a ZIP archive.
@@ -57,13 +58,15 @@ impl ZipHeaderReader {
     }
 
     /// Parse End of Central Directory record and Central Directory entries from tail bytes.
-    pub fn parse_central_directory(tail_bytes: &[u8]) -> Result<Vec<ZipEntryLocation>, String> {
+    pub fn parse_central_directory(tail_bytes: &[u8]) -> Result<Vec<ZipEntryLocation>, EbookError> {
         let eocd_idx = Self::find_eocd(tail_bytes).ok_or_else(|| {
-            "EOCD record (PK\\x05\\x06) signature not found in tail bytes".to_string()
+            EbookError::Zip(
+                "EOCD record (PK\\x05\\x06) signature not found in tail bytes".to_string(),
+            )
         })?;
 
         if tail_bytes.len() < eocd_idx + 22 {
-            return Err("Truncated EOCD header".to_string());
+            return Err(EbookError::Zip("Truncated EOCD header".to_string()));
         }
 
         let entry_count =
@@ -78,9 +81,9 @@ impl ZipHeaderReader {
         // Do not trust the declared entry count for pre-allocation: `find_eocd` scans backwards
         // for the first EOCD signature, which can be a false positive inside compressed data or a
         // comment, so a crafted 64-byte tail could otherwise force a 65 535-entry allocation
-        // before a single entry is validated. Each entry needs at least 46 bytes, so the tail
-        // length is a hard upper bound.
-        let max_possible_entries = tail_bytes.len().saturating_sub(eocd_idx) / 46;
+        // before a single entry is validated. Each entry needs at least 46 bytes, so the Central
+        // Directory span before `eocd_idx` is a hard upper bound.
+        let max_possible_entries = cd_size.min(eocd_idx) / 46;
         let mut entries = Vec::with_capacity(entry_count.min(max_possible_entries));
         let cd_start = eocd_idx.saturating_sub(cd_size);
 
@@ -126,15 +129,15 @@ impl ZipHeaderReader {
             let mut final_offset = offset;
 
             if extra_len >= 4 {
-                let extra_start = pos + 46 + name_len;
-                let extra_end = (extra_start + extra_len).min(tail_bytes.len());
+                let extra_start = pos.saturating_add(46).saturating_add(name_len);
+                let extra_end = extra_start.saturating_add(extra_len).min(tail_bytes.len());
                 let mut e_pos = extra_start;
-                while e_pos + 4 <= extra_end {
+                while e_pos.saturating_add(4) <= extra_end {
                     let header_id = u16::from_le_bytes([tail_bytes[e_pos], tail_bytes[e_pos + 1]]);
                     let data_size =
                         u16::from_le_bytes([tail_bytes[e_pos + 2], tail_bytes[e_pos + 3]]) as usize;
                     let data_start = e_pos + 4;
-                    let data_end = (data_start + data_size).min(extra_end);
+                    let data_end = data_start.saturating_add(data_size).min(extra_end);
                     if header_id == 0x0001 {
                         let mut d_pos = data_start;
                         if final_uncomp_size == 0xFFFFFFFF && d_pos + 8 <= data_end {
@@ -156,12 +159,12 @@ impl ZipHeaderReader {
                         }
                         break;
                     }
-                    e_pos += 4 + data_size;
+                    e_pos = e_pos.saturating_add(4).saturating_add(data_size);
                 }
             }
 
-            let name_start = pos + 46;
-            if name_start + name_len <= tail_bytes.len() {
+            let name_start = pos.saturating_add(46);
+            if name_start.saturating_add(name_len) <= tail_bytes.len() {
                 let file_name =
                     String::from_utf8_lossy(&tail_bytes[name_start..name_start + name_len])
                         .to_string();
@@ -174,7 +177,11 @@ impl ZipHeaderReader {
                 });
             }
 
-            pos += 46 + name_len + extra_len + comment_len;
+            pos = pos
+                .saturating_add(46)
+                .saturating_add(name_len)
+                .saturating_add(extra_len)
+                .saturating_add(comment_len);
         }
 
         Ok(entries)
