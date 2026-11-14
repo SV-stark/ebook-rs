@@ -327,7 +327,7 @@ mod tests {
                 ),
             ])),
         );
-        let bytes = encode_stream(&[val.clone()]);
+        let bytes = encode_stream(std::slice::from_ref(&val));
         assert_eq!(&bytes[..4], &ION_BVM);
         let decoded = decode_stream(&bytes).unwrap();
         assert_eq!(decoded, vec![val]);

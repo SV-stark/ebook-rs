@@ -80,6 +80,24 @@ impl TxtBook {
             if let Some(id) = extracted_meta.identifier {
                 identifier = Some(id);
             }
+            if creators.is_empty() && body.len() == raw_text.len() {
+                for line in raw_text.lines().take(15) {
+                    if let Some((key, val)) = line.split_once(':') {
+                        let key_clean = key.trim().to_lowercase();
+                        let v = val.trim().trim_matches('"').trim_matches('\'').trim();
+                        if !v.is_empty() {
+                            if key_clean == "title" {
+                                title = v.to_string();
+                                has_custom_title = true;
+                            } else if key_clean == "author" || key_clean == "creator" {
+                                creators.push(v.to_string());
+                            } else if key_clean == "language" || key_clean == "lang" {
+                                languages = vec![v.to_string()];
+                            }
+                        }
+                    }
+                }
+            }
             body
         } else {
             // Legacy inline metadata sniffing for plain text files

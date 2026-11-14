@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **KFX Exporter Interoperability (`src/kfx/writer.rs`, `src/kfx/ion.rs`)**:
   - Updated `UniversalKfxExporter::export` to emit full Amazon Ion 1.0 `CONT` v2 KFX containers with `YJ_symbols` v10 local symbol tables, `format_capabilities` (`$593`), `container_info` (`$409`–`$595`), `kfxgen` SHA-1 payload trailer, and `ENTY` v1 framed entities (`$585` `content_features`, `$490` `book_metadata`, `$258` `metadata`, `$538` `document_data`, `$389` `book_navigation`, `$260` `section`, `$259` `storyline`, `$145` `content`, `$157` `style`, `$264` `section_position_id_map`, `$265` `position_id_map`, `$550` `location_map`, `$395` `resource_path`, and `$419` `container_entity_map`) so exported `.kfx` files decode cleanly in both `ebook-rs` and Calibre's `KFX Input` (#13).
   - Added `IonValue::Decimal` (`0x5`) support in `src/kfx/ion.rs` for KFX layout and style properties.
+- **PDF Indirect `/Kids` Page-Tree Resolution (`src/pdf.rs`, `pyproject.toml`)**:
+  - Added incremental page-tree `/Kids` dereferencing fallback (`inline_indirect_page_tree_kids`) when `/Pages` nodes reference an indirect `/Kids N G R` array object, resolving `PDF document contains 0 pages` on PDFs with indirect `/Kids` arrays (#18).
+  - Synchronized `pyproject.toml` version (`0.18.4`) and enabled the `pdf` feature in `[tool.maturin]` (#19).
 
 ## [0.18.2] - 2026-11-14
 

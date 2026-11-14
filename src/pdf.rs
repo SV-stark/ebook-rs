@@ -21,9 +21,16 @@ impl PdfBook {
     /// Parse raw PDF byte data into a `Book` struct.
     #[cfg(feature = "pdf")]
     pub fn parse(bytes: &[u8], title_fallback: &str) -> Result<Book, EbookError> {
-        let doc = unpdf::parse_bytes(bytes).map_err(|e| {
+        let mut doc = unpdf::parse_bytes(bytes).map_err(|e| {
             EbookError::InvalidFormat(format!("Failed to parse PDF document with unpdf: {}", e))
         })?;
+
+        if doc.page_count() == 0
+            && let Some(patched) = inline_indirect_page_tree_kids(bytes)
+            && let Ok(reparsed) = unpdf::parse_bytes(&patched)
+        {
+            doc = reparsed;
+        }
 
         let page_count = doc.page_count() as usize;
         if page_count == 0 {
@@ -282,6 +289,176 @@ pub fn reflow_two_column_markdown(md: &str) -> String {
     result_lines.join("\n")
 }
 
+/// If a PDF's `/Pages` tree uses indirect `/Kids N G R` references (which `unpdf` 0.51
+/// does not dereference in `scan_page_tree`), append a standard PDF incremental update
+/// that inlines the resolved `/Kids [...]` array on affected `/Pages` objects.
+#[cfg(feature = "pdf")]
+fn inline_indirect_page_tree_kids(bytes: &[u8]) -> Option<Vec<u8>> {
+    use std::collections::{BTreeMap, HashSet};
+    use std::io::Write;
+    use unpdf::parser::raw::{PdfDict, PdfObject, RawDocument, tokenizer::dict_get, xref};
+
+    let raw_doc = RawDocument::load(bytes).ok()?;
+    let old_startxref = xref::find_startxref(bytes).ok()?;
+    let catalog = raw_doc.catalog().ok()?;
+    let root_pages_id = dict_get(catalog, b"Pages")?.as_reference()?;
+
+    let mut updated_pages: BTreeMap<(u32, u16), PdfDict> = BTreeMap::new();
+    let mut visited: HashSet<(u32, u16)> = HashSet::new();
+    let mut stack = vec![root_pages_id];
+
+    while let Some(node_id) = stack.pop() {
+        if !visited.insert(node_id) {
+            continue;
+        }
+        let Ok(dict) = raw_doc.get_dict(node_id) else {
+            continue;
+        };
+        let node_type = dict_get(dict, b"Type").and_then(|o| o.as_name());
+        if matches!(node_type, Some(b"Pages") | None) {
+            let Some(kids_entry) = dict_get(dict, b"Kids") else {
+                continue;
+            };
+            let resolved_kids = raw_doc.resolve(kids_entry);
+            let Some(kids_arr) = resolved_kids.as_array() else {
+                continue;
+            };
+            if matches!(kids_entry, PdfObject::Reference(..)) {
+                let mut new_dict = dict.clone();
+                new_dict.insert(b"Kids".to_vec(), PdfObject::Array(kids_arr.to_vec()));
+                updated_pages.insert(node_id, new_dict);
+            }
+            for kid in kids_arr.iter().rev() {
+                if let Some(kid_id) = kid
+                    .as_reference()
+                    .or_else(|| raw_doc.resolve(kid).as_reference())
+                {
+                    stack.push(kid_id);
+                }
+            }
+        }
+    }
+
+    if updated_pages.is_empty() {
+        return None;
+    }
+
+    let mut out = Vec::with_capacity(bytes.len() + 4096);
+    out.extend_from_slice(bytes);
+    if !out.ends_with(b"\n") {
+        out.push(b'\n');
+    }
+
+    let mut offsets: Vec<((u32, u16), usize)> = Vec::with_capacity(updated_pages.len());
+    for ((obj_num, gen_num), dict) in &updated_pages {
+        let offset = out.len();
+        offsets.push(((*obj_num, *gen_num), offset));
+        let _ = writeln!(out, "{obj_num} {gen_num} obj");
+        write_pdf_object(&PdfObject::Dict(dict.clone()), &mut out);
+        out.extend_from_slice(b"\nendobj\n");
+    }
+
+    let new_xref_offset = out.len();
+    out.extend_from_slice(b"xref\n");
+    for ((obj_num, gen_num), offset) in &offsets {
+        let _ = writeln!(out, "{obj_num} 1");
+        let _ = writeln!(out, "{offset:010} {gen_num:05} n ");
+    }
+
+    let mut trailer = PdfDict::new();
+    for key in [
+        b"Size".as_slice(),
+        b"Root".as_slice(),
+        b"Info".as_slice(),
+        b"ID".as_slice(),
+        b"Encrypt".as_slice(),
+    ] {
+        if let Some(val) = dict_get(raw_doc.trailer(), key) {
+            trailer.insert(key.to_vec(), val.clone());
+        }
+    }
+    trailer.insert(b"Prev".to_vec(), PdfObject::Integer(old_startxref as i64));
+
+    out.extend_from_slice(b"trailer\n");
+    write_pdf_object(&PdfObject::Dict(trailer), &mut out);
+    let _ = write!(out, "\nstartxref\n{new_xref_offset}\n%%EOF\n");
+
+    Some(out)
+}
+
+#[cfg(feature = "pdf")]
+fn write_pdf_name(name: &[u8], out: &mut Vec<u8>) {
+    use std::io::Write;
+    out.push(b'/');
+    for &b in name {
+        if b <= b' '
+            || b > b'~'
+            || matches!(
+                b,
+                b'#' | b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'%'
+            )
+        {
+            let _ = write!(out, "#{b:02X}");
+        } else {
+            out.push(b);
+        }
+    }
+}
+
+#[cfg(feature = "pdf")]
+fn write_pdf_object(obj: &unpdf::parser::raw::PdfObject, out: &mut Vec<u8>) {
+    use std::io::Write;
+    use unpdf::parser::raw::PdfObject;
+    match obj {
+        PdfObject::Null => out.extend_from_slice(b"null"),
+        PdfObject::Bool(true) => out.extend_from_slice(b"true"),
+        PdfObject::Bool(false) => out.extend_from_slice(b"false"),
+        PdfObject::Integer(i) => {
+            let _ = write!(out, "{i}");
+        }
+        PdfObject::Real(r) => {
+            let _ = write!(out, "{r}");
+        }
+        PdfObject::Name(n) => write_pdf_name(n, out),
+        PdfObject::Str(s) => {
+            out.push(b'<');
+            for &b in s {
+                let _ = write!(out, "{b:02X}");
+            }
+            out.push(b'>');
+        }
+        PdfObject::Array(items) => {
+            out.push(b'[');
+            for (idx, item) in items.iter().enumerate() {
+                if idx > 0 {
+                    out.push(b' ');
+                }
+                write_pdf_object(item, out);
+            }
+            out.push(b']');
+        }
+        PdfObject::Dict(dict) => {
+            out.extend_from_slice(b"<<");
+            for (k, v) in dict {
+                write_pdf_name(k, out);
+                out.push(b' ');
+                write_pdf_object(v, out);
+                out.push(b' ');
+            }
+            out.extend_from_slice(b">>");
+        }
+        PdfObject::Stream(stream) => {
+            write_pdf_object(&PdfObject::Dict(stream.dict.clone()), out);
+            out.extend_from_slice(b"\nstream\n");
+            out.extend_from_slice(&stream.raw_data);
+            out.extend_from_slice(b"\nendstream");
+        }
+        PdfObject::Reference(n, g) => {
+            let _ = write!(out, "{n} {g} R");
+        }
+    }
+}
+
 #[cfg(all(test, feature = "pdf"))]
 mod tests {
     use super::*;
@@ -292,5 +469,40 @@ mod tests {
         let reflowed = reflow_two_column_markdown(raw_two_column);
         assert!(reflowed.contains("Left Column Line 1\nLeft Column Line 2"));
         assert!(reflowed.contains("Right Column Line 1\nRight Column Line 2"));
+    }
+
+    #[test]
+    fn test_indirect_kids_array_in_pages_node() {
+        let mut pdf = b"%PDF-1.4\n".to_vec();
+        let mut offsets = Vec::new();
+        let objects: [&[u8]; 4] = [
+            b"<</Type/Catalog/Pages 2 0 R>>",
+            b"<</Type/Pages/Count 1/Kids 3 0 R>>",
+            b"[4 0 R]",
+            b"<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]>>",
+        ];
+        for (idx, body) in objects.iter().enumerate() {
+            offsets.push(pdf.len());
+            pdf.extend_from_slice(format!("{} 0 obj\n", idx + 1).as_bytes());
+            pdf.extend_from_slice(body);
+            pdf.extend_from_slice(b"\nendobj\n");
+        }
+        let xref_offset = pdf.len();
+        pdf.extend_from_slice(
+            format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).as_bytes(),
+        );
+        for off in offsets {
+            pdf.extend_from_slice(format!("{off:010} 00000 n \n").as_bytes());
+        }
+        pdf.extend_from_slice(
+            format!(
+                "trailer\n<</Size {}/Root 1 0 R>>\nstartxref\n{xref_offset}\n%%EOF\n",
+                objects.len() + 1
+            )
+            .as_bytes(),
+        );
+
+        let book = PdfBook::parse(&pdf, "Indirect Kids PDF").expect("Should parse indirect /Kids");
+        assert_eq!(book.sections().len(), 1);
     }
 }
