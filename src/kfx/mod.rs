@@ -1,4 +1,5 @@
 pub mod container;
+pub mod ion;
 pub mod reader;
 pub mod symbols;
 pub mod writer;

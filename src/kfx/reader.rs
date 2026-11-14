@@ -33,13 +33,35 @@ impl KfxBook {
         let mut toc = Vec::new();
         let resources = AHashMap::new();
 
-        // 1. First, attempt to extract structured storylines from container index entries
+        // 1. First, attempt to extract structured storylines and metadata from container index entries
         let mut storyline_sections: Vec<String> = Vec::new();
+        let mut ion_content_bodies: Vec<String> = Vec::new();
         for entry in &container.index_entries {
-            if (entry.type_id == crate::kfx::symbols::SYM_STORYLINE_FRAGMENT
+            let Some(payload_slice) = container.get_entry_payload(entry) else {
+                continue;
+            };
+            if container.is_ion_container {
+                if let Some(val) = decode_enty_ion_value(payload_slice) {
+                    match entry.type_id {
+                        crate::kfx::symbols::SYM_BOOK_METADATA => {
+                            extract_ion_book_metadata(&val, &mut metadata);
+                        }
+                        crate::kfx::symbols::SYM_METADATA_RECORD => {
+                            extract_ion_legacy_metadata(&val, &mut metadata);
+                        }
+                        crate::kfx::symbols::SYM_CONTENT_BODY => {
+                            extract_ion_content_list(&val, &mut ion_content_bodies);
+                        }
+                        crate::kfx::symbols::SYM_STORYLINE_FRAGMENT
+                        | crate::kfx::symbols::SYM_SECTION_BLOCK => {
+                            extract_ion_storyline_text(&val, &mut storyline_sections);
+                        }
+                        _ => {}
+                    }
+                }
+            } else if entry.type_id == crate::kfx::symbols::SYM_STORYLINE_FRAGMENT
                 || entry.type_id == crate::kfx::symbols::SYM_SECTION_BLOCK
-                || entry.type_id == crate::kfx::symbols::SYM_CONTENT_BODY)
-                && let Some(payload_slice) = container.get_entry_payload(entry)
+                || entry.type_id == crate::kfx::symbols::SYM_CONTENT_BODY
             {
                 let sec_str = String::from_utf8_lossy(payload_slice);
                 let clean = sec_str.trim();
@@ -48,29 +70,45 @@ impl KfxBook {
                 }
             }
         }
-
-        // 2. Extract clean, human-readable text fragments from KFX binary container
-        let text_fragments = carve_kfx_text_fragments(bytes);
-
-        // Fallback title / creator extraction from container payload
-        let full_scan = String::from_utf8_lossy(bytes);
-        let payload_scan = String::from_utf8_lossy(&container.payload);
-        if metadata.title.is_empty() || metadata.title == "Amazon KFX Publication" {
-            if let Some(found_t) = extract_tag_or_kv(&payload_scan, "title")
-                .or_else(|| extract_tag_or_kv(&full_scan, "title"))
-            {
-                metadata.title = found_t;
-            } else {
-                metadata.title = "Amazon KFX Publication".to_string();
-            }
+        if !ion_content_bodies.is_empty() {
+            storyline_sections = ion_content_bodies;
         }
 
-        if metadata.creators.is_empty() {
-            if let Some(found_a) = extract_tag_or_kv(&payload_scan, "author")
-                .or_else(|| extract_tag_or_kv(&full_scan, "author"))
-            {
-                metadata.creators.push(found_a);
-            } else {
+        // 2. For legacy non-Ion containers, carve human-readable text fragments if needed
+        let text_fragments = if container.is_ion_container {
+            Vec::new()
+        } else {
+            carve_kfx_text_fragments(bytes)
+        };
+
+        // Fallback title / creator extraction from container payload (non-Ion containers only)
+        if !container.is_ion_container {
+            let full_scan = String::from_utf8_lossy(bytes);
+            let payload_scan = String::from_utf8_lossy(&container.payload);
+            if metadata.title.is_empty() || metadata.title == "Amazon KFX Publication" {
+                if let Some(found_t) = extract_tag_or_kv(&payload_scan, "title")
+                    .or_else(|| extract_tag_or_kv(&full_scan, "title"))
+                {
+                    metadata.title = found_t;
+                } else {
+                    metadata.title = "Amazon KFX Publication".to_string();
+                }
+            }
+
+            if metadata.creators.is_empty() {
+                if let Some(found_a) = extract_tag_or_kv(&payload_scan, "author")
+                    .or_else(|| extract_tag_or_kv(&full_scan, "author"))
+                {
+                    metadata.creators.push(found_a);
+                } else {
+                    metadata.creators.push("Unknown Author".to_string());
+                }
+            }
+        } else {
+            if metadata.title.is_empty() {
+                metadata.title = "Amazon KFX Publication".to_string();
+            }
+            if metadata.creators.is_empty() {
                 metadata.creators.push("Unknown Author".to_string());
             }
         }
@@ -117,8 +155,12 @@ impl KfxBook {
         }
 
         if grouped_chapters.is_empty() {
-            let full_text = String::from_utf8_lossy(bytes);
-            let clean_text = crate::dom::sanitize_and_repair_xml(&full_text);
+            let clean_text = if container.is_ion_container {
+                String::new()
+            } else {
+                let full_text = String::from_utf8_lossy(bytes);
+                crate::dom::sanitize_and_repair_xml(&full_text)
+            };
             let sec_id = "kfx_sec_0".to_string();
             let raw_html = format!(
                 "<div class=\"kfx-content\"><h1>{}</h1><p>{}</p></div>",
@@ -455,6 +497,140 @@ fn is_valid_kfx_text_paragraph(text: &str) -> bool {
     ratio >= 0.90
 }
 
+fn decode_enty_ion_value(payload: &[u8]) -> Option<crate::kfx::ion::IonValue> {
+    let ion_slice = if payload.len() >= 12 && &payload[..4] == b"ENTY" {
+        let hdr_len = u16::from_le_bytes([payload[6], payload[7]]) as usize;
+        if hdr_len > payload.len() {
+            return None;
+        }
+        &payload[hdr_len..]
+    } else {
+        payload
+    };
+    let values = crate::kfx::ion::decode_stream(ion_slice).ok()?;
+    for val in values {
+        // Skip local symbol table (`$ion_symbol_table` annotation ID 3)
+        if let crate::kfx::ion::IonValue::Annotated(annots, _) = &val
+            && annots.contains(&3)
+        {
+            continue;
+        }
+        return Some(val);
+    }
+    None
+}
+
+fn extract_ion_book_metadata(val: &crate::kfx::ion::IonValue, metadata: &mut Metadata) {
+    // 491 = categorised_metadata; 258 = metadata (or 492 in simplified fixtures);
+    // 492/493 = key, 493/494 = value
+    let Some(cats) = val.get_field(491).and_then(|v| v.as_list()) else {
+        return;
+    };
+    for cat in cats {
+        let (entries, key_sym, val_sym) =
+            if let Some(list) = cat.get_field(258).and_then(|v| v.as_list()) {
+                (list, 492, 307)
+            } else if let Some(list) = cat.get_field(492).and_then(|v| v.as_list()) {
+                (list, 493, 494)
+            } else {
+                continue;
+            };
+        for item in entries {
+            let Some(key) = item.get_field(key_sym).and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let Some(val_str) = item.get_field(val_sym).and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let trimmed = val_str.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            match key {
+                "title" if metadata.title.is_empty() => metadata.title = trimmed.to_string(),
+                "author" => metadata.creators.push(trimmed.to_string()),
+                "publisher" => metadata.publishers.push(trimmed.to_string()),
+                "language" => metadata.languages.push(trimmed.to_string()),
+                "description" if metadata.description.is_none() => {
+                    metadata.description = Some(trimmed.to_string());
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+fn extract_ion_legacy_metadata(val: &crate::kfx::ion::IonValue, metadata: &mut Metadata) {
+    if metadata.title.is_empty()
+        && let Some(t) = val.get_field(153).and_then(|v| v.as_str())
+        && !t.trim().is_empty()
+    {
+        metadata.title = t.trim().to_string();
+    }
+    if let Some(a) = val.get_field(222).and_then(|v| v.as_str())
+        && !a.trim().is_empty()
+    {
+        metadata.creators.push(a.trim().to_string());
+    }
+    if let Some(p) = val.get_field(232).and_then(|v| v.as_str())
+        && !p.trim().is_empty()
+    {
+        metadata.publishers.push(p.trim().to_string());
+    }
+    if let Some(l) = val.get_field(161).and_then(|v| v.as_str())
+        && !l.trim().is_empty()
+    {
+        metadata.languages.push(l.trim().to_string());
+    }
+}
+
+fn extract_ion_content_list(val: &crate::kfx::ion::IonValue, out: &mut Vec<String>) {
+    // 146 = content_list
+    if let Some(list) = val.get_field(146).and_then(|v| v.as_list()) {
+        for item in list {
+            if let Some(s) = item.as_str() {
+                let t = s.trim();
+                if !t.is_empty() {
+                    out.push(t.to_string());
+                }
+            }
+        }
+    }
+}
+
+fn extract_ion_storyline_text(val: &crate::kfx::ion::IonValue, out: &mut Vec<String>) {
+    use crate::kfx::ion::IonValue;
+    match val {
+        IonValue::Struct(fields) => {
+            for (k, v) in fields {
+                // 145 = content, 146 = content_list, 176 = content_chunks
+                if *k == 145 || *k == 146 || *k == 176 {
+                    if let Some(s) = v.as_str() {
+                        let t = s.trim();
+                        if !t.is_empty() {
+                            out.push(t.to_string());
+                        }
+                    } else {
+                        extract_ion_storyline_text(v, out);
+                    }
+                } else if matches!(
+                    v,
+                    IonValue::List(_) | IonValue::Struct(_) | IonValue::Annotated(_, _)
+                ) {
+                    extract_ion_storyline_text(v, out);
+                }
+            }
+        }
+        IonValue::List(items) => {
+            for item in items {
+                extract_ion_storyline_text(item, out);
+            }
+        }
+        IonValue::Annotated(_, inner) => extract_ion_storyline_text(inner, out),
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -470,5 +646,112 @@ mod tests {
             extract_tag_or_kv(sample, "author"),
             Some("Lewis Carroll".to_string())
         );
+    }
+
+    #[test]
+    fn test_kfx_ion_container_ignores_symbol_table_and_reads_metadata() {
+        use crate::kfx::ion::{IonValue, encode_stream};
+        use crate::kfx::symbols::*;
+
+        // 1. doc_symbol stream containing YJ_symbols + internal symbol names that must NOT leak as text
+        let doc_sym_bytes = encode_stream(&[IonValue::Annotated(
+            vec![3],
+            Box::new(IonValue::Struct(vec![(
+                7,
+                IonValue::List(vec![
+                    IonValue::String("YJ_symbols".to_string()),
+                    IonValue::String("c0-ad".to_string()),
+                    IonValue::String("c1AJ".to_string()),
+                ]),
+            )])),
+        )]);
+
+        // 2. ENTY payloads: $490 book_metadata and $145 content
+        let mut ent_meta = b"ENTY\x01\x00\x0c\x00\xea\x01\x00\x00".to_vec();
+        ent_meta.extend_from_slice(&encode_stream(&[IonValue::Struct(vec![(
+            491,
+            IonValue::List(vec![IonValue::Struct(vec![(
+                492,
+                IonValue::List(vec![
+                    IonValue::Struct(vec![
+                        (493, IonValue::String("title".to_string())),
+                        (494, IonValue::String("KFX input fixture".to_string())),
+                    ]),
+                    IonValue::Struct(vec![
+                        (493, IonValue::String("author".to_string())),
+                        (494, IonValue::String("Example Author".to_string())),
+                    ]),
+                ]),
+            )])]),
+        )])]));
+
+        let mut ent_content = b"ENTY\x01\x00\x0c\x00\x91\x00\x00\x00".to_vec();
+        ent_content.extend_from_slice(&encode_stream(&[IonValue::Struct(vec![(
+            146,
+            IonValue::List(vec![IonValue::String(
+                "KFX input fixture text.".to_string(),
+            )]),
+        )])]));
+
+        // Build container_info + index_table
+        let info_off = 18usize;
+        // Placeholder container_info to measure length, then patch offsets
+        let make_info = |idx_off: u64, idx_len: u64, sym_off: u64, sym_len: u64| {
+            encode_stream(&[IonValue::Struct(vec![
+                (SYM_INDEX_TABLE_OFFSET as u64, IonValue::Int(idx_off as i64)),
+                (SYM_INDEX_TABLE_LENGTH as u64, IonValue::Int(idx_len as i64)),
+                (SYM_DOC_SYMBOL_OFFSET as u64, IonValue::Int(sym_off as i64)),
+                (SYM_DOC_SYMBOL_LENGTH as u64, IonValue::Int(sym_len as i64)),
+            ])])
+        };
+        let dummy_info = make_info(100, 48, 100, doc_sym_bytes.len() as u64);
+        let sym_off = info_off + dummy_info.len();
+        let idx_off = sym_off + doc_sym_bytes.len();
+        let idx_len = 2 * 24;
+        let info_bytes = make_info(
+            idx_off as u64,
+            idx_len as u64,
+            sym_off as u64,
+            doc_sym_bytes.len() as u64,
+        );
+        assert_eq!(info_bytes.len(), dummy_info.len());
+        let header_len = idx_off + idx_len;
+
+        let mut kfx = Vec::new();
+        kfx.extend_from_slice(b"CONT");
+        kfx.extend_from_slice(&2u16.to_le_bytes());
+        kfx.extend_from_slice(&(header_len as u32).to_le_bytes());
+        kfx.extend_from_slice(&(info_off as u32).to_le_bytes());
+        kfx.extend_from_slice(&(info_bytes.len() as u32).to_le_bytes());
+        kfx.extend_from_slice(&info_bytes);
+        kfx.extend_from_slice(&doc_sym_bytes);
+
+        // Index entry 0: book_metadata (490)
+        kfx.extend_from_slice(&1u32.to_le_bytes());
+        kfx.extend_from_slice(&SYM_BOOK_METADATA.to_le_bytes());
+        kfx.extend_from_slice(&0u64.to_le_bytes());
+        kfx.extend_from_slice(&(ent_meta.len() as u64).to_le_bytes());
+
+        // Index entry 1: content (145)
+        kfx.extend_from_slice(&2u32.to_le_bytes());
+        kfx.extend_from_slice(&SYM_CONTENT_BODY.to_le_bytes());
+        kfx.extend_from_slice(&(ent_meta.len() as u64).to_le_bytes());
+        kfx.extend_from_slice(&(ent_content.len() as u64).to_le_bytes());
+
+        kfx.extend_from_slice(&ent_meta);
+        kfx.extend_from_slice(&ent_content);
+
+        let book = KfxBook::from_bytes(&kfx).unwrap();
+        assert_eq!(book.metadata.title, "KFX input fixture");
+        assert_eq!(book.metadata.creators, vec!["Example Author"]);
+        let all_text: String = book
+            .sections
+            .iter()
+            .map(|s| s.plain_text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(all_text.contains("KFX input fixture text."));
+        assert!(!all_text.contains("YJ_symbols"));
+        assert!(!all_text.contains("c0-ad"));
     }
 }

@@ -5,6 +5,22 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.2] - 2026-11-14
+
+### Fixed
+
+- **EPUB 3 Export Conformance & URL Preservation (`src/validator.rs`, `src/book.rs`)**:
+  - Emitted required `<meta property="dcterms:modified">` UTC timestamp in both `UniversalEpub3Exporter::export` and `Book::export_epub3_bytes` (#21).
+  - Preserved `page-progression-direction="rtl"` on exported `<spine>` elements (#16).
+  - Prevented root-level `nav.xhtml` inputs from colliding with generated `OEBPS/nav.xhtml` (#15).
+  - Rewrote local `href`, `src`, `xlink:href`, and `poster` attributes in relocated `OEBPS/sec_*.xhtml` sections so relative stylesheet, script, and cross-section links resolve under `OEBPS/` (#14).
+- **CLI Flag Validation (`src/main.rs`)**:
+  - Added `--help`/`-h`/`help` and `--version`/`-V` handling, rejected unknown/extra flags in `convert`, and rejected unrecognized leading `-` flags instead of starting the reader server (#20).
+- **KFX Ion Container & Metadata Parsing (`src/kfx/ion.rs`, `src/kfx/container.rs`, `src/kfx/reader.rs`)**:
+  - Added clean-room Amazon Ion 1.0 binary codec and `CONT` v2 `container_info` / `ENTY` entity decoding so real KFX files extract title/author metadata (`$490`/`$258`) and story text (`$145`/`$259`) without leaking `YJ_symbols` symbol-table entries (#17).
+- **Python Wheel PDF Support (`.github/workflows/pypi.yml`)**:
+  - Enabled the `pdf` feature alongside `python` in the PyPI wheel build workflow (#19).
+
 ## [0.18.1] - 2026-11-13
 
 ### Fixed & Hardened

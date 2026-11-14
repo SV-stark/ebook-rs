@@ -241,6 +241,12 @@ impl UniversalEpub3Exporter {
                     crate::dom::xml_escape(creator)
                 );
             }
+            let modified_ts = format_dcterms_modified(meta.modified_date.as_deref());
+            let _ = writeln!(
+                opf_xml,
+                "    <meta property=\"dcterms:modified\">{}</meta>",
+                crate::dom::xml_escape(&modified_ts)
+            );
             opf_xml.push_str("  </metadata>\n  <manifest>\n    <item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>\n");
 
             for (idx, _) in book.spine().iter().enumerate() {
@@ -257,16 +263,20 @@ impl UniversalEpub3Exporter {
 
             let mut asset_idx = 0;
             let mut seen_manifest_hrefs = std::collections::HashSet::new();
+            seen_manifest_hrefs.insert("nav.xhtml".to_string());
+            for idx in 0..book.spine().len() {
+                seen_manifest_hrefs.insert(format!("sec_{idx}.xhtml"));
+            }
+            let mut url_map: ahash::AHashMap<String, String> = ahash::AHashMap::new();
+            for (idx, sec) in book.spine().iter().enumerate() {
+                if !sec.href.is_empty() {
+                    let norm = crate::archive::normalize_path(&sec.href).to_ascii_lowercase();
+                    url_map.insert(norm, format!("sec_{idx}.xhtml"));
+                }
+            }
             for path in archive_files.keys() {
                 let path_str = path.as_str();
-                if path_str.ends_with(".opf")
-                    || path_str.ends_with(".ncx")
-                    || path_str.eq_ignore_ascii_case("mimetype")
-                    || path_str.eq_ignore_ascii_case("meta-inf/container.xml")
-                    || path_str.eq_ignore_ascii_case("oebps/nav.xhtml")
-                    || (path_str.to_ascii_lowercase().contains("sec_")
-                        && path_str.ends_with(".xhtml"))
-                {
+                if is_skipped_archive_asset(path_str) {
                     continue;
                 }
                 let rel_href = if path_str.to_ascii_lowercase().starts_with("oebps/") {
@@ -277,6 +287,8 @@ impl UniversalEpub3Exporter {
                 if !seen_manifest_hrefs.insert(rel_href.to_lowercase()) {
                     continue;
                 }
+                let norm_orig = crate::archive::normalize_path(path_str).to_ascii_lowercase();
+                url_map.insert(norm_orig, rel_href.to_string());
                 let mime = EpubArchive::get_mime_type(path);
                 let _ = writeln!(
                     opf_xml,
@@ -288,7 +300,13 @@ impl UniversalEpub3Exporter {
                 asset_idx += 1;
             }
 
-            opf_xml.push_str("  </manifest>\n  <spine>\n");
+            let spine_dir_attr = match meta.direction {
+                crate::metadata::PageProgressionDirection::Rtl => {
+                    " page-progression-direction=\"rtl\""
+                }
+                _ => "",
+            };
+            let _ = writeln!(opf_xml, "  </manifest>\n  <spine{spine_dir_attr}>");
             for (idx, _) in book.spine().iter().enumerate() {
                 let _ = writeln!(opf_xml, "    <itemref idref=\"sec_{idx}\"/>");
             }
@@ -306,6 +324,12 @@ impl UniversalEpub3Exporter {
 
             // Collect section HTML documents
             let hydrated_sections = book.get_all_sections_hydrated();
+            for (idx, sec) in hydrated_sections.iter().enumerate() {
+                if !sec.full_path.is_empty() {
+                    let norm = crate::archive::normalize_path(&sec.full_path).to_ascii_lowercase();
+                    url_map.insert(norm, format!("sec_{idx}.xhtml"));
+                }
+            }
             for (idx, sec) in hydrated_sections.iter().enumerate() {
                 let html_body = if !sec.raw_html.is_empty() {
                     &sec.raw_html
@@ -341,23 +365,25 @@ impl UniversalEpub3Exporter {
                         trimmed
                     )
                 };
+                let rewritten = rewrite_section_relative_urls(&doc_xhtml, &sec.full_path, &url_map);
                 entries.push(ZipEntry {
                     path: format!("OEBPS/sec_{}.xhtml", idx),
-                    bytes: doc_xhtml.into_bytes(),
+                    bytes: rewritten.into_bytes(),
                 });
             }
 
             // Collect asset files (images, CSS, fonts) from book.archive
             let mut seen_zip_paths = std::collections::HashSet::new();
+            seen_zip_paths.insert("mimetype".to_string());
+            seen_zip_paths.insert("meta-inf/container.xml".to_string());
+            seen_zip_paths.insert("oebps/nav.xhtml".to_string());
+            seen_zip_paths.insert("oebps/content.opf".to_string());
+            for idx in 0..hydrated_sections.len() {
+                seen_zip_paths.insert(format!("oebps/sec_{idx}.xhtml"));
+            }
             for (path, bytes) in &archive_files {
                 let path_low = path.to_lowercase();
-                if path_low.ends_with(".opf")
-                    || path_low.ends_with(".ncx")
-                    || path_low == "mimetype"
-                    || path_low == "meta-inf/container.xml"
-                    || path_low == "oebps/nav.xhtml"
-                    || (path_low.contains("sec_") && path_low.ends_with(".xhtml"))
-                {
+                if is_skipped_archive_asset(&path_low) {
                     continue;
                 }
                 let zip_path = if path_low.starts_with("oebps/") {
@@ -387,4 +413,169 @@ impl UniversalEpub3Exporter {
 
         Ok(zip_buf)
     }
+}
+
+/// Returns true for source archive entries that are regenerated or would collide with
+/// the exporter's fixed container, package, navigation, or section paths.
+fn is_skipped_archive_asset(path: &str) -> bool {
+    let low = path.to_ascii_lowercase();
+    low.ends_with(".opf")
+        || low.ends_with(".ncx")
+        || low == "mimetype"
+        || low == "meta-inf/container.xml"
+        || low == "oebps/nav.xhtml"
+        || low == "nav.xhtml"
+        || (low.contains("sec_") && low.ends_with(".xhtml"))
+}
+
+fn is_valid_dcterms_modified(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 20
+        && b[0..4].iter().all(u8::is_ascii_digit)
+        && b[4] == b'-'
+        && b[5..7].iter().all(u8::is_ascii_digit)
+        && b[7] == b'-'
+        && b[8..10].iter().all(u8::is_ascii_digit)
+        && b[10] == b'T'
+        && b[11..13].iter().all(u8::is_ascii_digit)
+        && b[13] == b':'
+        && b[14..16].iter().all(u8::is_ascii_digit)
+        && b[16] == b':'
+        && b[17..19].iter().all(u8::is_ascii_digit)
+        && b[19] == b'Z'
+}
+
+/// Return a valid EPUB 3 `dcterms:modified` UTC timestamp (`CCYY-MM-DDThh:mm:ssZ`).
+pub(crate) fn format_dcterms_modified(existing: Option<&str>) -> String {
+    if let Some(ts) = existing
+        .map(str::trim)
+        .filter(|s| is_valid_dcterms_modified(s))
+    {
+        return ts.to_string();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if let Ok(dur) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+            let secs = dur.as_secs() as i64;
+            let days = secs.div_euclid(86_400);
+            let rem = secs.rem_euclid(86_400);
+            let hour = rem / 3600;
+            let minute = (rem % 3600) / 60;
+            let second = rem % 60;
+
+            // Howard Hinnant's civil-from-days algorithm
+            let z = days + 719_468;
+            let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+            let doe = z - era * 146_097;
+            let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+            let y = yoe + era * 400;
+            let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+            let mp = (5 * doy + 2) / 153;
+            let d = doy - (153 * mp + 2) / 5 + 1;
+            let m = if mp < 10 { mp + 3 } else { mp - 9 };
+            let year = y + if m <= 2 { 1 } else { 0 };
+            return format!("{year:04}-{m:02}-{d:02}T{hour:02}:{minute:02}:{second:02}Z");
+        }
+    }
+
+    "2026-01-01T00:00:00Z".to_string()
+}
+
+/// Rewrite local `href`, `src`, `xlink:href`, and `poster` attributes in a section relocated to
+/// `OEBPS/sec_{idx}.xhtml` so they resolve to the corresponding paths under `OEBPS/`.
+fn rewrite_section_relative_urls(
+    html: &str,
+    section_full_path: &str,
+    url_map: &ahash::AHashMap<String, String>,
+) -> String {
+    if url_map.is_empty() {
+        return html.to_string();
+    }
+    let section_dir = section_full_path
+        .rsplit_once('/')
+        .map(|(dir, _)| dir)
+        .unwrap_or("");
+
+    let mut out = String::with_capacity(html.len());
+    let bytes = html.as_bytes();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        // Match attribute names only when preceded by ASCII whitespace.
+        let attr_len = if i > 0 && bytes[i - 1].is_ascii_whitespace() {
+            let rest = &bytes[i..];
+            if rest.len() >= 5 && rest[..5].eq_ignore_ascii_case(b"href=") {
+                Some(5)
+            } else if rest.len() >= 4 && rest[..4].eq_ignore_ascii_case(b"src=") {
+                Some(4)
+            } else if rest.len() >= 11 && rest[..11].eq_ignore_ascii_case(b"xlink:href=") {
+                Some(11)
+            } else if rest.len() >= 7 && rest[..7].eq_ignore_ascii_case(b"poster=") {
+                Some(7)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if let Some(alen) = attr_len {
+            let after_eq = i + alen;
+            if after_eq < bytes.len() && (bytes[after_eq] == b'"' || bytes[after_eq] == b'\'') {
+                let quote = bytes[after_eq];
+                if let Some(rel_end) = bytes[after_eq + 1..].iter().position(|&b| b == quote) {
+                    let val_start = after_eq + 1;
+                    let val_end = val_start + rel_end;
+                    let val = &html[val_start..val_end];
+                    let rewritten = rewrite_single_url(val, section_dir, url_map);
+                    out.push_str(&html[i..val_start]);
+                    out.push_str(&rewritten);
+                    out.push(quote as char);
+                    i = val_end + 1;
+                    continue;
+                }
+            }
+        }
+
+        let ch = html[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+
+    out
+}
+
+fn rewrite_single_url(
+    raw: &str,
+    section_dir: &str,
+    url_map: &ahash::AHashMap<String, String>,
+) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty()
+        || trimmed.starts_with('#')
+        || trimmed.starts_with("//")
+        || trimmed.starts_with("http://")
+        || trimmed.starts_with("https://")
+        || trimmed.starts_with("mailto:")
+        || trimmed.starts_with("tel:")
+        || trimmed.starts_with("data:")
+        || trimmed.starts_with("javascript:")
+    {
+        return raw.to_string();
+    }
+
+    let split_idx = trimmed.find(['#', '?']).unwrap_or(trimmed.len());
+    let (path_part, suffix) = trimmed.split_at(split_idx);
+    if path_part.is_empty() {
+        return raw.to_string();
+    }
+
+    let resolved =
+        crate::archive::resolve_relative_path(section_dir, path_part).to_ascii_lowercase();
+    if let Some(mapped) = url_map.get(&resolved) {
+        return format!("{mapped}{suffix}");
+    }
+
+    raw.to_string()
 }

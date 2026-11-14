@@ -16,6 +16,8 @@ pub struct KfxIndexEntry {
 #[derive(Debug, Clone)]
 pub struct KfxContainer {
     pub version: u16,
+    pub is_ion_container: bool,
+    pub doc_symbols: Vec<String>,
     pub index_entries: Vec<KfxIndexEntry>,
     pub payload_start: usize,
     pub payload: Vec<u8>,
@@ -71,20 +73,54 @@ impl KfxContainer {
 
         let version = u16::from_le_bytes([bytes[4], bytes[5]]);
         let header_len = u32::from_le_bytes([bytes[6], bytes[7], bytes[8], bytes[9]]) as usize;
-        let index_offset =
-            u32::from_le_bytes([bytes[10], bytes[11], bytes[12], bytes[13]]) as usize;
-        let index_count = u32::from_le_bytes([bytes[14], bytes[15], bytes[16], bytes[17]]) as usize;
+        let field_a = u32::from_le_bytes([bytes[10], bytes[11], bytes[12], bytes[13]]) as usize;
+        let field_b = u32::from_le_bytes([bytes[14], bytes[15], bytes[16], bytes[17]]) as usize;
+
+        let mut is_ion_container = false;
+        let mut doc_symbols = Vec::new();
+        let mut curr_offset = if field_a > 0 { field_a } else { KFX_HEADER_LEN };
+        let mut index_count = field_b;
+
+        if field_b >= 4
+            && field_a.saturating_add(field_b) <= bytes.len()
+            && bytes[field_a..field_a + 4] == crate::kfx::ion::ION_BVM
+            && let Ok(values) = crate::kfx::ion::decode_stream(&bytes[field_a..field_a + field_b])
+            && let Some(info) = values.first()
+        {
+            is_ion_container = true;
+            if let Some(idx_off) = info
+                .get_field(crate::kfx::symbols::SYM_INDEX_TABLE_OFFSET as u64)
+                .and_then(|v| v.as_u64())
+                && let Some(idx_len) = info
+                    .get_field(crate::kfx::symbols::SYM_INDEX_TABLE_LENGTH as u64)
+                    .and_then(|v| v.as_u64())
+            {
+                curr_offset = idx_off as usize;
+                index_count = (idx_len as usize) / 24;
+            } else {
+                index_count = 0;
+            }
+            if let Some(sym_off) = info
+                .get_field(crate::kfx::symbols::SYM_DOC_SYMBOL_OFFSET as u64)
+                .and_then(|v| v.as_u64())
+                && let Some(sym_len) = info
+                    .get_field(crate::kfx::symbols::SYM_DOC_SYMBOL_LENGTH as u64)
+                    .and_then(|v| v.as_u64())
+            {
+                let so = sym_off as usize;
+                let sl = sym_len as usize;
+                if sl >= 4 && so.saturating_add(sl) <= bytes.len() {
+                    doc_symbols = parse_doc_symbols(&bytes[so..so + sl]);
+                }
+            }
+        }
+
         let max_possible_entries = if bytes.len() > KFX_HEADER_LEN {
             (bytes.len() - KFX_HEADER_LEN) / 24
         } else {
             0
         };
         let mut index_entries = Vec::with_capacity(index_count.min(max_possible_entries));
-        let mut curr_offset = if index_offset > 0 {
-            index_offset
-        } else {
-            KFX_HEADER_LEN
-        };
 
         for _ in 0..index_count {
             // `index_offset` is an attacker-controlled `u32` widened to `usize`, so
@@ -135,7 +171,11 @@ impl KfxContainer {
             curr_offset += 24;
         }
 
-        let payload_start = header_len.max(curr_offset);
+        let payload_start = if is_ion_container {
+            header_len
+        } else {
+            header_len.max(curr_offset)
+        };
         let payload = if payload_start < bytes.len() {
             bytes[payload_start..].to_vec()
         } else {
@@ -144,6 +184,8 @@ impl KfxContainer {
 
         Ok(Self {
             version,
+            is_ion_container,
+            doc_symbols,
             index_entries,
             payload_start,
             payload,
@@ -185,4 +227,21 @@ impl KfxContainer {
 
         buffer
     }
+}
+
+fn parse_doc_symbols(bytes: &[u8]) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Ok(vals) = crate::kfx::ion::decode_stream(bytes) {
+        for v in vals {
+            // `$ion_symbol_table` field `symbols` has system symbol ID 7
+            if let Some(list) = v.get_field(7).and_then(|f| f.as_list()) {
+                for item in list {
+                    if let Some(s) = item.as_str() {
+                        out.push(s.to_string());
+                    }
+                }
+            }
+        }
+    }
+    out
 }

@@ -1470,6 +1470,14 @@ impl Book {
                     xml_escape(creator)
                 );
             }
+            let modified_ts = crate::validator::format_dcterms_modified(
+                self.opf.metadata.modified_date.as_deref(),
+            );
+            let _ = writeln!(
+                opf_xml,
+                "    <meta property=\"dcterms:modified\">{}</meta>",
+                xml_escape(&modified_ts)
+            );
             opf_xml.push_str("  </metadata>\n  <manifest>\n    <item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>\n");
 
             for section in &self.sections {
@@ -1480,7 +1488,13 @@ impl Book {
                 );
             }
 
-            opf_xml.push_str("  </manifest>\n  <spine>\n");
+            let spine_dir_attr = match self.opf.metadata.direction {
+                crate::metadata::PageProgressionDirection::Rtl => {
+                    " page-progression-direction=\"rtl\""
+                }
+                _ => "",
+            };
+            let _ = writeln!(opf_xml, "  </manifest>\n  <spine{spine_dir_attr}>");
             for section in &self.sections {
                 let _ = writeln!(opf_xml, "    <itemref idref=\"sec_{}\"/>", section.index);
             }

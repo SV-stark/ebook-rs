@@ -32,6 +32,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(PathBuf::from);
 
     match mode {
+        "--help" | "-h" | "help" => {
+            print_usage();
+            return Ok(());
+        }
+        "--version" | "-V" => {
+            println!("ebook-rs {}", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
         "mcp" => {
             eprintln!("🚀 Starting ebook-rs Model Context Protocol (MCP) server on stdio...");
             match &sandbox_root {
@@ -95,11 +103,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("✅ Generated sample EPUB file at: {out_path}");
         }
         "convert" => {
+            if let Some(extra) = args.get(4) {
+                return Err(format!(
+                    "Unexpected argument or unknown option for convert: '{extra}'. Usage: ebook-rs convert <input> <output.epub|output.kfx|output.json>"
+                )
+                .into());
+            }
             let in_path = args
                 .get(2)
+                .filter(|s| !s.starts_with('-'))
                 .ok_or("Usage: ebook-rs convert <input.epub/mobi/pdf/fb2/txt/kfx> <output.epub|output.kfx|output.json>")?;
             let out_path = args
                 .get(3)
+                .filter(|s| !s.starts_with('-'))
                 .ok_or("Usage: ebook-rs convert <input.epub/mobi/pdf/fb2/txt/kfx> <output.epub|output.kfx|output.json>")?;
 
             println!("🔄 Loading eBook from: {in_path}");
@@ -141,6 +157,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", serde_json::to_string_pretty(&chunks)?);
         }
         _ => {
+            if mode.starts_with('-') && mode != "--auth-token" && mode != "--sandbox-root" {
+                return Err(
+                    format!("Unknown option '{mode}'. Run 'ebook-rs --help' for usage.").into(),
+                );
+            }
             let file_arg = if args.len() > 1 && !args[1].starts_with('-') && mode != "serve" {
                 Some(&args[1])
             } else if args.len() > 2 {
@@ -193,4 +214,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn print_usage() {
+    println!(
+        "ebook-rs {} — Multi-format eBook engine & reader server
+
+Usage:
+  ebook-rs [serve] [path] [--auth-token <token>] [--sandbox-root <dir>]
+  ebook-rs convert <input> <output.epub|output.kfx|output.json>
+  ebook-rs parse <path>
+  ebook-rs search <path> <query>
+  ebook-rs locations <path>
+  ebook-rs rag <path> [max_tokens]
+  ebook-rs sample [output.epub]
+  ebook-rs mcp [--sandbox-root <dir>]
+  ebook-rs --help | -h | --version | -V",
+        env!("CARGO_PKG_VERSION")
+    );
 }
