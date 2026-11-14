@@ -46,7 +46,7 @@
 |---|:---:|:---:|:---:|:---:|
 | **EPUB 2 & 3 Support** | ✅ Full OPF + NCX/NAV | ✅ Yes | ✅ Yes | ✅ Yes |
 | **EPUB 3 Fixed-Layout (FXL)** | ✅ 2-page spread renderer | ✅ Yes | ✅ Yes | ❌ No |
-| **Amazon KFX (KF10) Support** | ✅ Clean-room `b"CONT"` container | ❌ No | ✅ Yes | ❌ No |
+| **Amazon KFX (KF10) Support** | ✅ Clean-room Ion 1.0 `b"CONT"` v2 container | ❌ No | ✅ Yes | ❌ No |
 | **MOBI & AZW3 (KF8) Support** | ✅ Native PalmDOC LZ77 | ❌ No | ✅ Yes | ❌ No |
 | **FB2 (FictionBook 2) Support** | ✅ Native XML + xlink:href | ❌ No | ✅ Yes | ❌ No |
 | **LIT (Microsoft Reader) Support** | ✅ Native | ❌ No | ✅ Yes | ❌ No |
@@ -169,7 +169,7 @@ Add `ebook-rs` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ebook-rs = "0.18.0"
+ebook-rs = "0.18.4"
 ```
 
 Or install via `cargo`:
@@ -348,8 +348,8 @@ Format support is broad but not uniformly deep. Know these before depending on a
 |---|---|
 | **EPUB 2/3, TXT, MD, FB2, CBZ** | Primary, best-tested paths. |
 | **CBR (RAR)** | **Not supported.** Opening one returns an error asking you to convert to CBZ. |
-| **PDF** | Behind the opt-in `pdf` feature (not in `default`). Text is extracted via the third-party `unpdf` crate and rendered as Markdown sections; quality (reading order, columns, scanned/image-only PDFs) depends on that crate. No OCR. |
-| **MOBI / AZW3 / KFX** | DRM-protected files are rejected with `DrmProtected`; DRM is never removed. KFX is a clean-room implementation, not validated against every Amazon-produced file. |
+| **PDF** | Behind the opt-in `pdf` Cargo feature (not in `default`, enabled by default in published Python wheels). Text is extracted via the third-party `unpdf` crate and rendered as Markdown sections; quality (reading order, columns, scanned/image-only PDFs) depends on that crate. No OCR. |
+| **MOBI / AZW3 / KFX** | DRM-protected files are rejected with `DrmProtected`; DRM is never removed. KFX uses a clean-room Amazon Ion 1.0 `CONT` v2 / `YJ_symbols` codec (interoperable with Calibre `KFX Input` / `KFX Output` for reflowable text and metadata, not validated against every Amazon-produced file). |
 | **LIT** | No LZX decompression is implemented, so LIT files that use compressed streams may not open. |
 | **Readium LCP** | Parses licenses and AES-256-CBC-decrypts content given a passphrase. Does **not** verify the license signature or certificate chain, and is not a certified LCP implementation. |
 | **Layout / pagination** | `ReflowPaginator` is an approximation with no real font metrics; do not expect pixel-identical pages to any reading system. |

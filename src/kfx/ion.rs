@@ -9,6 +9,7 @@ pub enum IonValue {
     Null,
     Bool(bool),
     Int(i64),
+    Decimal(Vec<u8>),
     Symbol(u64),
     String(String),
     Blob(Vec<u8>),
@@ -133,6 +134,10 @@ pub fn encode_value(out: &mut Vec<u8>, val: &IonValue) {
                 out.extend_from_slice(&tmp);
             }
         }
+        IonValue::Decimal(d) => {
+            write_typed_header(out, 0x5, d.len());
+            out.extend_from_slice(d);
+        }
         IonValue::Symbol(sym) => {
             let mut tmp = Vec::with_capacity(8);
             let len = write_uint_be(&mut tmp, *sym);
@@ -256,6 +261,7 @@ pub fn decode_value(data: &[u8], depth: usize) -> Result<(IonValue, usize), Stri
         0x0 => IonValue::Null, // NOP pad
         0x2 => IonValue::Int(read_uint_be(payload) as i64),
         0x3 => IonValue::Int(-(read_uint_be(payload) as i64)),
+        0x5 => IonValue::Decimal(payload.to_vec()),
         0x7 => IonValue::Symbol(read_uint_be(payload)),
         0x8 => IonValue::String(String::from_utf8_lossy(payload).into_owned()),
         0xA => IonValue::Blob(payload.to_vec()),

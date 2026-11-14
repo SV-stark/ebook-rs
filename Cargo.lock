@@ -415,7 +415,7 @@ dependencies = [
 
 [[package]]
 name = "ebook-rs"
-version = "0.18.2"
+version = "0.18.4"
 dependencies = [
  "aes",
  "ahash",
