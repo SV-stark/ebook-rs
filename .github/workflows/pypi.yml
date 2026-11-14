@@ -45,6 +45,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
+          manylinux: '2014'
           args: --release --features python,pdf --strip
 
       # maturin-action@v1 has no `sdist` input (it was silently ignored), so the
