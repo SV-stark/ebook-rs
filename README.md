@@ -223,10 +223,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## 🐍 Python Bindings
 
 ```python
-from ebook_rs import PyBook
+from ebook_rs import Book
 
 # Load eBook file
-book = PyBook.open("sample.epub")
+book = Book.open("sample.epub")
 
 print(f"Title: {book.title}")
 print(f"Authors: {book.authors}")

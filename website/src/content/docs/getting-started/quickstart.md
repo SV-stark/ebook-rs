@@ -43,10 +43,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
   <TabItem label="Python">
 ```python
-from ebook_rs import PyBook
+import json
+
+from ebook_rs import Book
 
 # 1. Open eBook
-book = PyBook.open("books/alice.epub")
+book = Book.open("books/alice.epub")
 
 print(f"Title: {book.title}")
 print(f"Authors: {book.authors}")
@@ -54,12 +56,12 @@ print(f"Sections: {book.section_count}")
 
 # 2. Get chapter section HTML & Plain Text
 html = book.get_section_html(0)
-text = book.get_section_text(0)
+text = book.get_section(0).plain_text
 
 # 3. Perform Full-Text Search
-matches = book.search("Rabbit")
+matches = json.loads(book.search("Rabbit"))
 for m in matches[:3]:
-    print(f"CFI: {m.cfi} | Snippet: {m.snippet}")
+    print(f"CFI: {m['cfi']} | Snippet: {m['snippet']}")
 
 # 4. Export RAG Chunks JSON for LLMs
 rag_json = book.to_rag_chunks_json(max_tokens=512)
