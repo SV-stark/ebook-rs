@@ -36,6 +36,22 @@ impl IonValue {
         }
     }
 
+    pub fn as_i64(&self) -> Option<i64> {
+        match self {
+            IonValue::Int(v) => Some(*v),
+            IonValue::Annotated(_, inner) => inner.as_i64(),
+            _ => None,
+        }
+    }
+
+    pub fn as_symbol(&self) -> Option<u64> {
+        match self {
+            IonValue::Symbol(v) => Some(*v),
+            IonValue::Annotated(_, inner) => inner.as_symbol(),
+            _ => None,
+        }
+    }
+
     pub fn as_list(&self) -> Option<&[IonValue]> {
         match self {
             IonValue::List(items) => Some(items.as_slice()),
@@ -243,7 +259,7 @@ pub fn decode_value(data: &[u8], depth: usize) -> Result<(IonValue, usize), Stri
         return Ok((IonValue::Bool(nibble != 0), 1));
     }
 
-    let len = if nibble == 0x0E {
+    let len = if nibble == 0x0E || (type_code == 0xD && nibble == 0x01) {
         let (l, c) = read_var_uint(&data[pos..])?;
         pos += c;
         usize::try_from(l).map_err(|_| "Ion length overflow".to_string())?
@@ -331,5 +347,13 @@ mod tests {
         assert_eq!(&bytes[..4], &ION_BVM);
         let decoded = decode_stream(&bytes).unwrap();
         assert_eq!(decoded, vec![val]);
+    }
+
+    #[test]
+    fn ion_decodes_sorted_struct_d1() {
+        // BVM + 0xD1 (sorted struct) + VarUInt len(3 = 0x83) + field 4 (0x84) + Int(1) (0x21 0x01)
+        let bytes = [0xE0, 0x01, 0x00, 0xEA, 0xD1, 0x83, 0x84, 0x21, 0x01];
+        let decoded = decode_stream(&bytes).unwrap();
+        assert_eq!(decoded, vec![IonValue::Struct(vec![(4, IonValue::Int(1))])]);
     }
 }

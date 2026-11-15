@@ -1,11 +1,13 @@
 use crate::book::Book;
+use crate::dom::xml_escape;
 use crate::error::EbookError;
 use crate::kfx::container::KfxContainer;
-use crate::metadata::{Metadata, SpineItem};
+use crate::kfx::ion::IonValue;
+use crate::metadata::{Metadata, PageProgressionDirection, SpineItem};
 use crate::nav::NavPoint;
 use crate::opf::OpfPackage;
 use crate::section::Section;
-use ahash::AHashMap;
+use ahash::{AHashMap, AHashSet};
 
 /// Struct representing a parsed Amazon KFX (.kfx, .azw8) eBook file.
 #[derive(Debug, Clone)]
@@ -31,16 +33,37 @@ impl KfxBook {
         let mut sections = Vec::new();
         let mut spine = Vec::new();
         let mut toc = Vec::new();
-        let resources = AHashMap::new();
+        let mut resources = AHashMap::new();
 
-        // 1. First, attempt to extract structured storylines and metadata from container index entries
+        // 1. First, attempt to extract structured entities and metadata from container index entries
         let mut storyline_sections: Vec<String> = Vec::new();
         let mut ion_content_bodies: Vec<String> = Vec::new();
+
+        let mut sections_map: AHashMap<u32, IonValue> = AHashMap::new();
+        let mut storylines_map: AHashMap<u32, IonValue> = AHashMap::new();
+        let mut content_map: AHashMap<u32, Vec<String>> = AHashMap::new();
+        let mut anchors_map: AHashMap<u32, IonValue> = AHashMap::new();
+        let mut ext_res_map: AHashMap<u32, IonValue> = AHashMap::new();
+        let mut raw_media_map: AHashMap<String, Vec<u8>> = AHashMap::new();
+        let mut nav_containers_map: AHashMap<u32, IonValue> = AHashMap::new();
+        let mut nav_toc_val: Option<IonValue> = None;
+        let mut reading_order_secs: Vec<u32> = Vec::new();
+
         for entry in &container.index_entries {
             let Some(payload_slice) = container.get_entry_payload(entry) else {
                 continue;
             };
             if container.is_ion_container {
+                if entry.type_id == 417
+                    || entry.type_id == crate::kfx::symbols::SYM_RAW_MEDIA_RESOURCE
+                {
+                    if let Some(raw) = strip_enty_header(payload_slice)
+                        && let Some(sym_name) = resolve_local_symbol(&container, entry.entity_id)
+                    {
+                        raw_media_map.insert(sym_name, raw.to_vec());
+                    }
+                    continue;
+                }
                 if let Some(val) = decode_enty_ion_value(payload_slice) {
                     match entry.type_id {
                         crate::kfx::symbols::SYM_BOOK_METADATA => {
@@ -48,13 +71,53 @@ impl KfxBook {
                         }
                         crate::kfx::symbols::SYM_METADATA_RECORD => {
                             extract_ion_legacy_metadata(&val, &mut metadata);
+                            if reading_order_secs.is_empty() {
+                                extract_reading_order_sections(&val, &mut reading_order_secs);
+                            }
+                        }
+                        crate::kfx::symbols::SYM_DOCUMENT_DATA => {
+                            if let Some(dir_sym) = val.get_field(192).and_then(|v| v.as_symbol()) {
+                                if dir_sym == 375 {
+                                    metadata.direction = PageProgressionDirection::Rtl;
+                                } else if dir_sym == 376 {
+                                    metadata.direction = PageProgressionDirection::Ltr;
+                                }
+                            }
+                            let mut secs = Vec::new();
+                            extract_reading_order_sections(&val, &mut secs);
+                            if !secs.is_empty() {
+                                reading_order_secs = secs;
+                            }
                         }
                         crate::kfx::symbols::SYM_CONTENT_BODY => {
                             extract_ion_content_list(&val, &mut ion_content_bodies);
+                            if let Some(list) = val.get_field(146).and_then(|v| v.as_list()) {
+                                let strings = list
+                                    .iter()
+                                    .map(|v| v.as_str().unwrap_or("").to_string())
+                                    .collect();
+                                content_map.insert(entry.entity_id, strings);
+                            }
                         }
-                        crate::kfx::symbols::SYM_STORYLINE_FRAGMENT
-                        | crate::kfx::symbols::SYM_SECTION_BLOCK => {
+                        crate::kfx::symbols::SYM_STORYLINE_FRAGMENT => {
                             extract_ion_storyline_text(&val, &mut storyline_sections);
+                            storylines_map.insert(entry.entity_id, val);
+                        }
+                        crate::kfx::symbols::SYM_SECTION_BLOCK => {
+                            extract_ion_storyline_text(&val, &mut storyline_sections);
+                            sections_map.insert(entry.entity_id, val);
+                        }
+                        crate::kfx::symbols::SYM_NAVIGATION_TOC => {
+                            nav_toc_val = Some(val);
+                        }
+                        391 => {
+                            nav_containers_map.insert(entry.entity_id, val);
+                        }
+                        266 => {
+                            anchors_map.insert(entry.entity_id, val);
+                        }
+                        164 => {
+                            ext_res_map.insert(entry.entity_id, val);
                         }
                         _ => {}
                     }
@@ -117,7 +180,147 @@ impl KfxBook {
             metadata.languages.push("en".to_string());
         }
 
-        // Group paragraph fragments into ~15-20 KB chapter sections
+        // 3. Structured Ion section + storyline + resource + TOC reconstruction
+        if container.is_ion_container && !reading_order_secs.is_empty() && !sections_map.is_empty()
+        {
+            let mut img_rel_paths: AHashMap<u32, String> = AHashMap::new();
+            let mut img_counter = 0usize;
+            for (ext_sym, ext_val) in &ext_res_map {
+                let loc = ext_val.get_field(165).and_then(|v| v.as_str());
+                let mime = ext_val
+                    .get_field(162)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let fmt_sym = ext_val.get_field(161).and_then(|v| v.as_symbol());
+                let raw_data = loc.and_then(|l| raw_media_map.get(l)).or_else(|| {
+                    resolve_local_symbol(&container, *ext_sym).and_then(|s| raw_media_map.get(&s))
+                });
+                if let Some(data) = raw_data {
+                    let ext = image_ext_from_meta(mime, fmt_sym, data);
+                    let rel = format!("images/img_{img_counter:04}.{ext}");
+                    img_counter += 1;
+                    resources.insert(format!("OEBPS/{rel}"), data.clone());
+                    img_rel_paths.insert(*ext_sym, rel);
+                }
+            }
+
+            // Pre-collect EID -> section_idx across all sections so cross-chapter links resolve cleanly
+            let mut eid_to_sec_idx: AHashMap<i64, usize> = AHashMap::new();
+            let mut ordered_story_syms: Vec<Vec<u32>> =
+                Vec::with_capacity(reading_order_secs.len());
+            for (s_idx, sec_sym) in reading_order_secs.iter().enumerate() {
+                let mut stories = Vec::new();
+                if let Some(sec_val) = sections_map.get(sec_sym) {
+                    collect_section_stories_and_eids(
+                        sec_val,
+                        s_idx,
+                        &mut stories,
+                        &mut eid_to_sec_idx,
+                    );
+                    for st_sym in &stories {
+                        if let Some(st_val) = storylines_map.get(st_sym) {
+                            collect_storyline_eids(st_val, s_idx, &mut eid_to_sec_idx);
+                        }
+                    }
+                }
+                ordered_story_syms.push(stories);
+            }
+
+            let mut target_eids_needed: AHashSet<i64> = AHashSet::new();
+            for anc_val in anchors_map.values() {
+                if let Some(pos) = anc_val.get_field(183)
+                    && let Some(eid) = pos.get_field(155).and_then(|v| v.as_i64())
+                {
+                    target_eids_needed.insert(eid);
+                }
+            }
+
+            let ctx = StructuredRenderCtx {
+                content_map: &content_map,
+                storylines_map: &storylines_map,
+                anchors_map: &anchors_map,
+                img_rel_paths: &img_rel_paths,
+                eid_to_sec_idx: &eid_to_sec_idx,
+                target_eids_needed: &target_eids_needed,
+            };
+
+            for (idx, stories) in ordered_story_syms.iter().enumerate() {
+                let mut body_html = String::new();
+                for st_sym in stories {
+                    if let Some(st_val) = storylines_map.get(st_sym)
+                        && let Some(blocks) = st_val.get_field(146).and_then(|v| v.as_list())
+                    {
+                        for blk in blocks {
+                            render_kfx_block(blk, &ctx, &mut body_html);
+                        }
+                    }
+                }
+
+                let sec_id = format!("kfx_sec_{idx}");
+                let href = format!("sec_{idx}.xhtml");
+                let full_path = format!("OEBPS/sec_{idx}.xhtml");
+                let raw_html = format!("<div class=\"kfx-section\">\n{body_html}</div>");
+                let plain_text = crate::section::extract_plain_text(&raw_html);
+                let plain_text_lower = plain_text.to_lowercase();
+                let char_count = plain_text.chars().count();
+
+                sections.push(Section {
+                    index: idx,
+                    idref: sec_id.clone(),
+                    href: href.clone(),
+                    full_path,
+                    raw_html: raw_html.clone(),
+                    processed_html: raw_html,
+                    plain_text,
+                    plain_text_lower,
+                    char_count,
+                    viewport_width: None,
+                    viewport_height: None,
+                });
+
+                spine.push(SpineItem {
+                    idref: sec_id,
+                    linear: true,
+                    properties: Vec::new(),
+                    index: idx,
+                    href,
+                    media_type: "application/xhtml+xml".to_string(),
+                });
+            }
+
+            if let Some(nav_val) = &nav_toc_val {
+                let mut nav_counter = 0usize;
+                toc = parse_kfx_toc(
+                    nav_val,
+                    &nav_containers_map,
+                    &eid_to_sec_idx,
+                    &mut nav_counter,
+                );
+            }
+            if toc.is_empty() {
+                for (idx, sp) in spine.iter().enumerate() {
+                    let label = extract_first_heading(&sections[idx].raw_html)
+                        .unwrap_or_else(|| format!("Section {}", idx + 1));
+                    toc.push(NavPoint {
+                        id: format!("toc_{idx}"),
+                        label,
+                        href: sp.href.clone(),
+                        full_path: format!("OEBPS/{}", sp.href),
+                        subitems: Vec::new(),
+                    });
+                }
+            }
+
+            return Ok(Self {
+                metadata,
+                spine,
+                toc,
+                sections,
+                resources,
+            });
+        }
+
+        // Group paragraph fragments into ~15-20 KB chapter sections (fallback for simplified/legacy KFX)
         let mut grouped_chapters: Vec<String> = Vec::new();
         let mut current_chap = String::new();
 
@@ -263,7 +466,13 @@ impl KfxBook {
         let kfx = Self::from_bytes(bytes)?;
 
         let mut archive = crate::archive::EpubArchive::empty();
-        carve_kfx_images(bytes, &mut archive);
+        if !kfx.resources.is_empty() {
+            for (path, data) in &kfx.resources {
+                archive.insert(path.clone(), data.clone());
+            }
+        } else {
+            carve_kfx_images(bytes, &mut archive);
+        }
 
         let opf = OpfPackage {
             version: "3.0".to_string(),
@@ -304,6 +513,462 @@ impl KfxBook {
 
         Ok(book)
     }
+}
+
+struct StructuredRenderCtx<'a> {
+    content_map: &'a AHashMap<u32, Vec<String>>,
+    storylines_map: &'a AHashMap<u32, IonValue>,
+    anchors_map: &'a AHashMap<u32, IonValue>,
+    img_rel_paths: &'a AHashMap<u32, String>,
+    eid_to_sec_idx: &'a AHashMap<i64, usize>,
+    target_eids_needed: &'a AHashSet<i64>,
+}
+
+fn resolve_local_symbol(container: &KfxContainer, sym_id: u32) -> Option<String> {
+    const YJ_MAX_ID: usize = 851;
+    let idx = (sym_id as usize).checked_sub(YJ_MAX_ID + 1)?;
+    container.doc_symbols.get(idx).cloned()
+}
+
+fn strip_enty_header(payload: &[u8]) -> Option<&[u8]> {
+    if payload.len() >= 12 && &payload[..4] == b"ENTY" {
+        let hdr_len = u16::from_le_bytes([payload[6], payload[7]]) as usize;
+        if hdr_len <= payload.len() {
+            return Some(&payload[hdr_len..]);
+        }
+        return None;
+    }
+    Some(payload)
+}
+
+fn image_ext_from_meta(mime: &str, fmt_sym: Option<u64>, data: &[u8]) -> &'static str {
+    if data.starts_with(b"\x89PNG\r\n\x1a\n") || fmt_sym == Some(284) || mime == "image/png" {
+        "png"
+    } else if (data.len() >= 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF)
+        || fmt_sym == Some(285)
+        || mime == "image/jpeg"
+    {
+        "jpg"
+    } else if data.starts_with(b"GIF8") || fmt_sym == Some(286) || mime == "image/gif" {
+        "gif"
+    } else if data.starts_with(b"BM") || fmt_sym == Some(599) || mime == "image/bmp" {
+        "bmp"
+    } else if mime == "image/svg+xml" {
+        "svg"
+    } else if mime == "image/webp" {
+        "webp"
+    } else {
+        "bin"
+    }
+}
+
+fn extract_reading_order_sections(val: &IonValue, out: &mut Vec<u32>) {
+    let Some(orders) = val.get_field(169).and_then(|v| v.as_list()) else {
+        return;
+    };
+    for order in orders {
+        if let Some(secs) = order.get_field(170).and_then(|v| v.as_list()) {
+            for s in secs {
+                if let Some(sym_id) = s.as_symbol()
+                    && let Ok(u) = u32::try_from(sym_id)
+                {
+                    out.push(u);
+                }
+            }
+            if !out.is_empty() {
+                return;
+            }
+        }
+    }
+}
+
+fn collect_section_stories_and_eids(
+    val: &IonValue,
+    sec_idx: usize,
+    stories: &mut Vec<u32>,
+    eid_to_sec_idx: &mut AHashMap<i64, usize>,
+) {
+    match val {
+        IonValue::Struct(fields) => {
+            for (k, v) in fields {
+                if *k == 155
+                    && let Some(eid) = v.as_i64()
+                {
+                    eid_to_sec_idx.insert(eid, sec_idx);
+                } else if *k == 176
+                    && let Some(sym) = v.as_symbol()
+                    && let Ok(u) = u32::try_from(sym)
+                    && !stories.contains(&u)
+                {
+                    stories.push(u);
+                } else {
+                    collect_section_stories_and_eids(v, sec_idx, stories, eid_to_sec_idx);
+                }
+            }
+        }
+        IonValue::List(items) => {
+            for item in items {
+                collect_section_stories_and_eids(item, sec_idx, stories, eid_to_sec_idx);
+            }
+        }
+        IonValue::Annotated(_, inner) => {
+            collect_section_stories_and_eids(inner, sec_idx, stories, eid_to_sec_idx);
+        }
+        _ => {}
+    }
+}
+
+fn collect_storyline_eids(
+    val: &IonValue,
+    sec_idx: usize,
+    eid_to_sec_idx: &mut AHashMap<i64, usize>,
+) {
+    match val {
+        IonValue::Struct(fields) => {
+            for (k, v) in fields {
+                if *k == 155
+                    && let Some(eid) = v.as_i64()
+                {
+                    eid_to_sec_idx.insert(eid, sec_idx);
+                } else {
+                    collect_storyline_eids(v, sec_idx, eid_to_sec_idx);
+                }
+            }
+        }
+        IonValue::List(items) => {
+            for item in items {
+                collect_storyline_eids(item, sec_idx, eid_to_sec_idx);
+            }
+        }
+        IonValue::Annotated(_, inner) => collect_storyline_eids(inner, sec_idx, eid_to_sec_idx),
+        _ => {}
+    }
+}
+
+fn resolve_anchor_href(anc_sym: u64, ctx: &StructuredRenderCtx<'_>) -> Option<String> {
+    let anc_id = u32::try_from(anc_sym).ok()?;
+    let anc = ctx.anchors_map.get(&anc_id)?;
+    if let Some(uri) = anc.get_field(186).and_then(|v| v.as_str()) {
+        return Some(uri.to_string());
+    }
+    if let Some(pos) = anc.get_field(183)
+        && let Some(eid) = pos.get_field(155).and_then(|v| v.as_i64())
+        && let Some(&target_sec) = ctx.eid_to_sec_idx.get(&eid)
+    {
+        return Some(format!("sec_{target_sec}.xhtml#eid_{eid}"));
+    }
+    None
+}
+
+fn render_text_with_style_events(
+    text: &str,
+    blk: &IonValue,
+    ctx: &StructuredRenderCtx<'_>,
+    out: &mut String,
+) {
+    let Some(events) = blk.get_field(142).and_then(|v| v.as_list()) else {
+        out.push_str(&xml_escape(text));
+        return;
+    };
+    let chars: Vec<char> = text.chars().collect();
+    let total = chars.len();
+    let mut spans: Vec<(usize, usize, String)> = Vec::new();
+    for ev in events {
+        let Some(off) = ev.get_field(143).and_then(|v| v.as_i64()) else {
+            continue;
+        };
+        let Some(len) = ev.get_field(144).and_then(|v| v.as_i64()) else {
+            continue;
+        };
+        let Some(anc_sym) = ev.get_field(179).and_then(|v| v.as_symbol()) else {
+            continue;
+        };
+        let Some(href) = resolve_anchor_href(anc_sym, ctx) else {
+            continue;
+        };
+        if off >= 0 && len > 0 {
+            let start = (off as usize).min(total);
+            let end = (start + len as usize).min(total);
+            if end > start {
+                spans.push((start, end, href));
+            }
+        }
+    }
+    if spans.is_empty() {
+        out.push_str(&xml_escape(text));
+        return;
+    }
+    spans.sort_by_key(|(s, e, _)| (*s, *e));
+    let mut cursor = 0usize;
+    for (start, end, href) in spans {
+        if start < cursor {
+            continue;
+        }
+        if start > cursor {
+            let plain: String = chars[cursor..start].iter().collect();
+            out.push_str(&xml_escape(&plain));
+        }
+        let link_txt: String = chars[start..end].iter().collect();
+        out.push_str("<a href=\"");
+        out.push_str(&xml_escape(&href));
+        out.push_str("\">");
+        out.push_str(&xml_escape(&link_txt));
+        out.push_str("</a>");
+        cursor = end;
+    }
+    if cursor < total {
+        let tail: String = chars[cursor..total].iter().collect();
+        out.push_str(&xml_escape(&tail));
+    }
+}
+
+fn resolve_block_text<'a>(
+    blk: &'a IonValue,
+    content_map: &'a AHashMap<u32, Vec<String>>,
+) -> &'a str {
+    let Some(c_ref) = blk.get_field(145) else {
+        return "";
+    };
+    if let Some(direct) = c_ref.as_str() {
+        return direct;
+    }
+    let Some(c_sym) = c_ref.get_field(4).and_then(|v| v.as_symbol()) else {
+        return "";
+    };
+    let Ok(c_id) = u32::try_from(c_sym) else {
+        return "";
+    };
+    let idx = c_ref
+        .get_field(403)
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0)
+        .max(0) as usize;
+    content_map
+        .get(&c_id)
+        .and_then(|list| list.get(idx))
+        .map(String::as_str)
+        .unwrap_or("")
+}
+
+fn push_id_attr(eid: Option<i64>, ctx: &StructuredRenderCtx<'_>, out: &mut String) {
+    if let Some(id) = eid
+        && ctx.target_eids_needed.contains(&id)
+    {
+        out.push_str(&format!(" id=\"eid_{id}\""));
+    }
+}
+
+fn render_kfx_block(blk: &IonValue, ctx: &StructuredRenderCtx<'_>, out: &mut String) {
+    let type_sym = blk.get_field(159).and_then(|v| v.as_symbol());
+    let eid = blk.get_field(155).and_then(|v| v.as_i64());
+
+    match type_sym {
+        Some(271) => {
+            out.push_str("<p");
+            push_id_attr(eid, ctx, out);
+            out.push('>');
+            let link_href = blk
+                .get_field(179)
+                .and_then(|v| v.as_symbol())
+                .and_then(|s| resolve_anchor_href(s, ctx));
+            if let Some(href) = &link_href {
+                out.push_str("<a href=\"");
+                out.push_str(&xml_escape(href));
+                out.push_str("\">");
+            }
+            if let Some(res_sym) = blk
+                .get_field(175)
+                .and_then(|v| v.as_symbol())
+                .and_then(|s| u32::try_from(s).ok())
+                && let Some(rel_path) = ctx.img_rel_paths.get(&res_sym)
+            {
+                let alt = blk.get_field(584).and_then(|v| v.as_str()).unwrap_or("");
+                out.push_str("<img src=\"");
+                out.push_str(&xml_escape(rel_path));
+                out.push_str("\" alt=\"");
+                out.push_str(&xml_escape(alt));
+                out.push_str("\" />");
+            }
+            if link_href.is_some() {
+                out.push_str("</a>");
+            }
+            out.push_str("</p>\n");
+        }
+        Some(278) => {
+            out.push_str("<table");
+            push_id_attr(eid, ctx, out);
+            out.push_str(">\n");
+            if let Some(rows) = blk.get_field(146).and_then(|v| v.as_list()) {
+                for row in rows {
+                    let row_eid = row.get_field(155).and_then(|v| v.as_i64());
+                    out.push_str("<tr");
+                    push_id_attr(row_eid, ctx, out);
+                    out.push('>');
+                    if let Some(cells) = row.get_field(146).and_then(|v| v.as_list()) {
+                        for cell in cells {
+                            let cell_eid = cell.get_field(155).and_then(|v| v.as_i64());
+                            out.push_str("<td");
+                            push_id_attr(cell_eid, ctx, out);
+                            if let Some(cs) = cell.get_field(148).and_then(|v| v.as_i64())
+                                && cs > 1
+                            {
+                                out.push_str(&format!(" colspan=\"{cs}\""));
+                            }
+                            if let Some(rs) = cell.get_field(149).and_then(|v| v.as_i64())
+                                && rs > 1
+                            {
+                                out.push_str(&format!(" rowspan=\"{rs}\""));
+                            }
+                            out.push('>');
+                            let text = resolve_block_text(cell, ctx.content_map);
+                            render_text_with_style_events(text, cell, ctx, out);
+                            out.push_str("</td>");
+                        }
+                    }
+                    out.push_str("</tr>\n");
+                }
+            }
+            out.push_str("</table>\n");
+        }
+        _ => {
+            let text = resolve_block_text(blk, ctx.content_map);
+            let children = blk.get_field(146).and_then(|v| v.as_list());
+            let nested_story = blk
+                .get_field(176)
+                .and_then(|v| v.as_symbol())
+                .and_then(|s| u32::try_from(s).ok())
+                .and_then(|id| ctx.storylines_map.get(&id));
+
+            if !text.is_empty() {
+                out.push_str("<p");
+                push_id_attr(eid, ctx, out);
+                out.push('>');
+                render_text_with_style_events(text, blk, ctx, out);
+                out.push_str("</p>\n");
+            } else if children.is_some() || nested_story.is_some() {
+                let is_list = matches!(type_sym, Some(276));
+                let wrap_id = eid.filter(|id| ctx.target_eids_needed.contains(id));
+                if is_list {
+                    out.push_str("<ul");
+                    push_id_attr(wrap_id, ctx, out);
+                    out.push_str(">\n");
+                } else if let Some(id) = wrap_id {
+                    out.push_str(&format!("<div id=\"eid_{id}\">\n"));
+                }
+                if let Some(items) = children {
+                    for child in items {
+                        if let Some(s) = child.as_str() {
+                            if !s.trim().is_empty() {
+                                out.push_str("<p>");
+                                out.push_str(&xml_escape(s));
+                                out.push_str("</p>\n");
+                            }
+                        } else {
+                            render_kfx_block(child, ctx, out);
+                        }
+                    }
+                }
+                if let Some(st_val) = nested_story
+                    && let Some(blocks) = st_val.get_field(146).and_then(|v| v.as_list())
+                {
+                    for child in blocks {
+                        render_kfx_block(child, ctx, out);
+                    }
+                }
+                if is_list {
+                    out.push_str("</ul>\n");
+                } else if wrap_id.is_some() {
+                    out.push_str("</div>\n");
+                }
+            }
+        }
+    }
+}
+
+fn parse_kfx_toc(
+    nav_val: &IonValue,
+    nav_containers_map: &AHashMap<u32, IonValue>,
+    eid_to_sec_idx: &AHashMap<i64, usize>,
+    counter: &mut usize,
+) -> Vec<NavPoint> {
+    let Some(orders) = nav_val.as_list() else {
+        return Vec::new();
+    };
+    for order in orders {
+        let Some(containers) = order.get_field(392).and_then(|v| v.as_list()) else {
+            continue;
+        };
+        for item in containers {
+            let container = match item {
+                IonValue::Annotated(_, inner) => inner.as_ref(),
+                IonValue::Symbol(sym) => {
+                    let Ok(id) = u32::try_from(*sym) else {
+                        continue;
+                    };
+                    let Some(c) = nav_containers_map.get(&id) else {
+                        continue;
+                    };
+                    c
+                }
+                other => other,
+            };
+            if container.get_field(235).and_then(|v| v.as_symbol()) != Some(212) {
+                continue;
+            }
+            if let Some(entries) = container.get_field(247).and_then(|v| v.as_list()) {
+                return parse_kfx_nav_units(entries, eid_to_sec_idx, counter);
+            }
+        }
+    }
+    Vec::new()
+}
+
+fn parse_kfx_nav_units(
+    entries: &[IonValue],
+    eid_to_sec_idx: &AHashMap<i64, usize>,
+    counter: &mut usize,
+) -> Vec<NavPoint> {
+    let mut out = Vec::new();
+    for entry in entries {
+        let inner = match entry {
+            IonValue::Annotated(_, v) => v.as_ref(),
+            v => v,
+        };
+        let label = inner
+            .get_field(241)
+            .and_then(|r| r.get_field(244))
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("Section")
+            .to_string();
+        let target_eid = inner
+            .get_field(246)
+            .and_then(|t| t.get_field(155))
+            .and_then(|v| v.as_i64());
+        let sec_idx = target_eid
+            .and_then(|eid| eid_to_sec_idx.get(&eid).copied())
+            .unwrap_or(0);
+        let href = format!("sec_{sec_idx}.xhtml");
+        let full_path = format!("OEBPS/{href}");
+        let id = format!("toc_{}", *counter);
+        *counter += 1;
+
+        let subitems = inner
+            .get_field(247)
+            .and_then(|v| v.as_list())
+            .map(|children| parse_kfx_nav_units(children, eid_to_sec_idx, counter))
+            .unwrap_or_default();
+
+        out.push(NavPoint {
+            id,
+            label,
+            href,
+            full_path,
+            subitems,
+        });
+    }
+    out
 }
 
 fn find_ascii_ignore_case(haystack: &str, needle: &str) -> Option<usize> {
@@ -497,20 +1162,12 @@ fn is_valid_kfx_text_paragraph(text: &str) -> bool {
     ratio >= 0.90
 }
 
-fn decode_enty_ion_value(payload: &[u8]) -> Option<crate::kfx::ion::IonValue> {
-    let ion_slice = if payload.len() >= 12 && &payload[..4] == b"ENTY" {
-        let hdr_len = u16::from_le_bytes([payload[6], payload[7]]) as usize;
-        if hdr_len > payload.len() {
-            return None;
-        }
-        &payload[hdr_len..]
-    } else {
-        payload
-    };
+fn decode_enty_ion_value(payload: &[u8]) -> Option<IonValue> {
+    let ion_slice = strip_enty_header(payload)?;
     let values = crate::kfx::ion::decode_stream(ion_slice).ok()?;
     for val in values {
         // Skip local symbol table (`$ion_symbol_table` annotation ID 3)
-        if let crate::kfx::ion::IonValue::Annotated(annots, _) = &val
+        if let IonValue::Annotated(annots, _) = &val
             && annots.contains(&3)
         {
             continue;
@@ -520,7 +1177,7 @@ fn decode_enty_ion_value(payload: &[u8]) -> Option<crate::kfx::ion::IonValue> {
     None
 }
 
-fn extract_ion_book_metadata(val: &crate::kfx::ion::IonValue, metadata: &mut Metadata) {
+fn extract_ion_book_metadata(val: &IonValue, metadata: &mut Metadata) {
     // 491 = categorised_metadata; 258 = metadata (or 492 in simplified fixtures);
     // 492/493 = key, 493/494 = value
     let Some(cats) = val.get_field(491).and_then(|v| v.as_list()) else {
@@ -554,18 +1211,27 @@ fn extract_ion_book_metadata(val: &crate::kfx::ion::IonValue, metadata: &mut Met
                 "description" if metadata.description.is_none() => {
                     metadata.description = Some(trimmed.to_string());
                 }
+                "ASIN" | "book_id" | "content_id" if metadata.identifier.is_none() => {
+                    metadata.identifier = Some(trimmed.to_string());
+                }
                 _ => {}
             }
         }
     }
 }
 
-fn extract_ion_legacy_metadata(val: &crate::kfx::ion::IonValue, metadata: &mut Metadata) {
+fn extract_ion_legacy_metadata(val: &IonValue, metadata: &mut Metadata) {
     if metadata.title.is_empty()
         && let Some(t) = val.get_field(153).and_then(|v| v.as_str())
         && !t.trim().is_empty()
     {
         metadata.title = t.trim().to_string();
+    }
+    if metadata.identifier.is_none()
+        && let Some(id) = val.get_field(224).and_then(|v| v.as_str())
+        && !id.trim().is_empty()
+    {
+        metadata.identifier = Some(id.trim().to_string());
     }
     if let Some(a) = val.get_field(222).and_then(|v| v.as_str())
         && !a.trim().is_empty()
@@ -584,7 +1250,7 @@ fn extract_ion_legacy_metadata(val: &crate::kfx::ion::IonValue, metadata: &mut M
     }
 }
 
-fn extract_ion_content_list(val: &crate::kfx::ion::IonValue, out: &mut Vec<String>) {
+fn extract_ion_content_list(val: &IonValue, out: &mut Vec<String>) {
     // 146 = content_list
     if let Some(list) = val.get_field(146).and_then(|v| v.as_list()) {
         for item in list {
@@ -598,8 +1264,7 @@ fn extract_ion_content_list(val: &crate::kfx::ion::IonValue, out: &mut Vec<Strin
     }
 }
 
-fn extract_ion_storyline_text(val: &crate::kfx::ion::IonValue, out: &mut Vec<String>) {
-    use crate::kfx::ion::IonValue;
+fn extract_ion_storyline_text(val: &IonValue, out: &mut Vec<String>) {
     match val {
         IonValue::Struct(fields) => {
             for (k, v) in fields {
@@ -695,7 +1360,6 @@ mod tests {
 
         // Build container_info + index_table
         let info_off = 18usize;
-        // Placeholder container_info to measure length, then patch offsets
         let make_info = |idx_off: u64, idx_len: u64, sym_off: u64, sym_len: u64| {
             encode_stream(&[IonValue::Struct(vec![
                 (SYM_INDEX_TABLE_OFFSET as u64, IonValue::Int(idx_off as i64)),

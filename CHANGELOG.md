@@ -5,6 +5,19 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.5] - 2026-11-15
+
+### Fixed & Improved
+
+- **Full-Fidelity KFX Export & Reader (`src/kfx/writer.rs`, `src/kfx/reader.rs`, `src/kfx/ion.rs`)**:
+  - **Unique Deterministic Publication Identifiers**: Replaced hardcoded `ASIN`, `asset_id`, `book_id`, and `content_id` with deterministic SHA-1 publication digests derived from metadata and spine content, and extracted KFX identifiers in `KfxBook` (#24).
+  - **Embedded Images**: Extracted `<img>` and SVG `<image>` assets (including `data:` URIs) into `$164` (`external_resource`) and `$417` (`bcRawMedia`) entities with parsed image dimensions (`$422`/`$423`) and `$271` storyline blocks (#25).
+  - **Hierarchical Publication TOC**: Emitted `$389` (`book_navigation`) with annotated `$391` (`nav_container`) and recursive `$393` (`nav_unit`) entries resolved to target EIDs, and reconstructed hierarchical TOC in `KfxBook` (#26).
+  - **Internal & External Hyperlinks**: Preserved `<a href="...">` links and anchor targets via `$266` (`anchor`) entities (`$186` external URIs and `$183` internal `(eid, offset)` positions) and `$142` (`style_events`) (#27).
+  - **RTL Reading Progression**: Propagated `PageProgressionDirection::Rtl` to `$538` (`document_data`) field `$192` (`$375` `rtl` vs `$376` `ltr`) and restored `metadata.direction` on read (#28).
+  - **Structured Tables**: Preserved `<table>`, `<tr>`, `<td>`, and `<th>` (including `colspan`/`rowspan` and inline cell links) as KFX `$278`/`$279`/`$269` table structures with exact PID mapping (#29).
+  - **Content Chunking & Ion `0xD1` Support**: Chunked `$145` content fragments below the 8192-byte limit, fixed Ion 1.0 `0xD1` sorted-struct length decoding in `src/kfx/ion.rs`, and added recursive container block rendering in `src/kfx/reader.rs` for real-world KFX files.
+
 ## [0.18.4] - 2026-11-14
 
 ### Fixed & Improved
