@@ -330,7 +330,10 @@ fn issue_32_kfx_preserves_document_and_inline_bidi_direction() {
     let parsed = KfxBook::parse(&kfx_bytes).unwrap();
     let sec = parsed.get_section(0).unwrap();
     assert!(sec.raw_html.contains("dir=\"rtl\""));
-    assert!(sec.raw_html.contains("<span dir=\"ltr\">English words 123</span>"));
+    assert!(
+        sec.raw_html
+            .contains("<span dir=\"ltr\">English words 123</span>")
+    );
 }
 
 #[test]
@@ -406,7 +409,11 @@ fn issue_33_kfx_preserves_embedded_publisher_fonts() {
         .into_iter()
         .filter(|f| f.ends_with(".otf"))
         .collect();
-    assert_eq!(font_files.len(), 2, "Round-trip should preserve both OTF fonts");
+    assert_eq!(
+        font_files.len(),
+        2,
+        "Round-trip should preserve both OTF fonts"
+    );
 }
 
 #[test]
@@ -451,7 +458,9 @@ fn issue_34_kfx_preserves_declared_cover_and_non_spine_images() {
 
     let title_meta = extract_kfx_title_meta(&kfx_bytes);
     assert!(
-        title_meta.iter().any(|(k, v)| k == "cover_image" && v == "e0"),
+        title_meta
+            .iter()
+            .any(|(k, v)| k == "cover_image" && v == "e0"),
         "Expected cover_image metadata in $490, got {title_meta:?}"
     );
 

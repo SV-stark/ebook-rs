@@ -263,7 +263,10 @@ impl KfxBook {
                 }
                 let fname = loc.rsplit('/').next().unwrap_or(loc.as_str());
                 font_counter += 1;
-                resources.insert(format!("OEBPS/fonts/{font_counter:04}_{fname}"), data.clone());
+                resources.insert(
+                    format!("OEBPS/fonts/{font_counter:04}_{fname}"),
+                    data.clone(),
+                );
             }
 
             // Pre-collect EID -> section_idx across all sections so cross-chapter links resolve cleanly
@@ -325,7 +328,9 @@ impl KfxBook {
                     .and_then(|sv| sv.get_field(141))
                     .and_then(|v| v.as_list())
                     .and_then(|l| l.first())
-                    .and_then(|pt| style_dir_info(pt.get_field(157).and_then(|v| v.as_symbol()), &styles_map))
+                    .and_then(|pt| {
+                        style_dir_info(pt.get_field(157).and_then(|v| v.as_symbol()), &styles_map)
+                    })
                     .map(|(d, _)| d)
                     .or_else(|| {
                         if metadata.direction == PageProgressionDirection::Rtl {
@@ -338,9 +343,7 @@ impl KfxBook {
                 let sec_id = format!("kfx_sec_{idx}");
                 let href = format!("sec_{idx}.xhtml");
                 let full_path = format!("OEBPS/sec_{idx}.xhtml");
-                let dir_attr = sec_dir
-                    .map(|d| format!(" dir=\"{d}\""))
-                    .unwrap_or_default();
+                let dir_attr = sec_dir.map(|d| format!(" dir=\"{d}\"")).unwrap_or_default();
                 let raw_html = format!("<div class=\"kfx-section\"{dir_attr}>\n{body_html}</div>");
                 let plain_text = crate::section::extract_plain_text(&raw_html);
                 let plain_text_lower = plain_text.to_lowercase();
@@ -860,7 +863,10 @@ fn render_text_with_style_events(
             .get_field(179)
             .and_then(|v| v.as_symbol())
             .and_then(|anc_sym| resolve_anchor_href(anc_sym, ctx));
-        let dir = style_dir_info(ev.get_field(157).and_then(|v| v.as_symbol()), ctx.styles_map);
+        let dir = style_dir_info(
+            ev.get_field(157).and_then(|v| v.as_symbol()),
+            ctx.styles_map,
+        );
         if href.is_some() || dir.is_some() {
             spans.push(InlineSpan {
                 start,
@@ -1034,9 +1040,10 @@ fn render_kfx_block(blk: &IonValue, ctx: &StructuredRenderCtx<'_>, out: &mut Str
             if !text.is_empty() {
                 out.push_str("<p");
                 push_id_attr(eid, ctx, out);
-                if let Some((d, _)) =
-                    style_dir_info(blk.get_field(157).and_then(|v| v.as_symbol()), ctx.styles_map)
-                {
+                if let Some((d, _)) = style_dir_info(
+                    blk.get_field(157).and_then(|v| v.as_symbol()),
+                    ctx.styles_map,
+                ) {
                     out.push_str(&format!(" dir=\"{d}\""));
                 }
                 out.push('>');

@@ -220,7 +220,11 @@ impl InlineAcc {
         }
     }
 
-    fn take(&mut self, pending_ids: &mut Vec<String>, block_dir: Option<BidiDir>) -> Option<TextBlockData> {
+    fn take(
+        &mut self,
+        pending_ids: &mut Vec<String>,
+        block_dir: Option<BidiDir>,
+    ) -> Option<TextBlockData> {
         let trimmed = self.text.trim_end().to_string();
         if trimmed.is_empty() {
             self.text.clear();
@@ -428,7 +432,11 @@ impl UniversalKfxExporter {
                 parsed_sections.push(ParsedSection {
                     full_path: normalize_href_path(&sec.full_path),
                     href: normalize_href_path(&sec.href),
-                    dir: doc_dir.or(if default_rtl { Some(BidiDir::Rtl) } else { None }),
+                    dir: doc_dir.or(if default_rtl {
+                        Some(BidiDir::Rtl)
+                    } else {
+                        None
+                    }),
                     blocks,
                 });
             }
@@ -438,7 +446,11 @@ impl UniversalKfxExporter {
             parsed_sections.push(ParsedSection {
                 full_path: "sec_0.xhtml".to_string(),
                 href: "sec_0.xhtml".to_string(),
-                dir: if default_rtl { Some(BidiDir::Rtl) } else { None },
+                dir: if default_rtl {
+                    Some(BidiDir::Rtl)
+                } else {
+                    None
+                },
                 blocks: vec![ParsedBlock::Text(TextBlockData {
                     text: title.to_string(),
                     links: Vec::new(),
@@ -461,8 +473,9 @@ impl UniversalKfxExporter {
             .as_deref()
             .and_then(|p| img_collector.collect("", p))
             .or_else(|| {
-                book.cover_image()
-                    .and_then(|(data, mime)| img_collector.insert_image("cover_image".to_string(), data, Some(mime)))
+                book.cover_image().and_then(|(data, mime)| {
+                    img_collector.insert_image("cover_image".to_string(), data, Some(mime))
+                })
             });
 
         // Collect any remaining non-spine manifest images deterministically
@@ -1461,7 +1474,13 @@ impl UniversalKfxExporter {
                 BidiMode::Isolate => s_fields.push((674, IonValue::Symbol(676))),
                 BidiMode::Override => s_fields.push((674, IonValue::Symbol(677))),
             }
-            push_ion_entity(&mut entries, &mut payload, ds_sym, 157, IonValue::Struct(s_fields));
+            push_ion_entity(
+                &mut entries,
+                &mut payload,
+                ds_sym,
+                157,
+                IonValue::Struct(s_fields),
+            );
         }
 
         // 10. $264 section_position_id_map, $265 position_id_map, $550 location_map, $395 resource_path
@@ -2453,11 +2472,7 @@ fn parse_font_weight_sym(val: &str) -> u32 {
     }
 }
 
-fn parse_font_faces(
-    css: &str,
-    css_dir: &str,
-    out: &mut AHashMap<String, (String, u32, u32)>,
-) {
+fn parse_font_faces(css: &str, css_dir: &str, out: &mut AHashMap<String, (String, u32, u32)>) {
     let lower = css.to_ascii_lowercase();
     let mut pos = 0usize;
     while let Some(rel) = lower[pos..].find("@font-face") {
@@ -2521,7 +2536,8 @@ fn parse_font_faces(
 
         if let Some(fam) = family {
             for u in urls {
-                out.entry(u).or_insert_with(|| (fam.clone(), style_sym, weight_sym));
+                out.entry(u)
+                    .or_insert_with(|| (fam.clone(), style_sym, weight_sym));
             }
         }
     }
