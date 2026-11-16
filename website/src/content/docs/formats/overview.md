@@ -18,4 +18,4 @@ description: Universal multi-format support overview in ebook-rs.
 | **PDF Document** | `.pdf` | `unpdf` Spatial | 2-column academic reflow, font size clustering, heading detection |
 | **Word Document** | `.docx` | Native WordML | OpenXML `document.xml`, styles, embedded PNG/JPG extraction |
 | **Rich Text Format**| `.rtf` | Native Control Parser | Group stack parsing, `\pict` hex binary decoding, Unicode escapes |
-| **Plain / Markdown**| `.txt`, `.md` | Markdown Reflow | Auto-heading detection, paragraph chunking, code formatting |\n
+| **Plain / Markdown**| `.txt`, `.md` | Markdown Reflow | Auto-heading detection, paragraph chunking, code formatting |

@@ -15,4 +15,4 @@ for r in results {
 ### Performance
 - **Zero Allocations**: Match scanning operates on zero-copy string slices.
 - **Vector Acceleration**: Uses `memchr` SIMD byte search.
-- **XSS-Safe Snippets**: Search highlights wrap matched words in `<mark>` tags while sanitizing surrounding HTML.\n
+- **XSS-Safe Snippets**: Search highlights wrap matched words in `<mark>` tags while sanitizing surrounding HTML.

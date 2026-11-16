@@ -16,4 +16,4 @@ let config = RagChunkConfig {
 
 let chunks = book.to_rag_chunks(&config);
 let top_chunks = RagChunker::rank_chunks_bm25(&chunks, "quantum entanglement", 5);
-```\n
+```

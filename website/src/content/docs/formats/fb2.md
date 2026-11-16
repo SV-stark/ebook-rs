@@ -8,4 +8,4 @@ FB2 documents store metadata, structured book chapters, and Base64-encoded binar
 ### Features
 - **Fast XML Processing**: Streamlined parsing via `roxmltree`.
 - **Image Extraction**: Base64 binary decoding directly into internal archive for zero-copy rendering.
-- **Poetry & Epigraphs**: Preserves rich styling including stanzas, verses, epigraphs, and footnotes.\n
+- **Poetry & Epigraphs**: Preserves rich styling including stanzas, verses, epigraphs, and footnotes.

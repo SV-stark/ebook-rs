@@ -11,4 +11,4 @@ let cache_bytes = book.export_zstd_cache()?;
 
 // Instantly restore in <1ms without re-parsing
 let restored_book = Book::from_zstd_cache(&cache_bytes)?;
-```\n
+```

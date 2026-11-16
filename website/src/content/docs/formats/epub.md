@@ -10,4 +10,4 @@ description: Deep dive into EPUB specification support in ebook-rs.
 - **Navigation**: Dual-engine parser supporting both EPUB 2 NCX (`toc.ncx`) and EPUB 3 Navigation Document (`nav.xhtml`).
 - **Fixed-Layout (FXL)**: Detects `rendition:layout="pre-paginated"`, orientation spreads (`rendition:spread`), and zero-allocation viewport metadata extraction.
 - **RTL & CJK Vertical Text**: Full support for right-to-left page progression direction and vertical-rl writing modes.
-- **Lazy Archive Loading**: Uncompresses files on demand, with automatic streaming mode for oversized EPUB files (>500MB).\n
+- **Lazy Archive Loading**: Uncompresses files on demand, with automatic streaming mode for oversized EPUB files (>500MB).

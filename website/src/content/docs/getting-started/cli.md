@@ -70,4 +70,4 @@ Computes IDPF Readium CFI reading progress locations across the entire book.
 
 ```bash
 ebook-rs locations book.epub
-```\n
+```

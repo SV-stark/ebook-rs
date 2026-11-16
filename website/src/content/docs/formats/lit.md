@@ -8,4 +8,4 @@ Microsoft Reader (.LIT) files use a proprietary compound file binary container a
 ### Capabilities
 - **Directory Structure**: Parses ITOL/ITLS headers, chunk tables, and manifest streams.
 - **LZX Decompression**: Multi-block sliding window decompression.
-- **OEBPS Conversion**: Emits compliant HTML sections with embedded images.\n
+- **OEBPS Conversion**: Emits compliant HTML sections with embedded images.

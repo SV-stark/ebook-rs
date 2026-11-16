@@ -16,4 +16,4 @@ description: Native MCP JSON-RPC stdio & HTTP server for AI assistants.
 ```bash
 # Stdio Mode (Default)
 ebook-rs mcp
-```\n
+```

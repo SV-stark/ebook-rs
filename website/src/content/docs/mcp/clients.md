@@ -42,4 +42,4 @@ Add to your settings or sidecar configuration:
 }
 ```
   </TabItem>
-</Tabs>\n
+</Tabs>

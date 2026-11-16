@@ -11,4 +11,4 @@ description: WordML and RTF control sequence decoding with asset extraction.
 ### Rich Text Format (`.rtf`)
 - State machine parser managing control words (`\b`, `\i`, `\par`, `\ul`).
 - Extracts hexadecimal binary image payloads (`\pict`).
-- Full Unicode escape sequences support (`\uN?` and code-page auto-detection).\n
+- Full Unicode escape sequences support (`\uN?` and code-page auto-detection).

@@ -4,7 +4,7 @@ description: Detailed comparison of ebook-rs against foliate-js, epub.js, and rb
 ---
 
 ### 📂 Format Support
-| Feature | 🚀 `ebook-rs` (v0.16.4) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.18.6) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **EPUB 2 & 3 Support** | ✅ Full OPF + NCX/NAV | ✅ Yes | ✅ Yes | ✅ Yes |
 | **EPUB 3 Fixed-Layout (FXL)** | ✅ 2-page spread renderer | ✅ Yes | ✅ Yes | ❌ No |
@@ -19,11 +19,11 @@ description: Detailed comparison of ebook-rs against foliate-js, epub.js, and rb
 | **RTF (Rich Text Format)** | ✅ Native Control Words | ❌ No | ❌ No | ❌ No |
 
 ### 🧭 Navigation & AI Features
-| Feature | 🚀 `ebook-rs` (v0.16.4) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
+| Feature | 🚀 `ebook-rs` (v0.18.6) | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
 | **Model Context Protocol (MCP)** | ✅ Built-in Stdio & HTTP Server | ❌ No | ❌ No | ❌ No |
 | **Okapi BM25 RAG Chunking** | ✅ `rank_chunks_bm25()` | ❌ No | ❌ No | ❌ No |
 | **SIMD Full-Text Search** | ✅ SIMD memchr scanning | ❌ No | ✅ Basic | ❌ No |
 | **IDPF CFI Engine** | ✅ Parse / format / compare / range | ✅ Yes | ✅ Yes | ✅ Yes |
 | **TTS Word Synchronizer** | ✅ Word token span offsets | ❌ No | ❌ No | ❌ No |
-| **Readium LCP DRM** | ✅ Full License Parser | ❌ No | ✅ Yes | ❌ No |\n
+| **Readium LCP DRM** | ✅ Full License Parser | ❌ No | ✅ Yes | ❌ No |

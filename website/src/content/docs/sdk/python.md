@@ -31,4 +31,4 @@ for hit in hits:
 
 # Export RAG chunks
 rag_data = book.to_rag_chunks_json(max_tokens=256)
-```\n
+```

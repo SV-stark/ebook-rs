@@ -9,7 +9,7 @@ Add `ebook-rs` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ebook-rs = "0.16.4"
+ebook-rs = "0.18.6"
 ```
 
 Or via `cargo add`:
@@ -63,4 +63,4 @@ pip install ebook-rs
 
 ```bash
 npm install @sv-stark/ebook-rs
-```\n
+```

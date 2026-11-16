@@ -56,4 +56,4 @@ impl SearchEngine {
     pub fn search(book: &Book, query: &str) -> Vec<SearchResult>;
     pub fn regex_search(book: &Book, pattern: &str) -> Result<Vec<SearchResult>, String>;
 }
-```\n
+```

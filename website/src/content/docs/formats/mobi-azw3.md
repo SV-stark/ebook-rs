@@ -8,4 +8,4 @@ description: Native PalmDOC LZ77 decompression and KF8 container parsing.
 ### Architecture
 - **PalmDOC LZ77 Decompressor**: High-speed byte streaming decompression without external C libraries.
 - **EXTH Metadata Parser**: Extracts ASIN, cover offset, author, publisher, and DRM status.
-- **KF8 Container & CSS**: Parses modern KF8 boundary records, extracting HTML5, CSS3, and embedded fonts.\n
+- **KF8 Container & CSS**: Parses modern KF8 boundary records, extracting HTML5, CSS3, and embedded fonts.

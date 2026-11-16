@@ -106,4 +106,4 @@ const chapterHtml = book.get_section_html(0);
 document.getElementById('viewer').innerHTML = chapterHtml;
 ```
   </TabItem>
-</Tabs>\n
+</Tabs>

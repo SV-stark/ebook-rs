@@ -5,7 +5,7 @@ description: Empirical speed and memory benchmarks comparing ebook-rs with Calib
 
 Empirically measured conversion benchmark converting sample eBook corpora to **EPUB 3** on AMD Ryzen 9 / PCIe 4.0 NVMe:
 
-| Input Format | Sample Book | 🚀 `ebook-rs` (v0.16.4) | 🐍 Calibre `ebook-convert` | Speedup | Image Assets Extracted | Chapter Sections | Output Parity |
+| Input Format | Sample Book | 🚀 `ebook-rs` (v0.18.6) | 🐍 Calibre `ebook-convert` | Speedup | Image Assets Extracted | Chapter Sections | Output Parity |
 |---|---|:---:|:---:|:---:|:---:|:---:|:---:|
 | **MOBI → EPUB** | *Alice in Wonderland (MOBI)* | **0.34s** ⚡ | 2.23s | **6.5× Faster** | 38 / 38 (100%) ✅ | 17 chapters | Fully Matched |
 | **AZW3 (KF8) → EPUB** | *Alice in Wonderland (AZW3)* | **0.22s** ⚡ | 2.03s | **9.4× Faster** | 38 / 38 (100%) ✅ | 14 chapters | Fully Matched |
@@ -18,4 +18,4 @@ Empirically measured conversion benchmark converting sample eBook corpora to **E
 ### Analysis
 - **DOCX Conversion**: `ebook-rs` is **19.4× faster** than Calibre due to zero-copy XML stream parsing.
 - **KFX Conversion**: Calibre requires third-party plugins while `ebook-rs` supports KFX out of the box.
-- **Memory Footprint**: `ebook-rs` maintains peak memory below **18MB** during conversion, compared to Calibre's Python runtime peak exceeding **120MB**.\n
+- **Memory Footprint**: `ebook-rs` maintains peak memory below **18MB** during conversion, compared to Calibre's Python runtime peak exceeding **120MB**.

@@ -15,4 +15,4 @@ let dom_selector = cfi.resolve_dom_path(html_content)?;
 ### Capabilities
 - Parsing, validation, formatting, and mathematical range ordering.
 - DOM path resolver converting CFI coordinates into browser DOM element offsets.
-- Full compliance with the Readium Unified Locator Model.\n
+- Full compliance with the Readium Unified Locator Model.
