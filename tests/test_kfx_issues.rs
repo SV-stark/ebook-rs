@@ -260,3 +260,216 @@ fn kfx_content_fragment_chunking_under_8192_limit() {
         );
     }
 }
+
+#[test]
+fn issue_32_kfx_preserves_document_and_inline_bidi_direction() {
+    let container_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>"#;
+
+    let opf_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="id">rtl-probe</dc:identifier>
+    <dc:title>RTL probe</dc:title>
+    <dc:language>ar</dc:language>
+    <meta property="dcterms:modified">2026-11-05T00:00:00Z</meta>
+  </metadata>
+  <manifest>
+    <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+  </manifest>
+  <spine page-progression-direction="rtl">
+    <itemref idref="chapter"/>
+  </spine>
+</package>"#;
+
+    let nav_xhtml = br#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<head><title>TOC</title></head>
+<body><nav epub:type="toc"><ol><li><a href="chapter.xhtml">Start</a></li></ol></nav></body>
+</html>"#;
+
+    let ch_xhtml = "<!DOCTYPE html><html xmlns=\"http://www.w3.org/1999/xhtml\" lang=\"ar\" xml:lang=\"ar\" dir=\"rtl\"><head><title>البداية</title></head><body><h1>البداية</h1><p>مرحبا بالعالم <span dir=\"ltr\" lang=\"en\">English words 123</span> نهاية الفقرة.</p></body></html>".as_bytes();
+
+    let epub_bytes = build_test_epub(&[
+        ("META-INF/container.xml", container_xml),
+        ("content.opf", opf_xml),
+        ("nav.xhtml", nav_xhtml),
+        ("chapter.xhtml", ch_xhtml),
+    ]);
+
+    let book = Book::from_bytes(&epub_bytes).unwrap();
+    let kfx_bytes = UniversalKfxExporter::export(&book).unwrap();
+    let c = KfxContainer::parse(&kfx_bytes).unwrap();
+
+    // Check $157 style entities contain $682 direction ($375 rtl and $376 ltr)
+    let styles: Vec<IonValue> = c
+        .index_entries
+        .iter()
+        .filter(|e| e.type_id == 157)
+        .map(|e| decode_enty(c.get_entry_payload(e).unwrap()))
+        .collect();
+    assert!(
+        styles
+            .iter()
+            .any(|s| s.get_field(682).and_then(|v| v.as_symbol()) == Some(375)),
+        "Expected RTL ($375) direction style in $157"
+    );
+    assert!(
+        styles
+            .iter()
+            .any(|s| s.get_field(682).and_then(|v| v.as_symbol()) == Some(376)),
+        "Expected LTR ($376) direction style in $157"
+    );
+
+    // Check round-trip via KfxBook::parse
+    let parsed = KfxBook::parse(&kfx_bytes).unwrap();
+    let sec = parsed.get_section(0).unwrap();
+    assert!(sec.raw_html.contains("dir=\"rtl\""));
+    assert!(sec.raw_html.contains("<span dir=\"ltr\">English words 123</span>"));
+}
+
+#[test]
+fn issue_33_kfx_preserves_embedded_publisher_fonts() {
+    let container_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="EPUB/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>"#;
+
+    let opf_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="id">font-probe</dc:identifier>
+    <dc:title>Font Probe</dc:title>
+    <dc:language>en</dc:language>
+  </metadata>
+  <manifest>
+    <item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="css" href="style.css" media-type="text/css"/>
+    <item id="f_reg" href="OldStandard-Regular.otf" media-type="font/otf"/>
+    <item id="f_bold" href="OldStandard-Bold.otf" media-type="font/otf"/>
+  </manifest>
+  <spine>
+    <itemref idref="ch1"/>
+  </spine>
+</package>"#;
+
+    let css = br#"
+@font-face {
+  font-family: "Old Standard";
+  font-style: normal;
+  font-weight: normal;
+  src: url("OldStandard-Regular.otf");
+}
+@font-face {
+  font-family: "Old Standard";
+  font-style: normal;
+  font-weight: bold;
+  src: url("OldStandard-Bold.otf");
+}
+"#;
+    let ch1 = br#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Ch1</title></head><body><p>Hello Font</p></body></html>"#;
+
+    // Minimal valid OTTO header bytes for testing
+    let fake_otf_reg = b"OTTO\x00\x0c\x00\x80\x00\x03\x00\x40CFF \x00\x00\x00\x00regular";
+    let fake_otf_bold = b"OTTO\x00\x0c\x00\x80\x00\x03\x00\x40CFF \x00\x00\x00\x00bold";
+
+    let epub_bytes = build_test_epub(&[
+        ("META-INF/container.xml", container_xml),
+        ("EPUB/content.opf", opf_xml),
+        ("EPUB/style.css", css),
+        ("EPUB/ch1.xhtml", ch1),
+        ("EPUB/OldStandard-Regular.otf", fake_otf_reg),
+        ("EPUB/OldStandard-Bold.otf", fake_otf_bold),
+    ]);
+
+    let book = Book::from_bytes(&epub_bytes).unwrap();
+    let kfx_bytes = UniversalKfxExporter::export(&book).unwrap();
+    let c = KfxContainer::parse(&kfx_bytes).unwrap();
+
+    let font_meta_count = c.index_entries.iter().filter(|e| e.type_id == 262).count();
+    let raw_font_count = c.index_entries.iter().filter(|e| e.type_id == 418).count();
+    assert_eq!(font_meta_count, 2, "Expected 2 $262 font entities");
+    assert_eq!(raw_font_count, 2, "Expected 2 $418 bcRawFont entities");
+
+    let parsed = KfxBook::parse(&kfx_bytes).unwrap();
+    let font_files: Vec<_> = parsed
+        .archive()
+        .list_files()
+        .into_iter()
+        .filter(|f| f.ends_with(".otf"))
+        .collect();
+    assert_eq!(font_files.len(), 2, "Round-trip should preserve both OTF fonts");
+}
+
+#[test]
+fn issue_34_kfx_preserves_declared_cover_and_non_spine_images() {
+    let container_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="EPUB/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>"#;
+
+    let opf_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="id">cover-probe</dc:identifier>
+    <dc:title>Cover Probe</dc:title>
+    <dc:language>en</dc:language>
+  </metadata>
+  <manifest>
+    <item id="cover-img" href="cover.png" media-type="image/png" properties="cover-image"/>
+    <item id="extra-img" href="extra.png" media-type="image/png"/>
+    <item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine>
+    <itemref idref="ch1"/>
+  </spine>
+</package>"#;
+
+    let ch1 = br#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Ch1</title></head><body><p>Text only spine</p></body></html>"#;
+
+    let epub_bytes = build_test_epub(&[
+        ("META-INF/container.xml", container_xml),
+        ("EPUB/content.opf", opf_xml),
+        ("EPUB/cover.png", TINY_PNG),
+        ("EPUB/extra.png", TINY_PNG),
+        ("EPUB/ch1.xhtml", ch1),
+    ]);
+
+    let book = Book::from_bytes(&epub_bytes).unwrap();
+    let kfx_bytes = UniversalKfxExporter::export(&book).unwrap();
+
+    let title_meta = extract_kfx_title_meta(&kfx_bytes);
+    assert!(
+        title_meta.iter().any(|(k, v)| k == "cover_image" && v == "e0"),
+        "Expected cover_image metadata in $490, got {title_meta:?}"
+    );
+
+    let c = KfxContainer::parse(&kfx_bytes).unwrap();
+    assert_eq!(
+        c.index_entries.iter().filter(|e| e.type_id == 164).count(),
+        2,
+        "Expected both cover and non-spine manifest images in $164"
+    );
+    assert_eq!(
+        c.index_entries.iter().filter(|e| e.type_id == 417).count(),
+        2,
+        "Expected both cover and non-spine manifest images in $417"
+    );
+
+    let parsed = KfxBook::parse(&kfx_bytes).unwrap();
+    assert!(
+        parsed.cover_image().is_some(),
+        "Round-tripped KfxBook should expose cover_image()"
+    );
+}

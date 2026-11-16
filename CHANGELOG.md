@@ -5,6 +5,17 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **KFX Bidi & Direction Preservation (`src/kfx/writer.rs`, `src/kfx/reader.rs`)**:
+  - Preserved document-level (`<html dir>`, `<body dir>`, and RTL spine fallback), block-level (`dir`), and inline (`<span dir>`, `<bdi>`, `<bdo>`) bidi direction via `$157` style properties (`$682` `direction` and `$674` `unicode-bidi`) and `$142` `style_events`, and restored `dir` attributes in `KfxBook` (#32).
+- **KFX Embedded Publisher Fonts (`src/kfx/writer.rs`, `src/kfx/reader.rs`)**:
+  - Serialized manifest font resources (`.otf`, `.ttf`, `.woff`, `.woff2`) into `$262` (`font`) and `$418` (`bcRawFont`) entities using parsed `@font-face` metadata (with filename fallback) and extracted embedded fonts in `KfxBook` (#33).
+- **KFX Declared Cover & Non-Spine Images (`src/kfx/writer.rs`, `src/kfx/reader.rs`)**:
+  - Collected declared cover images (`cover-image`, `<meta name="cover">`, `<guide>` cover) and non-spine manifest images into `$164`/`$417`, emitted `cover_image` in `$490` `kindle_title_metadata`, and restored cover metadata and manifest entries in `KfxBook::parse` (#34).
+
 ## [0.18.5] - 2026-11-15
 
 ### Fixed & Improved

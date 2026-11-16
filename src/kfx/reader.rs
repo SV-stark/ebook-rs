@@ -45,6 +45,10 @@ impl KfxBook {
         let mut anchors_map: AHashMap<u32, IonValue> = AHashMap::new();
         let mut ext_res_map: AHashMap<u32, IonValue> = AHashMap::new();
         let mut raw_media_map: AHashMap<String, Vec<u8>> = AHashMap::new();
+        let mut fonts_map: AHashMap<u32, IonValue> = AHashMap::new();
+        let mut raw_fonts_map: AHashMap<String, Vec<u8>> = AHashMap::new();
+        let mut styles_map: AHashMap<u32, IonValue> = AHashMap::new();
+        let mut cover_res_name: Option<String> = None;
         let mut nav_containers_map: AHashMap<u32, IonValue> = AHashMap::new();
         let mut nav_toc_val: Option<IonValue> = None;
         let mut reading_order_secs: Vec<u32> = Vec::new();
@@ -64,10 +68,18 @@ impl KfxBook {
                     }
                     continue;
                 }
+                if entry.type_id == 418 {
+                    if let Some(raw) = strip_enty_header(payload_slice)
+                        && let Some(sym_name) = resolve_local_symbol(&container, entry.entity_id)
+                    {
+                        raw_fonts_map.insert(sym_name, raw.to_vec());
+                    }
+                    continue;
+                }
                 if let Some(val) = decode_enty_ion_value(payload_slice) {
                     match entry.type_id {
                         crate::kfx::symbols::SYM_BOOK_METADATA => {
-                            extract_ion_book_metadata(&val, &mut metadata);
+                            extract_ion_book_metadata(&val, &mut metadata, &mut cover_res_name);
                         }
                         crate::kfx::symbols::SYM_METADATA_RECORD => {
                             extract_ion_legacy_metadata(&val, &mut metadata);
@@ -118,6 +130,12 @@ impl KfxBook {
                         }
                         164 => {
                             ext_res_map.insert(entry.entity_id, val);
+                        }
+                        157 => {
+                            styles_map.insert(entry.entity_id, val);
+                        }
+                        262 => {
+                            fonts_map.insert(entry.entity_id, val);
                         }
                         _ => {}
                     }
@@ -185,23 +203,67 @@ impl KfxBook {
         {
             let mut img_rel_paths: AHashMap<u32, String> = AHashMap::new();
             let mut img_counter = 0usize;
-            for (ext_sym, ext_val) in &ext_res_map {
+            let mut sorted_ext: Vec<(u32, &IonValue)> =
+                ext_res_map.iter().map(|(&k, v)| (k, v)).collect();
+            sorted_ext.sort_by_key(|(k, _)| *k);
+            for (ext_sym, ext_val) in sorted_ext {
                 let loc = ext_val.get_field(165).and_then(|v| v.as_str());
                 let mime = ext_val
                     .get_field(162)
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
                 let fmt_sym = ext_val.get_field(161).and_then(|v| v.as_symbol());
-                let raw_data = loc.and_then(|l| raw_media_map.get(l)).or_else(|| {
-                    resolve_local_symbol(&container, *ext_sym).and_then(|s| raw_media_map.get(&s))
-                });
+                let sym_name = resolve_local_symbol(&container, ext_sym);
+                let raw_data = loc
+                    .and_then(|l| raw_media_map.get(l))
+                    .or_else(|| sym_name.as_deref().and_then(|s| raw_media_map.get(s)));
                 if let Some(data) = raw_data {
                     let ext = image_ext_from_meta(mime, fmt_sym, data);
                     let rel = format!("images/img_{img_counter:04}.{ext}");
+                    let full_path = format!("OEBPS/{rel}");
+                    if cover_res_name.as_deref() == sym_name.as_deref() && sym_name.is_some() {
+                        metadata.cover_id = Some(format!("kfx_img_{img_counter:04}"));
+                        metadata.cover_href = Some(full_path.clone());
+                    }
                     img_counter += 1;
-                    resources.insert(format!("OEBPS/{rel}"), data.clone());
-                    img_rel_paths.insert(*ext_sym, rel);
+                    resources.insert(full_path, data.clone());
+                    img_rel_paths.insert(ext_sym, rel);
                 }
+            }
+
+            // Extract embedded fonts ($262 + $418)
+            let mut font_counter = 0usize;
+            let mut used_font_locs: AHashSet<String> = AHashSet::new();
+            let mut sorted_fonts: Vec<(u32, &IonValue)> =
+                fonts_map.iter().map(|(&k, v)| (k, v)).collect();
+            sorted_fonts.sort_by_key(|(k, _)| *k);
+            for (_, font_val) in sorted_fonts {
+                let Some(loc) = font_val.get_field(165).and_then(|v| v.as_str()) else {
+                    continue;
+                };
+                if !used_font_locs.insert(loc.to_string()) {
+                    continue;
+                }
+                if let Some(data) = raw_fonts_map.get(loc) {
+                    let fname = loc.rsplit('/').next().unwrap_or(loc);
+                    let safe_fname = if fname.contains('.') {
+                        fname.to_string()
+                    } else {
+                        format!("font_{font_counter:04}.otf")
+                    };
+                    font_counter += 1;
+                    resources.insert(format!("OEBPS/fonts/{safe_fname}"), data.clone());
+                }
+            }
+            let mut sorted_raw_fonts: Vec<(&String, &Vec<u8>)> = raw_fonts_map.iter().collect();
+            sorted_raw_fonts.sort_by_key(|(k, _)| *k);
+            for (loc, data) in sorted_raw_fonts {
+                if used_font_locs.contains(loc.as_str()) {
+                    continue;
+                }
+                let fname = loc.rsplit('/').next().unwrap_or(loc.as_str());
+                font_counter += 1;
+                resources.insert(format!("OEBPS/fonts/{font_counter:04}_{fname}"), data.clone());
             }
 
             // Pre-collect EID -> section_idx across all sections so cross-chapter links resolve cleanly
@@ -240,6 +302,7 @@ impl KfxBook {
                 storylines_map: &storylines_map,
                 anchors_map: &anchors_map,
                 img_rel_paths: &img_rel_paths,
+                styles_map: &styles_map,
                 eid_to_sec_idx: &eid_to_sec_idx,
                 target_eids_needed: &target_eids_needed,
             };
@@ -256,10 +319,29 @@ impl KfxBook {
                     }
                 }
 
+                let sec_dir = reading_order_secs
+                    .get(idx)
+                    .and_then(|s| sections_map.get(s))
+                    .and_then(|sv| sv.get_field(141))
+                    .and_then(|v| v.as_list())
+                    .and_then(|l| l.first())
+                    .and_then(|pt| style_dir_info(pt.get_field(157).and_then(|v| v.as_symbol()), &styles_map))
+                    .map(|(d, _)| d)
+                    .or_else(|| {
+                        if metadata.direction == PageProgressionDirection::Rtl {
+                            Some("rtl")
+                        } else {
+                            None
+                        }
+                    });
+
                 let sec_id = format!("kfx_sec_{idx}");
                 let href = format!("sec_{idx}.xhtml");
                 let full_path = format!("OEBPS/sec_{idx}.xhtml");
-                let raw_html = format!("<div class=\"kfx-section\">\n{body_html}</div>");
+                let dir_attr = sec_dir
+                    .map(|d| format!(" dir=\"{d}\""))
+                    .unwrap_or_default();
+                let raw_html = format!("<div class=\"kfx-section\"{dir_attr}>\n{body_html}</div>");
                 let plain_text = crate::section::extract_plain_text(&raw_html);
                 let plain_text_lower = plain_text.to_lowercase();
                 let char_count = plain_text.chars().count();
@@ -474,12 +556,70 @@ impl KfxBook {
             carve_kfx_images(bytes, &mut archive);
         }
 
+        let mut manifest = AHashMap::new();
+        let mut res_paths: Vec<String> = kfx.resources.keys().cloned().collect();
+        res_paths.sort();
+        for (idx, full_path) in res_paths.into_iter().enumerate() {
+            let href = full_path
+                .strip_prefix("OEBPS/")
+                .unwrap_or(&full_path)
+                .to_string();
+            let lower = full_path.to_ascii_lowercase();
+            let media_type = if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+                "image/jpeg"
+            } else if lower.ends_with(".png") {
+                "image/png"
+            } else if lower.ends_with(".gif") {
+                "image/gif"
+            } else if lower.ends_with(".svg") {
+                "image/svg+xml"
+            } else if lower.ends_with(".webp") {
+                "image/webp"
+            } else if lower.ends_with(".otf") {
+                "font/otf"
+            } else if lower.ends_with(".ttf") {
+                "font/ttf"
+            } else if lower.ends_with(".woff2") {
+                "font/woff2"
+            } else if lower.ends_with(".woff") {
+                "font/woff"
+            } else {
+                "application/octet-stream"
+            };
+            let is_cover = kfx.metadata.cover_href.as_deref() == Some(full_path.as_str());
+            let id = if is_cover {
+                kfx.metadata
+                    .cover_id
+                    .clone()
+                    .unwrap_or_else(|| format!("kfx_res_{idx}"))
+            } else {
+                format!("kfx_res_{idx}")
+            };
+            let properties = if is_cover {
+                vec!["cover-image".to_string()]
+            } else {
+                Vec::new()
+            };
+            manifest.insert(
+                id.clone(),
+                crate::ManifestItem {
+                    id,
+                    href,
+                    full_path,
+                    media_type: media_type.to_string(),
+                    properties,
+                    fallback: None,
+                    media_overlay: None,
+                },
+            );
+        }
+
         let opf = OpfPackage {
             version: "3.0".to_string(),
             opf_path: "OEBPS/content.opf".to_string(),
             opf_dir: "OEBPS".to_string(),
             metadata: kfx.metadata,
-            manifest: AHashMap::new(),
+            manifest,
             spine: kfx.spine,
             guide: Vec::new(),
             toc_item_id: None,
@@ -520,8 +660,30 @@ struct StructuredRenderCtx<'a> {
     storylines_map: &'a AHashMap<u32, IonValue>,
     anchors_map: &'a AHashMap<u32, IonValue>,
     img_rel_paths: &'a AHashMap<u32, String>,
+    styles_map: &'a AHashMap<u32, IonValue>,
     eid_to_sec_idx: &'a AHashMap<i64, usize>,
     target_eids_needed: &'a AHashSet<i64>,
+}
+
+fn style_dir_info(
+    style_sym: Option<u64>,
+    styles_map: &AHashMap<u32, IonValue>,
+) -> Option<(&'static str, &'static str)> {
+    let sym_u32 = u32::try_from(style_sym?).ok()?;
+    let style_val = styles_map.get(&sym_u32)?;
+    let dir_sym = style_val.get_field(682).and_then(|v| v.as_symbol())?;
+    let dir = match dir_sym {
+        375 => "rtl",
+        376 => "ltr",
+        _ => return None,
+    };
+    let bidi_sym = style_val.get_field(674).and_then(|v| v.as_symbol());
+    let tag = match bidi_sym {
+        Some(676) => "bdi",
+        Some(677 | 678) => "bdo",
+        _ => "span",
+    };
+    Some((dir, tag))
 }
 
 fn resolve_local_symbol(container: &KfxContainer, sym_id: u32) -> Option<String> {
@@ -672,7 +834,13 @@ fn render_text_with_style_events(
     };
     let chars: Vec<char> = text.chars().collect();
     let total = chars.len();
-    let mut spans: Vec<(usize, usize, String)> = Vec::new();
+    struct InlineSpan {
+        start: usize,
+        end: usize,
+        href: Option<String>,
+        dir: Option<(&'static str, &'static str)>,
+    }
+    let mut spans: Vec<InlineSpan> = Vec::new();
     for ev in events {
         let Some(off) = ev.get_field(143).and_then(|v| v.as_i64()) else {
             continue;
@@ -680,41 +848,65 @@ fn render_text_with_style_events(
         let Some(len) = ev.get_field(144).and_then(|v| v.as_i64()) else {
             continue;
         };
-        let Some(anc_sym) = ev.get_field(179).and_then(|v| v.as_symbol()) else {
+        if off < 0 || len <= 0 {
             continue;
-        };
-        let Some(href) = resolve_anchor_href(anc_sym, ctx) else {
+        }
+        let start = (off as usize).min(total);
+        let end = (start + len as usize).min(total);
+        if end <= start {
             continue;
-        };
-        if off >= 0 && len > 0 {
-            let start = (off as usize).min(total);
-            let end = (start + len as usize).min(total);
-            if end > start {
-                spans.push((start, end, href));
-            }
+        }
+        let href = ev
+            .get_field(179)
+            .and_then(|v| v.as_symbol())
+            .and_then(|anc_sym| resolve_anchor_href(anc_sym, ctx));
+        let dir = style_dir_info(ev.get_field(157).and_then(|v| v.as_symbol()), ctx.styles_map);
+        if href.is_some() || dir.is_some() {
+            spans.push(InlineSpan {
+                start,
+                end,
+                href,
+                dir,
+            });
         }
     }
     if spans.is_empty() {
         out.push_str(&xml_escape(text));
         return;
     }
-    spans.sort_by_key(|(s, e, _)| (*s, *e));
+    spans.sort_by_key(|s| (s.start, s.end));
     let mut cursor = 0usize;
-    for (start, end, href) in spans {
-        if start < cursor {
+    for sp in spans {
+        if sp.start < cursor {
             continue;
         }
-        if start > cursor {
-            let plain: String = chars[cursor..start].iter().collect();
+        if sp.start > cursor {
+            let plain: String = chars[cursor..sp.start].iter().collect();
             out.push_str(&xml_escape(&plain));
         }
-        let link_txt: String = chars[start..end].iter().collect();
-        out.push_str("<a href=\"");
-        out.push_str(&xml_escape(&href));
-        out.push_str("\">");
-        out.push_str(&xml_escape(&link_txt));
-        out.push_str("</a>");
-        cursor = end;
+        let seg: String = chars[sp.start..sp.end].iter().collect();
+        if let Some((d, tag)) = sp.dir {
+            out.push('<');
+            out.push_str(tag);
+            out.push_str(" dir=\"");
+            out.push_str(d);
+            out.push_str("\">");
+        }
+        if let Some(href) = &sp.href {
+            out.push_str("<a href=\"");
+            out.push_str(&xml_escape(href));
+            out.push_str("\">");
+        }
+        out.push_str(&xml_escape(&seg));
+        if sp.href.is_some() {
+            out.push_str("</a>");
+        }
+        if let Some((_, tag)) = sp.dir {
+            out.push_str("</");
+            out.push_str(tag);
+            out.push('>');
+        }
+        cursor = sp.end;
     }
     if cursor < total {
         let tail: String = chars[cursor..total].iter().collect();
@@ -842,6 +1034,11 @@ fn render_kfx_block(blk: &IonValue, ctx: &StructuredRenderCtx<'_>, out: &mut Str
             if !text.is_empty() {
                 out.push_str("<p");
                 push_id_attr(eid, ctx, out);
+                if let Some((d, _)) =
+                    style_dir_info(blk.get_field(157).and_then(|v| v.as_symbol()), ctx.styles_map)
+                {
+                    out.push_str(&format!(" dir=\"{d}\""));
+                }
                 out.push('>');
                 render_text_with_style_events(text, blk, ctx, out);
                 out.push_str("</p>\n");
@@ -1177,7 +1374,11 @@ fn decode_enty_ion_value(payload: &[u8]) -> Option<IonValue> {
     None
 }
 
-fn extract_ion_book_metadata(val: &IonValue, metadata: &mut Metadata) {
+fn extract_ion_book_metadata(
+    val: &IonValue,
+    metadata: &mut Metadata,
+    cover_res_name: &mut Option<String>,
+) {
     // 491 = categorised_metadata; 258 = metadata (or 492 in simplified fixtures);
     // 492/493 = key, 493/494 = value
     let Some(cats) = val.get_field(491).and_then(|v| v.as_list()) else {
@@ -1213,6 +1414,9 @@ fn extract_ion_book_metadata(val: &IonValue, metadata: &mut Metadata) {
                 }
                 "ASIN" | "book_id" | "content_id" if metadata.identifier.is_none() => {
                     metadata.identifier = Some(trimmed.to_string());
+                }
+                "cover_image" if cover_res_name.is_none() => {
+                    *cover_res_name = Some(trimmed.to_string());
                 }
                 _ => {}
             }

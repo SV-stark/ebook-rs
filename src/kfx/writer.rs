@@ -19,6 +19,27 @@ const ENTY_PREAMBLE: [u8; 21] =
 /// Universal Amazon KFX Container Exporter capable of serializing any `Book` into valid KFX container bytes.
 pub struct UniversalKfxExporter;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum BidiDir {
+    Ltr,
+    Rtl,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum BidiMode {
+    Normal,
+    Isolate,
+    Override,
+}
+
+#[derive(Clone, Debug)]
+struct DirSpan {
+    start: usize,
+    len: usize,
+    dir: BidiDir,
+    mode: BidiMode,
+}
+
 #[derive(Clone, Debug)]
 struct LinkSpan {
     start: usize,
@@ -36,6 +57,8 @@ struct InlineId {
 struct TextBlockData {
     text: String,
     links: Vec<LinkSpan>,
+    dir_spans: Vec<DirSpan>,
+    dir: Option<BidiDir>,
     inline_ids: Vec<InlineId>,
     ids: Vec<String>,
 }
@@ -44,6 +67,8 @@ struct TextBlockData {
 struct CellData {
     text: String,
     links: Vec<LinkSpan>,
+    dir_spans: Vec<DirSpan>,
+    dir: Option<BidiDir>,
     inline_ids: Vec<InlineId>,
     ids: Vec<String>,
     colspan: i64,
@@ -78,6 +103,7 @@ enum ParsedBlock {
 struct ParsedSection {
     full_path: String,
     href: String,
+    dir: Option<BidiDir>,
     blocks: Vec<ParsedBlock>,
 }
 
@@ -88,6 +114,15 @@ struct EmbeddedImage {
     format_sym: Option<u32>,
     width: u32,
     height: u32,
+}
+
+#[derive(Clone, Debug)]
+struct EmbeddedFont {
+    data: Vec<u8>,
+    family: String,
+    style_sym: u32,
+    weight_sym: u32,
+    location: String,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -129,6 +164,7 @@ impl SymbolAlloc {
 struct InlineAcc {
     text: String,
     links: Vec<LinkSpan>,
+    dir_spans: Vec<DirSpan>,
     inline_ids: Vec<InlineId>,
     char_len: usize,
 }
@@ -138,6 +174,7 @@ impl InlineAcc {
         Self {
             text: String::new(),
             links: Vec::new(),
+            dir_spans: Vec::new(),
             inline_ids: Vec::new(),
             char_len: 0,
         }
@@ -183,11 +220,12 @@ impl InlineAcc {
         }
     }
 
-    fn take(&mut self, pending_ids: &mut Vec<String>) -> Option<TextBlockData> {
+    fn take(&mut self, pending_ids: &mut Vec<String>, block_dir: Option<BidiDir>) -> Option<TextBlockData> {
         let trimmed = self.text.trim_end().to_string();
         if trimmed.is_empty() {
             self.text.clear();
             self.links.clear();
+            self.dir_spans.clear();
             self.inline_ids.clear();
             self.char_len = 0;
             return None;
@@ -204,6 +242,17 @@ impl InlineAcc {
                 }
             }
         }
+        let mut dir_spans = Vec::new();
+        for mut span in std::mem::take(&mut self.dir_spans) {
+            if span.start < max_chars {
+                if span.start + span.len > max_chars {
+                    span.len = max_chars - span.start;
+                }
+                if span.len > 0 {
+                    dir_spans.push(span);
+                }
+            }
+        }
         let mut inline_ids = std::mem::take(&mut self.inline_ids);
         for iid in &mut inline_ids {
             if iid.offset >= max_chars {
@@ -215,6 +264,8 @@ impl InlineAcc {
         Some(TextBlockData {
             text: trimmed,
             links,
+            dir_spans,
+            dir: block_dir,
             inline_ids,
             ids: std::mem::take(pending_ids),
         })
@@ -321,6 +372,7 @@ impl UniversalKfxExporter {
         let mut img_collector = ImageCollector::new(book);
         let mut parsed_sections: Vec<ParsedSection> = Vec::new();
         let mut raw_sec_indices: Vec<Option<usize>> = Vec::with_capacity(book.spine().len());
+        let default_rtl = meta.direction == PageProgressionDirection::Rtl;
 
         for idx in 0..book.spine().len() {
             let Ok(sec) = book.get_section(idx) else {
@@ -333,15 +385,18 @@ impl UniversalKfxExporter {
                 .map(|(dir, _)| dir)
                 .unwrap_or("");
             let mut blocks = Vec::new();
+            let mut doc_dir = None;
 
             if !sec.raw_html.trim().is_empty() {
                 let dom = EbookDomTree::parse(&sec.raw_html);
+                doc_dir = extract_section_dir(&dom.root_nodes);
                 extract_blocks_from_nodes(
                     &dom.root_nodes,
                     sec_dir,
                     &mut img_collector,
                     &mut blocks,
                     &mut Vec::new(),
+                    None,
                     None,
                     false,
                 );
@@ -357,6 +412,8 @@ impl UniversalKfxExporter {
                     blocks.push(ParsedBlock::Text(TextBlockData {
                         text: para.to_string(),
                         links: Vec::new(),
+                        dir_spans: Vec::new(),
+                        dir: None,
                         inline_ids: Vec::new(),
                         ids: Vec::new(),
                     }));
@@ -371,6 +428,7 @@ impl UniversalKfxExporter {
                 parsed_sections.push(ParsedSection {
                     full_path: normalize_href_path(&sec.full_path),
                     href: normalize_href_path(&sec.href),
+                    dir: doc_dir.or(if default_rtl { Some(BidiDir::Rtl) } else { None }),
                     blocks,
                 });
             }
@@ -380,16 +438,48 @@ impl UniversalKfxExporter {
             parsed_sections.push(ParsedSection {
                 full_path: "sec_0.xhtml".to_string(),
                 href: "sec_0.xhtml".to_string(),
+                dir: if default_rtl { Some(BidiDir::Rtl) } else { None },
                 blocks: vec![ParsedBlock::Text(TextBlockData {
                     text: title.to_string(),
                     links: Vec::new(),
+                    dir_spans: Vec::new(),
+                    dir: None,
                     inline_ids: Vec::new(),
                     ids: Vec::new(),
                 })],
             });
         }
 
+        // Collect declared cover image (even if not referenced in spine XHTML)
+        let cover_manifest_path = meta.cover_href.clone().or_else(|| {
+            meta.cover_id
+                .as_deref()
+                .and_then(|id| book.opf().manifest.get(id))
+                .map(|item| item.full_path.clone())
+        });
+        let cover_res_idx = cover_manifest_path
+            .as_deref()
+            .and_then(|p| img_collector.collect("", p))
+            .or_else(|| {
+                book.cover_image()
+                    .and_then(|(data, mime)| img_collector.insert_image("cover_image".to_string(), data, Some(mime)))
+            });
+
+        // Collect any remaining non-spine manifest images deterministically
+        let mut manifest_img_paths: Vec<String> = book
+            .opf()
+            .manifest
+            .values()
+            .filter(|item| is_image_manifest_item(&item.media_type, &item.full_path))
+            .map(|item| item.full_path.clone())
+            .collect();
+        manifest_img_paths.sort();
+        for img_path in manifest_img_paths {
+            let _ = img_collector.collect("", &img_path);
+        }
+
         let images = img_collector.images;
+        let fonts = collect_embedded_fonts(book);
 
         // Assign EIDs and build anchor resolution maps
         let mut next_eid: i64 = 1000;
@@ -572,7 +662,10 @@ impl UniversalKfxExporter {
 
         // Allocate symbols strictly for referenced entities
         let mut sym_alloc = SymbolAlloc::new();
-        let style_sym = sym_alloc.alloc("s0".to_string());
+        let mut style_sym_opt: Option<u32> = None;
+        let mut get_default_style = |sym_alloc: &mut SymbolAlloc| -> u32 {
+            *style_sym_opt.get_or_insert_with(|| sym_alloc.alloc("s0".to_string()))
+        };
 
         let mut sec_syms: Vec<(u32, u32)> = Vec::with_capacity(parsed_sections.len());
         for i in 0..parsed_sections.len() {
@@ -588,6 +681,35 @@ impl UniversalKfxExporter {
             let rsrc_sym = sym_alloc.alloc(rsrc_name.clone());
             img_syms.push((e_sym, rsrc_sym, rsrc_name));
         }
+
+        let mut font_syms: Vec<(u32, u32)> = Vec::with_capacity(fonts.len());
+        for (i, font) in fonts.iter().enumerate() {
+            let f_sym = sym_alloc.alloc(format!("f{i}"));
+            let rsrc_sym = sym_alloc.alloc(font.location.clone());
+            font_syms.push((f_sym, rsrc_sym));
+        }
+
+        let mut dir_style_map: AHashMap<(BidiDir, BidiMode), u32> = AHashMap::new();
+        let mut dir_style_list: Vec<(BidiDir, BidiMode, u32)> = Vec::new();
+        let mut get_or_alloc_dir_style =
+            |dir: BidiDir, mode: BidiMode, sym_alloc: &mut SymbolAlloc| -> u32 {
+                if let Some(&sym) = dir_style_map.get(&(dir, mode)) {
+                    return sym;
+                }
+                let d_str = match dir {
+                    BidiDir::Rtl => "rtl",
+                    BidiDir::Ltr => "ltr",
+                };
+                let m_str = match mode {
+                    BidiMode::Normal => "",
+                    BidiMode::Isolate => "_iso",
+                    BidiMode::Override => "_ovr",
+                };
+                let sym = sym_alloc.alloc(format!("s_{d_str}{m_str}"));
+                dir_style_map.insert((dir, mode), sym);
+                dir_style_list.push((dir, mode, sym));
+                sym
+            };
 
         // Link & Anchor resolver
         let mut anchor_entities: Vec<(u32, IonValue)> = Vec::new();
@@ -819,15 +941,30 @@ impl UniversalKfxExporter {
                         running_pid += tb.text.chars().count().max(1) as i64;
 
                         let (c_sym, c_idx) = push_content_string(tb.text.clone(), &mut sym_alloc);
-                        let style_events = build_style_events(
+                        let mut style_events = build_style_events(
                             p_idx,
                             &tb.links,
                             &mut sym_alloc,
                             &mut get_or_create_anchor,
                         );
+                        for ds in &tb.dir_spans {
+                            if ds.len > 0 {
+                                let ds_sym =
+                                    get_or_alloc_dir_style(ds.dir, ds.mode, &mut sym_alloc);
+                                style_events.push(IonValue::Struct(vec![
+                                    (143, IonValue::Int(ds.start as i64)),
+                                    (144, IonValue::Int(ds.len as i64)),
+                                    (157, IonValue::Symbol(u64::from(ds_sym))),
+                                ]));
+                            }
+                        }
+                        let blk_style_sym = match tb.dir {
+                            Some(d) => get_or_alloc_dir_style(d, BidiMode::Normal, &mut sym_alloc),
+                            None => get_default_style(&mut sym_alloc),
+                        };
                         let mut fields = vec![
                             (155, IonValue::Int(blk_eid)),
-                            (157, IonValue::Symbol(u64::from(style_sym))),
+                            (157, IonValue::Symbol(u64::from(blk_style_sym))),
                             (159, IonValue::Symbol(269)),
                             (
                                 145,
@@ -919,9 +1056,15 @@ impl UniversalKfxExporter {
                                 ]));
                                 running_pid += cell.text.chars().count().max(1) as i64;
 
+                                let cell_style_sym = match cell.dir {
+                                    Some(d) => {
+                                        get_or_alloc_dir_style(d, BidiMode::Normal, &mut sym_alloc)
+                                    }
+                                    None => get_default_style(&mut sym_alloc),
+                                };
                                 let mut c_fields = vec![
                                     (155, IonValue::Int(cell_eid)),
-                                    (157, IonValue::Symbol(u64::from(style_sym))),
+                                    (157, IonValue::Symbol(u64::from(cell_style_sym))),
                                     (159, IonValue::Symbol(269)),
                                 ];
                                 if cell.colspan > 1 {
@@ -940,12 +1083,26 @@ impl UniversalKfxExporter {
                                             (403, IonValue::Int(s_idx)),
                                         ]),
                                     ));
-                                    let style_events = build_style_events(
+                                    let mut style_events = build_style_events(
                                         p_idx,
                                         &cell.links,
                                         &mut sym_alloc,
                                         &mut get_or_create_anchor,
                                     );
+                                    for ds in &cell.dir_spans {
+                                        if ds.len > 0 {
+                                            let ds_sym = get_or_alloc_dir_style(
+                                                ds.dir,
+                                                ds.mode,
+                                                &mut sym_alloc,
+                                            );
+                                            style_events.push(IonValue::Struct(vec![
+                                                (143, IonValue::Int(ds.start as i64)),
+                                                (144, IonValue::Int(ds.len as i64)),
+                                                (157, IonValue::Symbol(u64::from(ds_sym))),
+                                            ]));
+                                        }
+                                    }
                                     if !style_events.is_empty() {
                                         c_fields.push((142, IonValue::List(style_events)));
                                     }
@@ -973,18 +1130,20 @@ impl UniversalKfxExporter {
                 (174, IonValue::Symbol(u64::from(sec_s))),
             ]));
 
+            let mut page_tpl_fields = vec![
+                (155, IonValue::Int(sec_page_eid)),
+                (176, IonValue::Symbol(u64::from(story_s))),
+                (159, IonValue::Symbol(269)),
+            ];
+            if let Some(d) = psec.dir {
+                let sec_style_sym = get_or_alloc_dir_style(d, BidiMode::Normal, &mut sym_alloc);
+                page_tpl_fields.push((157, IonValue::Symbol(u64::from(sec_style_sym))));
+            }
             section_entities.push((
                 sec_s,
                 IonValue::Struct(vec![
                     (174, IonValue::Symbol(u64::from(sec_s))),
-                    (
-                        141,
-                        IonValue::List(vec![IonValue::Struct(vec![
-                            (155, IonValue::Int(sec_page_eid)),
-                            (176, IonValue::Symbol(u64::from(story_s))),
-                            (159, IonValue::Symbol(269)),
-                        ])]),
-                    ),
+                    (141, IonValue::List(vec![IonValue::Struct(page_tpl_fields)])),
                 ]),
             ));
 
@@ -1064,6 +1223,9 @@ impl UniversalKfxExporter {
             kv_bool("override_kindle_font", false),
             kv_str("title", title),
         ];
+        if let Some(cov_idx) = cover_res_idx {
+            title_meta.push(kv_str("cover_image", &format!("e{cov_idx}")));
+        }
         if let Some(pub_name) = meta
             .publishers
             .first()
@@ -1243,28 +1405,64 @@ impl UniversalKfxExporter {
             push_raw_entity(&mut entries, &mut payload, *rsrc_sym, 417, &img.data);
         }
 
+        // 7b. Embedded fonts ($262 font & $418 bcRawFont)
+        for (i, font) in fonts.iter().enumerate() {
+            let (f_sym, rsrc_sym) = font_syms[i];
+            push_ion_entity(
+                &mut entries,
+                &mut payload,
+                f_sym,
+                262,
+                IonValue::Struct(vec![
+                    (11, IonValue::String(font.family.clone())),
+                    (12, IonValue::Symbol(u64::from(font.style_sym))),
+                    (13, IonValue::Symbol(u64::from(font.weight_sym))),
+                    (165, IonValue::String(font.location.clone())),
+                ]),
+            );
+            push_raw_entity(&mut entries, &mut payload, rsrc_sym, 418, &font.data);
+        }
+
         // 8. Anchors ($266)
         for (a_sym, val) in &anchor_entities {
             push_ion_entity(&mut entries, &mut payload, *a_sym, 266, val.clone());
         }
 
         // 9. $157 style
-        push_ion_entity(
-            &mut entries,
-            &mut payload,
-            style_sym,
-            157,
-            IonValue::Struct(vec![
-                (
-                    42,
-                    IonValue::Struct(vec![
-                        (307, IonValue::Decimal(vec![0x80, 0x01])),
-                        (306, IonValue::Symbol(310)),
-                    ]),
-                ),
-                (173, IonValue::Symbol(u64::from(style_sym))),
-            ]),
-        );
+        if let Some(style_sym) = style_sym_opt {
+            push_ion_entity(
+                &mut entries,
+                &mut payload,
+                style_sym,
+                157,
+                IonValue::Struct(vec![
+                    (
+                        42,
+                        IonValue::Struct(vec![
+                            (307, IonValue::Decimal(vec![0x80, 0x01])),
+                            (306, IonValue::Symbol(310)),
+                        ]),
+                    ),
+                    (173, IonValue::Symbol(u64::from(style_sym))),
+                ]),
+            );
+        }
+        for &(dir, mode, ds_sym) in &dir_style_list {
+            let dir_val = match dir {
+                BidiDir::Rtl => 375u64,
+                BidiDir::Ltr => 376u64,
+            };
+            let mut s_fields = vec![
+                (173, IonValue::Symbol(u64::from(ds_sym))),
+                (682, IonValue::Symbol(dir_val)),
+            ];
+            match mode {
+                BidiMode::Normal => {}
+                BidiMode::Isolate => s_fields.push((674, IonValue::Symbol(676))),
+                BidiMode::Override => s_fields.push((674, IonValue::Symbol(677))),
+            }
+            push_ion_entity(&mut entries, &mut payload, ds_sym, 157, IonValue::Struct(s_fields));
+        }
 
         // 10. $264 section_position_id_map, $265 position_id_map, $550 location_map, $395 resource_path
         push_ion_entity(
@@ -1312,10 +1510,19 @@ impl UniversalKfxExporter {
             all_custom_eids.push(IonValue::Symbol(u64::from(*e_sym)));
             all_custom_eids.push(IonValue::Symbol(u64::from(*rsrc_sym)));
         }
+        for &(f_sym, rsrc_sym) in &font_syms {
+            all_custom_eids.push(IonValue::Symbol(u64::from(f_sym)));
+            all_custom_eids.push(IonValue::Symbol(u64::from(rsrc_sym)));
+        }
         for (a_sym, _) in &anchor_entities {
             all_custom_eids.push(IonValue::Symbol(u64::from(*a_sym)));
         }
-        all_custom_eids.push(IonValue::Symbol(u64::from(style_sym)));
+        if let Some(style_sym) = style_sym_opt {
+            all_custom_eids.push(IonValue::Symbol(u64::from(style_sym)));
+        }
+        for &(_, _, ds_sym) in &dir_style_list {
+            all_custom_eids.push(IonValue::Symbol(u64::from(ds_sym)));
+        }
 
         push_ion_entity(
             &mut entries,
@@ -1689,6 +1896,39 @@ fn push_elem_ids(
     }
 }
 
+fn parse_bidi_dir(val: &str) -> Option<BidiDir> {
+    match val.trim().to_ascii_lowercase().as_str() {
+        "rtl" => Some(BidiDir::Rtl),
+        "ltr" => Some(BidiDir::Ltr),
+        _ => None,
+    }
+}
+
+fn extract_section_dir(nodes: &[DomNode]) -> Option<BidiDir> {
+    let mut html_dir = None;
+    let mut body_dir = None;
+    for node in nodes {
+        if let DomNode::Element {
+            tag_name,
+            attributes,
+            children,
+        } = node
+        {
+            let tag = tag_name.to_ascii_lowercase();
+            if tag == "html" {
+                html_dir = get_attr_ci(attributes, "dir").and_then(parse_bidi_dir);
+                if let Some(d) = extract_section_dir(children) {
+                    body_dir = Some(d);
+                }
+            } else if tag == "body" {
+                body_dir = get_attr_ci(attributes, "dir").and_then(parse_bidi_dir);
+            }
+        }
+    }
+    body_dir.or(html_dir)
+}
+
+#[allow(clippy::too_many_arguments)]
 fn extract_blocks_from_nodes(
     nodes: &[DomNode],
     sec_dir: &str,
@@ -1696,6 +1936,7 @@ fn extract_blocks_from_nodes(
     blocks: &mut Vec<ParsedBlock>,
     pending_ids: &mut Vec<String>,
     active_href: Option<&str>,
+    block_dir: Option<BidiDir>,
     in_pre: bool,
 ) {
     let mut acc = InlineAcc::new();
@@ -1707,10 +1948,11 @@ fn extract_blocks_from_nodes(
         &mut acc,
         pending_ids,
         active_href,
+        block_dir,
         in_pre,
     );
     if !acc.is_empty()
-        && let Some(tb) = acc.take(pending_ids)
+        && let Some(tb) = acc.take(pending_ids, block_dir)
     {
         blocks.push(ParsedBlock::Text(tb));
     }
@@ -1725,6 +1967,7 @@ fn walk_nodes_into(
     acc: &mut InlineAcc,
     pending_ids: &mut Vec<String>,
     active_href: Option<&str>,
+    block_dir: Option<BidiDir>,
     in_pre: bool,
 ) {
     for node in nodes {
@@ -1745,7 +1988,7 @@ fn walk_nodes_into(
 
                 if tag == "img" || tag == "image" {
                     if !acc.is_empty()
-                        && let Some(tb) = acc.take(pending_ids)
+                        && let Some(tb) = acc.take(pending_ids, block_dir)
                     {
                         blocks.push(ParsedBlock::Text(tb));
                     }
@@ -1769,16 +2012,22 @@ fn walk_nodes_into(
                     continue;
                 }
 
+                if tag == "video"
+                    && let Some(poster) = get_attr_ci(attributes, "poster")
+                {
+                    let _ = img_collector.collect(sec_dir, poster);
+                }
+
                 if tag == "table" {
                     if !acc.is_empty()
-                        && let Some(tb) = acc.take(pending_ids)
+                        && let Some(tb) = acc.take(pending_ids, block_dir)
                     {
                         blocks.push(ParsedBlock::Text(tb));
                     }
                     push_elem_ids(attributes, pending_ids);
                     let table_ids = std::mem::take(pending_ids);
                     let mut rows = Vec::new();
-                    collect_table_rows(children, &mut rows);
+                    collect_table_rows(children, &mut rows, block_dir);
                     if !rows.is_empty() {
                         blocks.push(ParsedBlock::Table {
                             rows,
@@ -1797,12 +2046,15 @@ fn walk_nodes_into(
 
                 if is_block_tag(&tag) {
                     if !acc.is_empty()
-                        && let Some(tb) = acc.take(pending_ids)
+                        && let Some(tb) = acc.take(pending_ids, block_dir)
                     {
                         blocks.push(ParsedBlock::Text(tb));
                     }
                     push_elem_ids(attributes, pending_ids);
                     let child_pre = in_pre || tag == "pre";
+                    let child_dir = get_attr_ci(attributes, "dir")
+                        .and_then(parse_bidi_dir)
+                        .or(block_dir);
                     extract_blocks_from_nodes(
                         children,
                         sec_dir,
@@ -1810,12 +2062,13 @@ fn walk_nodes_into(
                         blocks,
                         pending_ids,
                         active_href,
+                        child_dir,
                         child_pre,
                     );
                     continue;
                 }
 
-                // Inline element (a, span, em, strong, svg, etc.)
+                // Inline element (a, span, bdi, bdo, em, strong, svg, etc.)
                 for key in ["id", "name"] {
                     if let Some(val) = get_attr_ci(attributes, key) {
                         let decoded = decode_html_entities(val.trim());
@@ -1831,34 +2084,22 @@ fn walk_nodes_into(
                     }
                 }
 
-                if tag == "a"
-                    && let Some(href_raw) = get_attr_ci(attributes, "href")
-                {
-                    let href = decode_html_entities(href_raw.trim());
-                    if !href.is_empty() {
-                        let start = acc.char_len;
-                        walk_nodes_into(
-                            children,
-                            sec_dir,
-                            img_collector,
-                            blocks,
-                            acc,
-                            pending_ids,
-                            Some(&href),
-                            in_pre,
-                        );
-                        let end = acc.char_len;
-                        if end > start {
-                            acc.links.push(LinkSpan {
-                                start,
-                                len: end - start,
-                                href,
-                            });
-                        }
-                        continue;
-                    }
-                }
+                let inline_dir = get_attr_ci(attributes, "dir").and_then(parse_bidi_dir);
+                let bidi_mode = match tag.as_str() {
+                    "bdo" => BidiMode::Override,
+                    "bdi" => BidiMode::Isolate,
+                    _ => BidiMode::Normal,
+                };
+                let link_href = if tag == "a" {
+                    get_attr_ci(attributes, "href")
+                        .map(|h| decode_html_entities(h.trim()))
+                        .filter(|h| !h.is_empty())
+                } else {
+                    None
+                };
 
+                let child_href = link_href.as_deref().or(active_href);
+                let start = acc.char_len;
                 walk_nodes_into(
                     children,
                     sec_dir,
@@ -1866,15 +2107,34 @@ fn walk_nodes_into(
                     blocks,
                     acc,
                     pending_ids,
-                    active_href,
+                    child_href,
+                    block_dir,
                     in_pre,
                 );
+                let end = acc.char_len;
+                if end > start {
+                    if let Some(href) = link_href {
+                        acc.links.push(LinkSpan {
+                            start,
+                            len: end - start,
+                            href,
+                        });
+                    }
+                    if let Some(dir) = inline_dir {
+                        acc.dir_spans.push(DirSpan {
+                            start,
+                            len: end - start,
+                            dir,
+                            mode: bidi_mode,
+                        });
+                    }
+                }
             }
         }
     }
 }
 
-fn collect_table_rows(nodes: &[DomNode], rows: &mut Vec<RowData>) {
+fn collect_table_rows(nodes: &[DomNode], rows: &mut Vec<RowData>, inherited_dir: Option<BidiDir>) {
     for node in nodes {
         let DomNode::Element {
             tag_name,
@@ -1888,6 +2148,9 @@ fn collect_table_rows(nodes: &[DomNode], rows: &mut Vec<RowData>) {
         if tag == "tr" {
             let mut row_ids = Vec::new();
             push_elem_ids(attributes, &mut row_ids);
+            let row_dir = get_attr_ci(attributes, "dir")
+                .and_then(parse_bidi_dir)
+                .or(inherited_dir);
             let mut cells = Vec::new();
             for cell_node in children {
                 let DomNode::Element {
@@ -1904,6 +2167,9 @@ fn collect_table_rows(nodes: &[DomNode], rows: &mut Vec<RowData>) {
                 }
                 let mut cell_ids = Vec::new();
                 push_elem_ids(c_attrs, &mut cell_ids);
+                let cell_dir = get_attr_ci(c_attrs, "dir")
+                    .and_then(parse_bidi_dir)
+                    .or(row_dir);
                 let colspan = get_attr_ci(c_attrs, "colspan")
                     .and_then(|v| v.trim().parse::<i64>().ok())
                     .filter(|&n| n > 1)
@@ -1915,13 +2181,15 @@ fn collect_table_rows(nodes: &[DomNode], rows: &mut Vec<RowData>) {
 
                 let mut acc = InlineAcc::new();
                 collect_cell_inline(c_children, &mut acc, &mut cell_ids);
-                let (text, links, inline_ids) = match acc.take(&mut cell_ids) {
-                    Some(tb) => (tb.text, tb.links, tb.inline_ids),
-                    None => (String::new(), Vec::new(), Vec::new()),
+                let (text, links, dir_spans, inline_ids) = match acc.take(&mut cell_ids, cell_dir) {
+                    Some(tb) => (tb.text, tb.links, tb.dir_spans, tb.inline_ids),
+                    None => (String::new(), Vec::new(), Vec::new(), Vec::new()),
                 };
                 cells.push(CellData {
                     text,
                     links,
+                    dir_spans,
+                    dir: cell_dir,
                     inline_ids,
                     ids: cell_ids,
                     colspan,
@@ -1938,7 +2206,10 @@ fn collect_table_rows(nodes: &[DomNode], rows: &mut Vec<RowData>) {
             tag.as_str(),
             "thead" | "tbody" | "tfoot" | "colgroup" | "caption"
         ) {
-            collect_table_rows(children, rows);
+            let group_dir = get_attr_ci(attributes, "dir")
+                .and_then(parse_bidi_dir)
+                .or(inherited_dir);
+            collect_table_rows(children, rows, group_dir);
         }
     }
 }
@@ -1978,25 +2249,39 @@ fn collect_cell_inline(nodes: &[DomNode], acc: &mut InlineAcc, cell_ids: &mut Ve
                 if is_block_tag(&tag) && !acc.is_empty() {
                     acc.push_newline();
                 }
-                if tag == "a"
-                    && let Some(href_raw) = get_attr_ci(attributes, "href")
-                {
-                    let href = decode_html_entities(href_raw.trim());
-                    if !href.is_empty() {
-                        let start = acc.char_len;
-                        collect_cell_inline(children, acc, cell_ids);
-                        let end = acc.char_len;
-                        if end > start {
-                            acc.links.push(LinkSpan {
-                                start,
-                                len: end - start,
-                                href,
-                            });
-                        }
-                        continue;
+                let inline_dir = get_attr_ci(attributes, "dir").and_then(parse_bidi_dir);
+                let bidi_mode = match tag.as_str() {
+                    "bdo" => BidiMode::Override,
+                    "bdi" => BidiMode::Isolate,
+                    _ => BidiMode::Normal,
+                };
+                let link_href = if tag == "a" {
+                    get_attr_ci(attributes, "href")
+                        .map(|h| decode_html_entities(h.trim()))
+                        .filter(|h| !h.is_empty())
+                } else {
+                    None
+                };
+                let start = acc.char_len;
+                collect_cell_inline(children, acc, cell_ids);
+                let end = acc.char_len;
+                if end > start {
+                    if let Some(href) = link_href {
+                        acc.links.push(LinkSpan {
+                            start,
+                            len: end - start,
+                            href,
+                        });
+                    }
+                    if let Some(dir) = inline_dir {
+                        acc.dir_spans.push(DirSpan {
+                            start,
+                            len: end - start,
+                            dir,
+                            mode: bidi_mode,
+                        });
                     }
                 }
-                collect_cell_inline(children, acc, cell_ids);
             }
         }
     }
@@ -2118,4 +2403,209 @@ fn parse_jpeg_dims(data: &[u8]) -> Option<(u32, u32)> {
         i += seg_len;
     }
     None
+}
+
+fn is_image_manifest_item(media_type: &str, full_path: &str) -> bool {
+    let mt = media_type.trim().to_ascii_lowercase();
+    if mt.starts_with("image/") {
+        return true;
+    }
+    let lower = full_path.to_ascii_lowercase();
+    [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp"]
+        .iter()
+        .any(|ext| lower.ends_with(ext))
+}
+
+fn is_font_manifest_item(media_type: &str, full_path: &str) -> bool {
+    let mt = media_type.trim().to_ascii_lowercase();
+    if mt.starts_with("font/")
+        || mt.starts_with("application/font")
+        || mt.starts_with("application/x-font")
+        || mt == "application/vnd.ms-opentype"
+    {
+        return true;
+    }
+    let lower = full_path.to_ascii_lowercase();
+    [".otf", ".ttf", ".woff", ".woff2"]
+        .iter()
+        .any(|ext| lower.ends_with(ext))
+}
+
+fn parse_font_style_sym(val: &str) -> u32 {
+    match val.trim().to_ascii_lowercase().as_str() {
+        "italic" => 382,
+        "oblique" => 381,
+        _ => 350,
+    }
+}
+
+fn parse_font_weight_sym(val: &str) -> u32 {
+    match val.trim().to_ascii_lowercase().as_str() {
+        "bold" | "700" => 361,
+        "100" => 355,
+        "200" => 356,
+        "300" => 357,
+        "500" => 359,
+        "600" => 360,
+        "800" => 362,
+        "900" => 363,
+        _ => 350,
+    }
+}
+
+fn parse_font_faces(
+    css: &str,
+    css_dir: &str,
+    out: &mut AHashMap<String, (String, u32, u32)>,
+) {
+    let lower = css.to_ascii_lowercase();
+    let mut pos = 0usize;
+    while let Some(rel) = lower[pos..].find("@font-face") {
+        let start = pos + rel;
+        let Some(brace_rel) = css[start..].find('{') else {
+            break;
+        };
+        let body_start = start + brace_rel + 1;
+        let Some(end_rel) = css[body_start..].find('}') else {
+            break;
+        };
+        let block = &css[body_start..body_start + end_rel];
+        pos = body_start + end_rel + 1;
+
+        let mut family: Option<String> = None;
+        let mut style_sym = 350u32;
+        let mut weight_sym = 350u32;
+        let mut urls: Vec<String> = Vec::new();
+
+        for decl in block.split(';') {
+            let Some((prop, val)) = decl.split_once(':') else {
+                continue;
+            };
+            let prop_l = prop.trim().to_ascii_lowercase();
+            let val_t = val.trim();
+            match prop_l.as_str() {
+                "font-family" => {
+                    let clean = val_t.trim_matches(|c| c == '"' || c == '\'' || c == ' ');
+                    if !clean.is_empty() {
+                        family = Some(clean.to_string());
+                    }
+                }
+                "font-style" => {
+                    style_sym = parse_font_style_sym(val_t);
+                }
+                "font-weight" => {
+                    weight_sym = parse_font_weight_sym(val_t);
+                }
+                "src" => {
+                    let mut s_pos = 0usize;
+                    let val_l = val_t.to_ascii_lowercase();
+                    while let Some(u_rel) = val_l[s_pos..].find("url(") {
+                        let u_start = s_pos + u_rel + 4;
+                        let Some(u_end_rel) = val_t[u_start..].find(')') else {
+                            break;
+                        };
+                        let raw_u = val_t[u_start..u_start + u_end_rel]
+                            .trim()
+                            .trim_matches(|c| c == '"' || c == '\'');
+                        if !raw_u.is_empty() && !raw_u.starts_with("data:") {
+                            let resolved =
+                                normalize_href_path(&resolve_relative_path(css_dir, raw_u));
+                            urls.push(resolved);
+                        }
+                        s_pos = u_start + u_end_rel + 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if let Some(fam) = family {
+            for u in urls {
+                out.entry(u).or_insert_with(|| (fam.clone(), style_sym, weight_sym));
+            }
+        }
+    }
+}
+
+fn infer_font_meta_from_filename(filename: &str) -> (String, u32, u32) {
+    let stem = filename
+        .rsplit_once('.')
+        .map(|(s, _)| s)
+        .unwrap_or(filename);
+    let lower = stem.to_ascii_lowercase();
+    let style_sym = if lower.contains("italic") {
+        382
+    } else if lower.contains("oblique") {
+        381
+    } else {
+        350
+    };
+    let weight_sym = if lower.contains("bold") { 361 } else { 350 };
+    let family = stem
+        .split(['-', '_'])
+        .next()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(stem)
+        .to_string();
+    (family, style_sym, weight_sym)
+}
+
+fn collect_embedded_fonts(book: &Book) -> Vec<EmbeddedFont> {
+    let mut face_map: AHashMap<String, (String, u32, u32)> = AHashMap::new();
+    let mut css_paths: Vec<String> = book
+        .opf()
+        .manifest
+        .values()
+        .filter(|item| {
+            item.media_type.eq_ignore_ascii_case("text/css")
+                || item.full_path.to_ascii_lowercase().ends_with(".css")
+        })
+        .map(|item| item.full_path.clone())
+        .collect();
+    css_paths.sort();
+
+    for css_path in css_paths {
+        if let Ok(bytes) = book.archive().read_bytes(&css_path)
+            && let Ok(css_str) = std::str::from_utf8(&bytes)
+        {
+            let css_dir = css_path.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+            parse_font_faces(css_str, css_dir, &mut face_map);
+        }
+    }
+
+    let mut font_paths: Vec<String> = book
+        .opf()
+        .manifest
+        .values()
+        .filter(|item| is_font_manifest_item(&item.media_type, &item.full_path))
+        .map(|item| item.full_path.clone())
+        .collect();
+    font_paths.sort();
+    font_paths.dedup();
+
+    let mut out = Vec::new();
+    for (i, full_path) in font_paths.into_iter().enumerate() {
+        let Ok(data) = book.archive().read_bytes(&full_path) else {
+            continue;
+        };
+        if data.is_empty() {
+            continue;
+        }
+        let norm_path = normalize_href_path(&full_path);
+        let filename = norm_path.rsplit('/').next().unwrap_or("font.otf");
+        let (family, style_sym, weight_sym) = face_map
+            .get(&norm_path)
+            .cloned()
+            .unwrap_or_else(|| infer_font_meta_from_filename(filename));
+        let location = format!("resource/font{i}_{filename}");
+        out.push(EmbeddedFont {
+            data,
+            family,
+            style_sym,
+            weight_sym,
+            location,
+        });
+    }
+    out
 }
