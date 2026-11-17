@@ -10,8 +10,9 @@ jobs:
   test:
     name: Test & Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -45,6 +46,7 @@ jobs:
           cargo audit
 
       - name: Random 25 Project Gutenberg Books Stress Test
+        timeout-minutes: 5
         run: |
           chmod +x scripts/fetch_gutenberg.sh
           ./scripts/fetch_gutenberg.sh 25 corpus/ci_gutenberg --random

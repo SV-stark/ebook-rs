@@ -81,11 +81,15 @@ for id in "${GUTENBERG_IDS[@]}"; do
   echo "  ⬇️  [#${id}] Downloading EPUB..."
   # Download in background for parallelism
   (
-    curl -s -L --retry 2 --max-time 30 \
+    TIMEOUT_CMD=""
+    if command -v timeout >/dev/null 2>&1; then
+      TIMEOUT_CMD="timeout 35s"
+    fi
+    ${TIMEOUT_CMD} curl -f -s -L --connect-timeout 10 --max-time 25 --retry 1 --retry-max-time 25 \
       -A "ebook-rs-fuzzer/1.0 (https://github.com/SV-stark/ebook-rs)" \
       -o "${EPUB_FILE}" \
       "https://www.gutenberg.org/ebooks/${id}.epub3.images" || \
-    curl -s -L --retry 2 --max-time 30 \
+    ${TIMEOUT_CMD} curl -f -s -L --connect-timeout 10 --max-time 25 --retry 1 --retry-max-time 25 \
       -A "ebook-rs-fuzzer/1.0 (https://github.com/SV-stark/ebook-rs)" \
       -o "${EPUB_FILE}" \
       "https://www.gutenberg.org/ebooks/${id}.epub.images" || true
