@@ -49,8 +49,12 @@ jobs:
         timeout-minutes: 5
         run: |
           chmod +x scripts/fetch_gutenberg.sh
-          ./scripts/fetch_gutenberg.sh 25 corpus/ci_gutenberg --random
-          cargo run --release --all-features --example corpus_stress -- corpus/ci_gutenberg
+          ./scripts/fetch_gutenberg.sh 25 corpus/ci_gutenberg --random || true
+          if [ -z "$(find corpus/ci_gutenberg -maxdepth 1 -type f -name '*.epub' -print -quit)" ]; then
+            echo "⚠️ Skipping corpus_stress: Project Gutenberg downloads unavailable on this runner."
+          else
+            cargo run --release --all-features --example corpus_stress -- corpus/ci_gutenberg
+          fi
 
       - name: Install wasm-pack & Target
         run: |
