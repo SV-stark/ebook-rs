@@ -6,7 +6,7 @@ use crate::kfx::ion::{IonValue, encode_stream};
 use crate::kfx::symbols::*;
 use crate::metadata::PageProgressionDirection;
 use crate::nav::NavPoint;
-use ahash::AHashMap;
+use ahash::{AHashMap, AHashSet};
 use base64::Engine as _;
 use sha1_smol::Sha1;
 
@@ -33,11 +33,19 @@ enum BidiMode {
 }
 
 #[derive(Clone, Debug)]
-struct DirSpan {
+struct InlineStyleSpan {
     start: usize,
     len: usize,
-    dir: BidiDir,
+    dir: Option<(BidiDir, BidiMode)>,
+    font_family: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct StyleKey {
+    dir: Option<BidiDir>,
     mode: BidiMode,
+    font_family: Option<String>,
+    is_block: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -57,8 +65,9 @@ struct InlineId {
 struct TextBlockData {
     text: String,
     links: Vec<LinkSpan>,
-    dir_spans: Vec<DirSpan>,
+    style_spans: Vec<InlineStyleSpan>,
     dir: Option<BidiDir>,
+    font_family: Option<String>,
     inline_ids: Vec<InlineId>,
     ids: Vec<String>,
 }
@@ -67,8 +76,9 @@ struct TextBlockData {
 struct CellData {
     text: String,
     links: Vec<LinkSpan>,
-    dir_spans: Vec<DirSpan>,
+    style_spans: Vec<InlineStyleSpan>,
     dir: Option<BidiDir>,
+    font_family: Option<String>,
     inline_ids: Vec<InlineId>,
     ids: Vec<String>,
     colspan: i64,
@@ -104,6 +114,7 @@ struct ParsedSection {
     full_path: String,
     href: String,
     dir: Option<BidiDir>,
+    font_family: Option<String>,
     blocks: Vec<ParsedBlock>,
 }
 
@@ -164,7 +175,7 @@ impl SymbolAlloc {
 struct InlineAcc {
     text: String,
     links: Vec<LinkSpan>,
-    dir_spans: Vec<DirSpan>,
+    style_spans: Vec<InlineStyleSpan>,
     inline_ids: Vec<InlineId>,
     char_len: usize,
 }
@@ -174,7 +185,7 @@ impl InlineAcc {
         Self {
             text: String::new(),
             links: Vec::new(),
-            dir_spans: Vec::new(),
+            style_spans: Vec::new(),
             inline_ids: Vec::new(),
             char_len: 0,
         }
@@ -224,12 +235,13 @@ impl InlineAcc {
         &mut self,
         pending_ids: &mut Vec<String>,
         block_dir: Option<BidiDir>,
+        block_font: Option<&str>,
     ) -> Option<TextBlockData> {
         let trimmed = self.text.trim_end().to_string();
         if trimmed.is_empty() {
             self.text.clear();
             self.links.clear();
-            self.dir_spans.clear();
+            self.style_spans.clear();
             self.inline_ids.clear();
             self.char_len = 0;
             return None;
@@ -246,17 +258,18 @@ impl InlineAcc {
                 }
             }
         }
-        let mut dir_spans = Vec::new();
-        for mut span in std::mem::take(&mut self.dir_spans) {
+        let mut style_spans = Vec::new();
+        for mut span in std::mem::take(&mut self.style_spans) {
             if span.start < max_chars {
                 if span.start + span.len > max_chars {
                     span.len = max_chars - span.start;
                 }
                 if span.len > 0 {
-                    dir_spans.push(span);
+                    style_spans.push(span);
                 }
             }
         }
+        style_spans.sort_by(|a, b| a.start.cmp(&b.start).then_with(|| b.len.cmp(&a.len)));
         let mut inline_ids = std::mem::take(&mut self.inline_ids);
         for iid in &mut inline_ids {
             if iid.offset >= max_chars {
@@ -268,8 +281,9 @@ impl InlineAcc {
         Some(TextBlockData {
             text: trimmed,
             links,
-            dir_spans,
+            style_spans,
             dir: block_dir,
+            font_family: block_font.map(ToOwned::to_owned),
             inline_ids,
             ids: std::mem::take(pending_ids),
         })
@@ -390,10 +404,15 @@ impl UniversalKfxExporter {
                 .unwrap_or("");
             let mut blocks = Vec::new();
             let mut doc_dir = None;
+            let mut doc_font = None;
 
             if !sec.raw_html.trim().is_empty() {
                 let dom = EbookDomTree::parse(&sec.raw_html);
-                doc_dir = extract_section_dir(&dom.root_nodes);
+                let css_rules = collect_section_css_rules(book, sec_dir, &dom.root_nodes);
+                let (d, f) = extract_section_dir_and_font(&dom.root_nodes, &css_rules);
+                doc_dir = d;
+                doc_font = f;
+                let mut ancestors: Vec<&DomNode> = Vec::new();
                 extract_blocks_from_nodes(
                     &dom.root_nodes,
                     sec_dir,
@@ -402,7 +421,10 @@ impl UniversalKfxExporter {
                     &mut Vec::new(),
                     None,
                     None,
+                    None,
                     false,
+                    &css_rules,
+                    &mut ancestors,
                 );
             }
 
@@ -416,8 +438,9 @@ impl UniversalKfxExporter {
                     blocks.push(ParsedBlock::Text(TextBlockData {
                         text: para.to_string(),
                         links: Vec::new(),
-                        dir_spans: Vec::new(),
+                        style_spans: Vec::new(),
                         dir: None,
+                        font_family: doc_font.clone(),
                         inline_ids: Vec::new(),
                         ids: Vec::new(),
                     }));
@@ -437,6 +460,7 @@ impl UniversalKfxExporter {
                     } else {
                         None
                     }),
+                    font_family: doc_font,
                     blocks,
                 });
             }
@@ -451,11 +475,13 @@ impl UniversalKfxExporter {
                 } else {
                     None
                 },
+                font_family: None,
                 blocks: vec![ParsedBlock::Text(TextBlockData {
                     text: title.to_string(),
                     links: Vec::new(),
-                    dir_spans: Vec::new(),
+                    style_spans: Vec::new(),
                     dir: None,
+                    font_family: None,
                     inline_ids: Vec::new(),
                     ids: Vec::new(),
                 })],
@@ -675,10 +701,6 @@ impl UniversalKfxExporter {
 
         // Allocate symbols strictly for referenced entities
         let mut sym_alloc = SymbolAlloc::new();
-        let mut style_sym_opt: Option<u32> = None;
-        let mut get_default_style = |sym_alloc: &mut SymbolAlloc| -> u32 {
-            *style_sym_opt.get_or_insert_with(|| sym_alloc.alloc("s0".to_string()))
-        };
 
         let mut sec_syms: Vec<(u32, u32)> = Vec::with_capacity(parsed_sections.len());
         for i in 0..parsed_sections.len() {
@@ -702,27 +724,18 @@ impl UniversalKfxExporter {
             font_syms.push((f_sym, rsrc_sym));
         }
 
-        let mut dir_style_map: AHashMap<(BidiDir, BidiMode), u32> = AHashMap::new();
-        let mut dir_style_list: Vec<(BidiDir, BidiMode, u32)> = Vec::new();
-        let mut get_or_alloc_dir_style =
-            |dir: BidiDir, mode: BidiMode, sym_alloc: &mut SymbolAlloc| -> u32 {
-                if let Some(&sym) = dir_style_map.get(&(dir, mode)) {
-                    return sym;
-                }
-                let d_str = match dir {
-                    BidiDir::Rtl => "rtl",
-                    BidiDir::Ltr => "ltr",
-                };
-                let m_str = match mode {
-                    BidiMode::Normal => "",
-                    BidiMode::Isolate => "_iso",
-                    BidiMode::Override => "_ovr",
-                };
-                let sym = sym_alloc.alloc(format!("s_{d_str}{m_str}"));
-                dir_style_map.insert((dir, mode), sym);
-                dir_style_list.push((dir, mode, sym));
-                sym
-            };
+        let mut style_map: AHashMap<StyleKey, u32> = AHashMap::new();
+        let mut style_list: Vec<(StyleKey, u32)> = Vec::new();
+        let mut get_or_alloc_style = |key: StyleKey, sym_alloc: &mut SymbolAlloc| -> u32 {
+            if let Some(&sym) = style_map.get(&key) {
+                return sym;
+            }
+            let idx = style_list.len();
+            let sym = sym_alloc.alloc(format!("s{idx}"));
+            style_map.insert(key.clone(), sym);
+            style_list.push((key, sym));
+            sym
+        };
 
         // Link & Anchor resolver
         let mut anchor_entities: Vec<(u32, IonValue)> = Vec::new();
@@ -960,21 +973,37 @@ impl UniversalKfxExporter {
                             &mut sym_alloc,
                             &mut get_or_create_anchor,
                         );
-                        for ds in &tb.dir_spans {
-                            if ds.len > 0 {
-                                let ds_sym =
-                                    get_or_alloc_dir_style(ds.dir, ds.mode, &mut sym_alloc);
+                        for sp in &tb.style_spans {
+                            if sp.len > 0 && (sp.dir.is_some() || sp.font_family.is_some()) {
+                                let (dir, mode) = match sp.dir {
+                                    Some((d, m)) => (Some(d), m),
+                                    None => (None, BidiMode::Normal),
+                                };
+                                let sp_sym = get_or_alloc_style(
+                                    StyleKey {
+                                        dir,
+                                        mode,
+                                        font_family: sp.font_family.clone(),
+                                        is_block: false,
+                                    },
+                                    &mut sym_alloc,
+                                );
                                 style_events.push(IonValue::Struct(vec![
-                                    (143, IonValue::Int(ds.start as i64)),
-                                    (144, IonValue::Int(ds.len as i64)),
-                                    (157, IonValue::Symbol(u64::from(ds_sym))),
+                                    (143, IonValue::Int(sp.start as i64)),
+                                    (144, IonValue::Int(sp.len as i64)),
+                                    (157, IonValue::Symbol(u64::from(sp_sym))),
                                 ]));
                             }
                         }
-                        let blk_style_sym = match tb.dir {
-                            Some(d) => get_or_alloc_dir_style(d, BidiMode::Normal, &mut sym_alloc),
-                            None => get_default_style(&mut sym_alloc),
-                        };
+                        let blk_style_sym = get_or_alloc_style(
+                            StyleKey {
+                                dir: tb.dir,
+                                mode: BidiMode::Normal,
+                                font_family: tb.font_family.clone(),
+                                is_block: true,
+                            },
+                            &mut sym_alloc,
+                        );
                         let mut fields = vec![
                             (155, IonValue::Int(blk_eid)),
                             (157, IonValue::Symbol(u64::from(blk_style_sym))),
@@ -1069,12 +1098,15 @@ impl UniversalKfxExporter {
                                 ]));
                                 running_pid += cell.text.chars().count().max(1) as i64;
 
-                                let cell_style_sym = match cell.dir {
-                                    Some(d) => {
-                                        get_or_alloc_dir_style(d, BidiMode::Normal, &mut sym_alloc)
-                                    }
-                                    None => get_default_style(&mut sym_alloc),
-                                };
+                                let cell_style_sym = get_or_alloc_style(
+                                    StyleKey {
+                                        dir: cell.dir,
+                                        mode: BidiMode::Normal,
+                                        font_family: cell.font_family.clone(),
+                                        is_block: true,
+                                    },
+                                    &mut sym_alloc,
+                                );
                                 let mut c_fields = vec![
                                     (155, IonValue::Int(cell_eid)),
                                     (157, IonValue::Symbol(u64::from(cell_style_sym))),
@@ -1102,17 +1134,27 @@ impl UniversalKfxExporter {
                                         &mut sym_alloc,
                                         &mut get_or_create_anchor,
                                     );
-                                    for ds in &cell.dir_spans {
-                                        if ds.len > 0 {
-                                            let ds_sym = get_or_alloc_dir_style(
-                                                ds.dir,
-                                                ds.mode,
+                                    for sp in &cell.style_spans {
+                                        if sp.len > 0
+                                            && (sp.dir.is_some() || sp.font_family.is_some())
+                                        {
+                                            let (dir, mode) = match sp.dir {
+                                                Some((d, m)) => (Some(d), m),
+                                                None => (None, BidiMode::Normal),
+                                            };
+                                            let sp_sym = get_or_alloc_style(
+                                                StyleKey {
+                                                    dir,
+                                                    mode,
+                                                    font_family: sp.font_family.clone(),
+                                                    is_block: false,
+                                                },
                                                 &mut sym_alloc,
                                             );
                                             style_events.push(IonValue::Struct(vec![
-                                                (143, IonValue::Int(ds.start as i64)),
-                                                (144, IonValue::Int(ds.len as i64)),
-                                                (157, IonValue::Symbol(u64::from(ds_sym))),
+                                                (143, IonValue::Int(sp.start as i64)),
+                                                (144, IonValue::Int(sp.len as i64)),
+                                                (157, IonValue::Symbol(u64::from(sp_sym))),
                                             ]));
                                         }
                                     }
@@ -1148,8 +1190,16 @@ impl UniversalKfxExporter {
                 (176, IonValue::Symbol(u64::from(story_s))),
                 (159, IonValue::Symbol(269)),
             ];
-            if let Some(d) = psec.dir {
-                let sec_style_sym = get_or_alloc_dir_style(d, BidiMode::Normal, &mut sym_alloc);
+            if psec.dir.is_some() || psec.font_family.is_some() {
+                let sec_style_sym = get_or_alloc_style(
+                    StyleKey {
+                        dir: psec.dir,
+                        mode: BidiMode::Normal,
+                        font_family: psec.font_family.clone(),
+                        is_block: false,
+                    },
+                    &mut sym_alloc,
+                );
                 page_tpl_fields.push((157, IonValue::Symbol(u64::from(sec_style_sym))));
             }
             section_entities.push((
@@ -1442,42 +1492,37 @@ impl UniversalKfxExporter {
         }
 
         // 9. $157 style
-        if let Some(style_sym) = style_sym_opt {
-            push_ion_entity(
-                &mut entries,
-                &mut payload,
-                style_sym,
-                157,
-                IonValue::Struct(vec![
-                    (
-                        42,
-                        IonValue::Struct(vec![
-                            (307, IonValue::Decimal(vec![0x80, 0x01])),
-                            (306, IonValue::Symbol(310)),
-                        ]),
-                    ),
-                    (173, IonValue::Symbol(u64::from(style_sym))),
-                ]),
-            );
-        }
-        for &(dir, mode, ds_sym) in &dir_style_list {
-            let dir_val = match dir {
-                BidiDir::Rtl => 375u64,
-                BidiDir::Ltr => 376u64,
-            };
-            let mut s_fields = vec![
-                (173, IonValue::Symbol(u64::from(ds_sym))),
-                (682, IonValue::Symbol(dir_val)),
-            ];
-            match mode {
-                BidiMode::Normal => {}
-                BidiMode::Isolate => s_fields.push((674, IonValue::Symbol(676))),
-                BidiMode::Override => s_fields.push((674, IonValue::Symbol(677))),
+        for (key, style_sym) in &style_list {
+            let mut s_fields = Vec::new();
+            if key.is_block && key.dir.is_none() {
+                s_fields.push((
+                    42,
+                    IonValue::Struct(vec![
+                        (307, IonValue::Decimal(vec![0x80, 0x01])),
+                        (306, IonValue::Symbol(310)),
+                    ]),
+                ));
+            }
+            s_fields.push((173, IonValue::Symbol(u64::from(*style_sym))));
+            if let Some(dir) = key.dir {
+                let dir_val = match dir {
+                    BidiDir::Rtl => 375u64,
+                    BidiDir::Ltr => 376u64,
+                };
+                s_fields.push((682, IonValue::Symbol(dir_val)));
+                match key.mode {
+                    BidiMode::Normal => {}
+                    BidiMode::Isolate => s_fields.push((674, IonValue::Symbol(676))),
+                    BidiMode::Override => s_fields.push((674, IonValue::Symbol(677))),
+                }
+            }
+            if let Some(ff) = &key.font_family {
+                s_fields.push((11, IonValue::String(ff.clone())));
             }
             push_ion_entity(
                 &mut entries,
                 &mut payload,
-                ds_sym,
+                *style_sym,
                 157,
                 IonValue::Struct(s_fields),
             );
@@ -1536,11 +1581,8 @@ impl UniversalKfxExporter {
         for (a_sym, _) in &anchor_entities {
             all_custom_eids.push(IonValue::Symbol(u64::from(*a_sym)));
         }
-        if let Some(style_sym) = style_sym_opt {
+        for &(_, style_sym) in &style_list {
             all_custom_eids.push(IonValue::Symbol(u64::from(style_sym)));
-        }
-        for &(_, _, ds_sym) in &dir_style_list {
-            all_custom_eids.push(IonValue::Symbol(u64::from(ds_sym)));
         }
 
         push_ion_entity(
@@ -1923,9 +1965,16 @@ fn parse_bidi_dir(val: &str) -> Option<BidiDir> {
     }
 }
 
-fn extract_section_dir(nodes: &[DomNode]) -> Option<BidiDir> {
+fn extract_section_dir_and_font(
+    nodes: &[DomNode],
+    css_rules: &[FontFamilyRule],
+) -> (Option<BidiDir>, Option<String>) {
+    let mut ancestors: Vec<&DomNode> = Vec::new();
     let mut html_dir = None;
     let mut body_dir = None;
+    let mut html_font: Option<String> = None;
+    let mut body_font: Option<String> = None;
+
     for node in nodes {
         if let DomNode::Element {
             tag_name,
@@ -1936,27 +1985,48 @@ fn extract_section_dir(nodes: &[DomNode]) -> Option<BidiDir> {
             let tag = tag_name.to_ascii_lowercase();
             if tag == "html" {
                 html_dir = get_attr_ci(attributes, "dir").and_then(parse_bidi_dir);
-                if let Some(d) = extract_section_dir(children) {
-                    body_dir = Some(d);
+                html_font = resolve_element_font_family(node, &ancestors, css_rules, None);
+                ancestors.push(node);
+                for child in children {
+                    if let DomNode::Element {
+                        tag_name: c_tag,
+                        attributes: c_attrs,
+                        ..
+                    } = child
+                        && c_tag.eq_ignore_ascii_case("body")
+                    {
+                        body_dir = get_attr_ci(c_attrs, "dir").and_then(parse_bidi_dir);
+                        body_font = resolve_element_font_family(
+                            child,
+                            &ancestors,
+                            css_rules,
+                            html_font.as_deref(),
+                        );
+                    }
                 }
+                ancestors.pop();
             } else if tag == "body" {
                 body_dir = get_attr_ci(attributes, "dir").and_then(parse_bidi_dir);
+                body_font = resolve_element_font_family(node, &ancestors, css_rules, None);
             }
         }
     }
-    body_dir.or(html_dir)
+    (body_dir.or(html_dir), body_font.or(html_font))
 }
 
 #[allow(clippy::too_many_arguments)]
-fn extract_blocks_from_nodes(
-    nodes: &[DomNode],
+fn extract_blocks_from_nodes<'a>(
+    nodes: &'a [DomNode],
     sec_dir: &str,
     img_collector: &mut ImageCollector<'_>,
     blocks: &mut Vec<ParsedBlock>,
     pending_ids: &mut Vec<String>,
     active_href: Option<&str>,
     block_dir: Option<BidiDir>,
+    block_font: Option<&str>,
     in_pre: bool,
+    css_rules: &[FontFamilyRule],
+    ancestors: &mut Vec<&'a DomNode>,
 ) {
     let mut acc = InlineAcc::new();
     walk_nodes_into(
@@ -1968,18 +2038,22 @@ fn extract_blocks_from_nodes(
         pending_ids,
         active_href,
         block_dir,
+        block_font,
+        block_font,
         in_pre,
+        css_rules,
+        ancestors,
     );
     if !acc.is_empty()
-        && let Some(tb) = acc.take(pending_ids, block_dir)
+        && let Some(tb) = acc.take(pending_ids, block_dir, block_font)
     {
         blocks.push(ParsedBlock::Text(tb));
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-fn walk_nodes_into(
-    nodes: &[DomNode],
+fn walk_nodes_into<'a>(
+    nodes: &'a [DomNode],
     sec_dir: &str,
     img_collector: &mut ImageCollector<'_>,
     blocks: &mut Vec<ParsedBlock>,
@@ -1987,7 +2061,11 @@ fn walk_nodes_into(
     pending_ids: &mut Vec<String>,
     active_href: Option<&str>,
     block_dir: Option<BidiDir>,
+    block_font: Option<&str>,
+    inline_font: Option<&str>,
     in_pre: bool,
+    css_rules: &[FontFamilyRule],
+    ancestors: &mut Vec<&'a DomNode>,
 ) {
     for node in nodes {
         match node {
@@ -2007,7 +2085,7 @@ fn walk_nodes_into(
 
                 if tag == "img" || tag == "image" {
                     if !acc.is_empty()
-                        && let Some(tb) = acc.take(pending_ids, block_dir)
+                        && let Some(tb) = acc.take(pending_ids, block_dir, block_font)
                     {
                         blocks.push(ParsedBlock::Text(tb));
                     }
@@ -2039,14 +2117,28 @@ fn walk_nodes_into(
 
                 if tag == "table" {
                     if !acc.is_empty()
-                        && let Some(tb) = acc.take(pending_ids, block_dir)
+                        && let Some(tb) = acc.take(pending_ids, block_dir, block_font)
                     {
                         blocks.push(ParsedBlock::Text(tb));
                     }
                     push_elem_ids(attributes, pending_ids);
                     let table_ids = std::mem::take(pending_ids);
+                    let table_dir = get_attr_ci(attributes, "dir")
+                        .and_then(parse_bidi_dir)
+                        .or(block_dir);
+                    let table_font =
+                        resolve_element_font_family(node, ancestors, css_rules, block_font);
                     let mut rows = Vec::new();
-                    collect_table_rows(children, &mut rows, block_dir);
+                    ancestors.push(node);
+                    collect_table_rows(
+                        children,
+                        &mut rows,
+                        table_dir,
+                        table_font.as_deref(),
+                        css_rules,
+                        ancestors,
+                    );
+                    ancestors.pop();
                     if !rows.is_empty() {
                         blocks.push(ParsedBlock::Table {
                             rows,
@@ -2065,7 +2157,7 @@ fn walk_nodes_into(
 
                 if is_block_tag(&tag) {
                     if !acc.is_empty()
-                        && let Some(tb) = acc.take(pending_ids, block_dir)
+                        && let Some(tb) = acc.take(pending_ids, block_dir, block_font)
                     {
                         blocks.push(ParsedBlock::Text(tb));
                     }
@@ -2074,6 +2166,9 @@ fn walk_nodes_into(
                     let child_dir = get_attr_ci(attributes, "dir")
                         .and_then(parse_bidi_dir)
                         .or(block_dir);
+                    let child_font =
+                        resolve_element_font_family(node, ancestors, css_rules, block_font);
+                    ancestors.push(node);
                     extract_blocks_from_nodes(
                         children,
                         sec_dir,
@@ -2082,8 +2177,12 @@ fn walk_nodes_into(
                         pending_ids,
                         active_href,
                         child_dir,
+                        child_font.as_deref(),
                         child_pre,
+                        css_rules,
+                        ancestors,
                     );
+                    ancestors.pop();
                     continue;
                 }
 
@@ -2109,6 +2208,13 @@ fn walk_nodes_into(
                     "bdi" => BidiMode::Isolate,
                     _ => BidiMode::Normal,
                 };
+                let elem_font =
+                    resolve_element_font_family(node, ancestors, css_rules, inline_font);
+                let span_font = if elem_font.as_deref() != inline_font {
+                    elem_font.clone()
+                } else {
+                    None
+                };
                 let link_href = if tag == "a" {
                     get_attr_ci(attributes, "href")
                         .map(|h| decode_html_entities(h.trim()))
@@ -2119,6 +2225,7 @@ fn walk_nodes_into(
 
                 let child_href = link_href.as_deref().or(active_href);
                 let start = acc.char_len;
+                ancestors.push(node);
                 walk_nodes_into(
                     children,
                     sec_dir,
@@ -2128,8 +2235,13 @@ fn walk_nodes_into(
                     pending_ids,
                     child_href,
                     block_dir,
+                    block_font,
+                    elem_font.as_deref(),
                     in_pre,
+                    css_rules,
+                    ancestors,
                 );
+                ancestors.pop();
                 let end = acc.char_len;
                 if end > start {
                     if let Some(href) = link_href {
@@ -2139,12 +2251,12 @@ fn walk_nodes_into(
                             href,
                         });
                     }
-                    if let Some(dir) = inline_dir {
-                        acc.dir_spans.push(DirSpan {
+                    if inline_dir.is_some() || span_font.is_some() {
+                        acc.style_spans.push(InlineStyleSpan {
                             start,
                             len: end - start,
-                            dir,
-                            mode: bidi_mode,
+                            dir: inline_dir.map(|d| (d, bidi_mode)),
+                            font_family: span_font,
                         });
                     }
                 }
@@ -2153,7 +2265,14 @@ fn walk_nodes_into(
     }
 }
 
-fn collect_table_rows(nodes: &[DomNode], rows: &mut Vec<RowData>, inherited_dir: Option<BidiDir>) {
+fn collect_table_rows<'a>(
+    nodes: &'a [DomNode],
+    rows: &mut Vec<RowData>,
+    inherited_dir: Option<BidiDir>,
+    inherited_font: Option<&str>,
+    css_rules: &[FontFamilyRule],
+    ancestors: &mut Vec<&'a DomNode>,
+) {
     for node in nodes {
         let DomNode::Element {
             tag_name,
@@ -2170,7 +2289,9 @@ fn collect_table_rows(nodes: &[DomNode], rows: &mut Vec<RowData>, inherited_dir:
             let row_dir = get_attr_ci(attributes, "dir")
                 .and_then(parse_bidi_dir)
                 .or(inherited_dir);
+            let row_font = resolve_element_font_family(node, ancestors, css_rules, inherited_font);
             let mut cells = Vec::new();
+            ancestors.push(node);
             for cell_node in children {
                 let DomNode::Element {
                     tag_name: c_tag_name,
@@ -2189,6 +2310,12 @@ fn collect_table_rows(nodes: &[DomNode], rows: &mut Vec<RowData>, inherited_dir:
                 let cell_dir = get_attr_ci(c_attrs, "dir")
                     .and_then(parse_bidi_dir)
                     .or(row_dir);
+                let cell_font = resolve_element_font_family(
+                    cell_node,
+                    ancestors,
+                    css_rules,
+                    row_font.as_deref(),
+                );
                 let colspan = get_attr_ci(c_attrs, "colspan")
                     .and_then(|v| v.trim().parse::<i64>().ok())
                     .filter(|&n| n > 1)
@@ -2199,22 +2326,34 @@ fn collect_table_rows(nodes: &[DomNode], rows: &mut Vec<RowData>, inherited_dir:
                     .unwrap_or(1);
 
                 let mut acc = InlineAcc::new();
-                collect_cell_inline(c_children, &mut acc, &mut cell_ids);
-                let (text, links, dir_spans, inline_ids) = match acc.take(&mut cell_ids, cell_dir) {
-                    Some(tb) => (tb.text, tb.links, tb.dir_spans, tb.inline_ids),
-                    None => (String::new(), Vec::new(), Vec::new(), Vec::new()),
-                };
+                ancestors.push(cell_node);
+                collect_cell_inline(
+                    c_children,
+                    &mut acc,
+                    &mut cell_ids,
+                    cell_font.as_deref(),
+                    css_rules,
+                    ancestors,
+                );
+                ancestors.pop();
+                let (text, links, style_spans, inline_ids) =
+                    match acc.take(&mut cell_ids, cell_dir, cell_font.as_deref()) {
+                        Some(tb) => (tb.text, tb.links, tb.style_spans, tb.inline_ids),
+                        None => (String::new(), Vec::new(), Vec::new(), Vec::new()),
+                    };
                 cells.push(CellData {
                     text,
                     links,
-                    dir_spans,
+                    style_spans,
                     dir: cell_dir,
+                    font_family: cell_font,
                     inline_ids,
                     ids: cell_ids,
                     colspan,
                     rowspan,
                 });
             }
+            ancestors.pop();
             if !cells.is_empty() {
                 rows.push(RowData {
                     cells,
@@ -2228,12 +2367,30 @@ fn collect_table_rows(nodes: &[DomNode], rows: &mut Vec<RowData>, inherited_dir:
             let group_dir = get_attr_ci(attributes, "dir")
                 .and_then(parse_bidi_dir)
                 .or(inherited_dir);
-            collect_table_rows(children, rows, group_dir);
+            let group_font =
+                resolve_element_font_family(node, ancestors, css_rules, inherited_font);
+            ancestors.push(node);
+            collect_table_rows(
+                children,
+                rows,
+                group_dir,
+                group_font.as_deref(),
+                css_rules,
+                ancestors,
+            );
+            ancestors.pop();
         }
     }
 }
 
-fn collect_cell_inline(nodes: &[DomNode], acc: &mut InlineAcc, cell_ids: &mut Vec<String>) {
+fn collect_cell_inline<'a>(
+    nodes: &'a [DomNode],
+    acc: &mut InlineAcc,
+    cell_ids: &mut Vec<String>,
+    inline_font: Option<&str>,
+    css_rules: &[FontFamilyRule],
+    ancestors: &mut Vec<&'a DomNode>,
+) {
     for node in nodes {
         match node {
             DomNode::Comment(_) => {}
@@ -2274,6 +2431,13 @@ fn collect_cell_inline(nodes: &[DomNode], acc: &mut InlineAcc, cell_ids: &mut Ve
                     "bdi" => BidiMode::Isolate,
                     _ => BidiMode::Normal,
                 };
+                let elem_font =
+                    resolve_element_font_family(node, ancestors, css_rules, inline_font);
+                let span_font = if elem_font.as_deref() != inline_font {
+                    elem_font.clone()
+                } else {
+                    None
+                };
                 let link_href = if tag == "a" {
                     get_attr_ci(attributes, "href")
                         .map(|h| decode_html_entities(h.trim()))
@@ -2282,7 +2446,16 @@ fn collect_cell_inline(nodes: &[DomNode], acc: &mut InlineAcc, cell_ids: &mut Ve
                     None
                 };
                 let start = acc.char_len;
-                collect_cell_inline(children, acc, cell_ids);
+                ancestors.push(node);
+                collect_cell_inline(
+                    children,
+                    acc,
+                    cell_ids,
+                    elem_font.as_deref(),
+                    css_rules,
+                    ancestors,
+                );
+                ancestors.pop();
                 let end = acc.char_len;
                 if end > start {
                     if let Some(href) = link_href {
@@ -2292,12 +2465,12 @@ fn collect_cell_inline(nodes: &[DomNode], acc: &mut InlineAcc, cell_ids: &mut Ve
                             href,
                         });
                     }
-                    if let Some(dir) = inline_dir {
-                        acc.dir_spans.push(DirSpan {
+                    if inline_dir.is_some() || span_font.is_some() {
+                        acc.style_spans.push(InlineStyleSpan {
                             start,
                             len: end - start,
-                            dir,
-                            mode: bidi_mode,
+                            dir: inline_dir.map(|d| (d, bidi_mode)),
+                            font_family: span_font,
                         });
                     }
                 }
@@ -2624,4 +2797,1003 @@ fn collect_embedded_fonts(book: &Book) -> Vec<EmbeddedFont> {
         });
     }
     out
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum FontFamilyDecl {
+    Value(String),
+    Inherit,
+    Reset,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CssCombinator {
+    Descendant,
+    Child,
+}
+
+#[derive(Clone, Debug)]
+enum CssAttrOp {
+    Exists,
+    Equals(String),
+    WordContains(String),
+    DashMatch(String),
+}
+
+#[derive(Clone, Debug)]
+struct CssCompound {
+    tag: Option<String>,
+    id: Option<String>,
+    classes: Vec<String>,
+    attrs: Vec<(String, CssAttrOp)>,
+    require_root: bool,
+}
+
+#[derive(Clone, Debug)]
+struct CssSelector {
+    parts: Vec<(Option<CssCombinator>, CssCompound)>,
+    specificity: (u32, u32, u32),
+}
+
+#[derive(Clone, Debug)]
+struct FontFamilyRule {
+    selector: CssSelector,
+    decl: FontFamilyDecl,
+    important: bool,
+    order: usize,
+}
+
+fn is_applicable_css_media(media: &str) -> bool {
+    let trimmed = media.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    for query in trimmed.split(',') {
+        let q = query.trim().to_ascii_lowercase();
+        if q.is_empty() {
+            continue;
+        }
+        let first = q
+            .split_whitespace()
+            .find(|&tok| tok != "only")
+            .unwrap_or("");
+        if first == "not"
+            || first == "all"
+            || first == "screen"
+            || first.starts_with('(')
+            || first.starts_with("amzn-")
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn collect_section_css_rules(book: &Book, sec_dir: &str, nodes: &[DomNode]) -> Vec<FontFamilyRule> {
+    let mut rules = Vec::new();
+    let mut visited: AHashSet<String> = AHashSet::new();
+    collect_section_css_nodes(book, sec_dir, nodes, &mut visited, &mut rules);
+    rules
+}
+
+fn collect_section_css_nodes(
+    book: &Book,
+    sec_dir: &str,
+    nodes: &[DomNode],
+    visited: &mut AHashSet<String>,
+    rules: &mut Vec<FontFamilyRule>,
+) {
+    for node in nodes {
+        let DomNode::Element {
+            tag_name,
+            attributes,
+            children,
+        } = node
+        else {
+            continue;
+        };
+        let tag = tag_name.to_ascii_lowercase();
+        if tag == "link" {
+            let rel = get_attr_ci(attributes, "rel").unwrap_or("");
+            let has_stylesheet = rel
+                .split_whitespace()
+                .any(|t| t.eq_ignore_ascii_case("stylesheet"));
+            let is_alternate = rel
+                .split_whitespace()
+                .any(|t| t.eq_ignore_ascii_case("alternate"));
+            if has_stylesheet && !is_alternate {
+                let media = get_attr_ci(attributes, "media").unwrap_or("");
+                if is_applicable_css_media(media)
+                    && let Some(href) = get_attr_ci(attributes, "href")
+                {
+                    let decoded_href = decode_html_entities(href.trim());
+                    if !decoded_href.is_empty() {
+                        load_css_href(book, sec_dir, &decoded_href, visited, rules);
+                    }
+                }
+            }
+        } else if tag == "style" {
+            let media = get_attr_ci(attributes, "media").unwrap_or("");
+            if is_applicable_css_media(media) {
+                let mut css_text = String::new();
+                for child in children {
+                    if let DomNode::Text(t) = child {
+                        css_text.push_str(t);
+                        css_text.push('\n');
+                    }
+                }
+                if !css_text.trim().is_empty() {
+                    parse_css_font_rules(book, &css_text, sec_dir, visited, rules);
+                }
+            }
+        } else if !matches!(tag.as_str(), "script" | "noscript" | "template") {
+            collect_section_css_nodes(book, sec_dir, children, visited, rules);
+        }
+    }
+}
+
+fn load_css_href(
+    book: &Book,
+    base_dir: &str,
+    raw_href: &str,
+    visited: &mut AHashSet<String>,
+    rules: &mut Vec<FontFamilyRule>,
+) {
+    let trimmed = raw_href.trim();
+    if trimmed.is_empty()
+        || trimmed.starts_with("http://")
+        || trimmed.starts_with("https://")
+        || trimmed.starts_with("data:")
+    {
+        return;
+    }
+    let resolved = normalize_href_path(&resolve_relative_path(base_dir, trimmed));
+    if !visited.insert(resolved.clone()) {
+        return;
+    }
+    let clean_rel = trimmed
+        .split('#')
+        .next()
+        .unwrap_or(trimmed)
+        .split('?')
+        .next()
+        .unwrap_or(trimmed)
+        .trim_start_matches('/');
+    let Ok(bytes) = book
+        .archive()
+        .read_bytes(&resolved)
+        .or_else(|_| book.archive().read_bytes(clean_rel))
+        .or_else(|_| book.archive().read_bytes(trimmed))
+    else {
+        return;
+    };
+    if let Ok(css_str) = std::str::from_utf8(&bytes) {
+        let css_dir = resolved.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+        parse_css_font_rules(book, css_str, css_dir, visited, rules);
+    }
+}
+
+fn strip_css_comments(css: &str) -> String {
+    let bytes = css.as_bytes();
+    let mut out = String::with_capacity(css.len());
+    let mut i = 0usize;
+    let mut quote: Option<u8> = None;
+
+    while i < bytes.len() {
+        let b = bytes[i];
+        if let Some(q) = quote {
+            if b == b'\\' && i + 1 < bytes.len() {
+                let ch_len = css[i..].chars().next().map_or(1, char::len_utf8);
+                out.push_str(&css[i..i + ch_len]);
+                i += ch_len;
+                let next_len = css[i..].chars().next().map_or(1, char::len_utf8);
+                out.push_str(&css[i..i + next_len]);
+                i += next_len;
+                continue;
+            }
+            if b == q {
+                quote = None;
+            }
+            let ch_len = css[i..].chars().next().map_or(1, char::len_utf8);
+            out.push_str(&css[i..i + ch_len]);
+            i += ch_len;
+        } else if b == b'"' || b == b'\'' {
+            quote = Some(b);
+            out.push(b as char);
+            i += 1;
+        } else if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            if i + 1 < bytes.len() {
+                i += 2;
+            } else {
+                i = bytes.len();
+            }
+            out.push(' ');
+        } else {
+            let ch_len = css[i..].chars().next().map_or(1, char::len_utf8);
+            out.push_str(&css[i..i + ch_len]);
+            i += ch_len;
+        }
+    }
+    out
+}
+
+fn find_matching_brace(s: &str, open_idx: usize) -> Option<usize> {
+    let bytes = s.as_bytes();
+    let mut depth = 0usize;
+    let mut i = open_idx;
+    let mut quote: Option<u8> = None;
+
+    while i < bytes.len() {
+        let b = bytes[i];
+        if let Some(q) = quote {
+            if b == b'\\' && i + 1 < bytes.len() {
+                i += 2;
+                continue;
+            }
+            if b == q {
+                quote = None;
+            }
+        } else {
+            match b {
+                b'"' | b'\'' => quote = Some(b),
+                b'{' => depth += 1,
+                b'}' => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        return Some(i);
+                    }
+                }
+                _ => {}
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+fn find_unquoted_char(s: &str, start: usize, needle: u8) -> Option<usize> {
+    let bytes = s.as_bytes();
+    let mut i = start;
+    let mut quote: Option<u8> = None;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if let Some(q) = quote {
+            if b == b'\\' && i + 1 < bytes.len() {
+                i += 2;
+                continue;
+            }
+            if b == q {
+                quote = None;
+            }
+        } else if b == b'"' || b == b'\'' {
+            quote = Some(b);
+        } else if b == needle {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
+fn parse_import_statement(stmt: &str) -> Option<(String, String)> {
+    let s = stmt.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let lower = s.to_ascii_lowercase();
+    if lower.starts_with("url(") {
+        let end = find_unquoted_char(s, 4, b')')?;
+        let url = s[4..end]
+            .trim()
+            .trim_matches(|c| c == '"' || c == '\'')
+            .to_string();
+        let media = s[end + 1..].trim().to_string();
+        return (!url.is_empty()).then_some((url, media));
+    }
+    let first = s.as_bytes()[0];
+    if first == b'"' || first == b'\'' {
+        let bytes = s.as_bytes();
+        let mut i = 1usize;
+        while i < bytes.len() {
+            if bytes[i] == b'\\' && i + 1 < bytes.len() {
+                i += 2;
+                continue;
+            }
+            if bytes[i] == first {
+                let url = s[1..i].trim().to_string();
+                let media = s[i + 1..].trim().to_string();
+                return (!url.is_empty()).then_some((url, media));
+            }
+            i += 1;
+        }
+    }
+    None
+}
+
+fn parse_css_font_rules(
+    book: &Book,
+    raw_css: &str,
+    css_dir: &str,
+    visited: &mut AHashSet<String>,
+    rules: &mut Vec<FontFamilyRule>,
+) {
+    let css = strip_css_comments(raw_css);
+    let bytes = css.as_bytes();
+    let mut pos = 0usize;
+
+    while pos < bytes.len() {
+        while pos < bytes.len() && bytes[pos].is_ascii_whitespace() {
+            pos += 1;
+        }
+        if pos >= bytes.len() {
+            break;
+        }
+
+        if bytes[pos] == b'@' {
+            let name_start = pos + 1;
+            let mut name_end = name_start;
+            while name_end < bytes.len()
+                && (bytes[name_end].is_ascii_alphanumeric() || bytes[name_end] == b'-')
+            {
+                name_end += 1;
+            }
+            let at_name = css[name_start..name_end].to_ascii_lowercase();
+            let semi = find_unquoted_char(&css, name_end, b';');
+            let brace = find_unquoted_char(&css, name_end, b'{');
+
+            match (semi, brace) {
+                (Some(s_idx), None) => {
+                    if at_name == "import"
+                        && let Some((href, media)) = parse_import_statement(&css[name_end..s_idx])
+                        && is_applicable_css_media(&media)
+                    {
+                        load_css_href(book, css_dir, &href, visited, rules);
+                    }
+                    pos = s_idx + 1;
+                }
+                (Some(s_idx), Some(b_idx)) if s_idx < b_idx => {
+                    if at_name == "import"
+                        && let Some((href, media)) = parse_import_statement(&css[name_end..s_idx])
+                        && is_applicable_css_media(&media)
+                    {
+                        load_css_href(book, css_dir, &href, visited, rules);
+                    }
+                    pos = s_idx + 1;
+                }
+                (_, Some(b_idx)) => {
+                    let Some(close_idx) = find_matching_brace(&css, b_idx) else {
+                        break;
+                    };
+                    if at_name == "media" {
+                        let query = css[name_end..b_idx].trim();
+                        if is_applicable_css_media(query) {
+                            parse_css_font_rules(
+                                book,
+                                &css[b_idx + 1..close_idx],
+                                css_dir,
+                                visited,
+                                rules,
+                            );
+                        }
+                    } else if at_name == "supports" {
+                        parse_css_font_rules(
+                            book,
+                            &css[b_idx + 1..close_idx],
+                            css_dir,
+                            visited,
+                            rules,
+                        );
+                    }
+                    pos = close_idx + 1;
+                }
+                (None, None) => break,
+            }
+            continue;
+        }
+
+        let Some(open_brace) = find_unquoted_char(&css, pos, b'{') else {
+            break;
+        };
+        let Some(close_brace) = find_matching_brace(&css, open_brace) else {
+            break;
+        };
+        let sel_text = css[pos..open_brace].trim();
+        let decl_text = &css[open_brace + 1..close_brace];
+        pos = close_brace + 1;
+
+        if sel_text.is_empty() {
+            continue;
+        }
+        if let Some((decl, important)) = extract_font_family_from_decls(decl_text) {
+            for sel_str in split_css_top_level(sel_text, b',') {
+                if let Some(selector) = parse_css_selector(sel_str) {
+                    let order = rules.len();
+                    rules.push(FontFamilyRule {
+                        selector,
+                        decl: decl.clone(),
+                        important,
+                        order,
+                    });
+                }
+            }
+        }
+    }
+}
+
+fn split_css_top_level(s: &str, delim: u8) -> Vec<&str> {
+    let bytes = s.as_bytes();
+    let mut out = Vec::new();
+    let mut start = 0usize;
+    let mut i = 0usize;
+    let mut quote: Option<u8> = None;
+    let mut paren_depth = 0usize;
+    let mut bracket_depth = 0usize;
+
+    while i < bytes.len() {
+        let b = bytes[i];
+        if let Some(q) = quote {
+            if b == b'\\' && i + 1 < bytes.len() {
+                i += 2;
+                continue;
+            }
+            if b == q {
+                quote = None;
+            }
+        } else {
+            match b {
+                b'"' | b'\'' => quote = Some(b),
+                b'(' => paren_depth += 1,
+                b')' => paren_depth = paren_depth.saturating_sub(1),
+                b'[' => bracket_depth += 1,
+                b']' => bracket_depth = bracket_depth.saturating_sub(1),
+                _ if b == delim && paren_depth == 0 && bracket_depth == 0 => {
+                    out.push(s[start..i].trim());
+                    start = i + 1;
+                }
+                _ => {}
+            }
+        }
+        i += 1;
+    }
+    if start <= s.len() {
+        let tail = s[start..].trim();
+        if !tail.is_empty() {
+            out.push(tail);
+        }
+    }
+    out
+}
+
+fn strip_important(val: &str) -> (&str, bool) {
+    let trimmed = val.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if let Some(idx) = lower.rfind("!important") {
+        let after = trimmed[idx + "!important".len()..].trim();
+        if after.is_empty() {
+            return (trimmed[..idx].trim(), true);
+        }
+    }
+    (trimmed, false)
+}
+
+fn extract_font_family_from_decls(decls: &str) -> Option<(FontFamilyDecl, bool)> {
+    let mut best: Option<(FontFamilyDecl, bool)> = None;
+    for decl in split_css_top_level(decls, b';') {
+        let Some((prop, raw_val)) = decl.split_once(':') else {
+            continue;
+        };
+        let prop_l = prop.trim().to_ascii_lowercase();
+        let (val_no_imp, important) = strip_important(raw_val);
+        let parsed = match prop_l.as_str() {
+            "font-family" => normalize_font_family_value(val_no_imp),
+            "font" => {
+                extract_family_from_font_shorthand(val_no_imp).and_then(normalize_font_family_value)
+            }
+            _ => None,
+        };
+        if let Some(ff) = parsed {
+            let replace = match &best {
+                None => true,
+                Some((_, prev_imp)) => important || !*prev_imp,
+            };
+            if replace {
+                best = Some((ff, important));
+            }
+        }
+    }
+    best
+}
+
+fn extract_family_from_font_shorthand(val: &str) -> Option<&str> {
+    let trimmed = val.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if matches!(lower.as_str(), "inherit" | "initial" | "unset" | "revert") {
+        return Some(trimmed);
+    }
+    let bytes = trimmed.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if i >= bytes.len() {
+            break;
+        }
+        let tok_start = i;
+        while i < bytes.len() && !bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        let tok = &trimmed[tok_start..i];
+        let size_part = tok.split('/').next().unwrap_or(tok);
+        let size_l = size_part.to_ascii_lowercase();
+        let is_size = size_part
+            .as_bytes()
+            .first()
+            .is_some_and(|b| b.is_ascii_digit() || *b == b'.')
+            || matches!(
+                size_l.as_str(),
+                "xx-small"
+                    | "x-small"
+                    | "small"
+                    | "medium"
+                    | "large"
+                    | "x-large"
+                    | "xx-large"
+                    | "smaller"
+                    | "larger"
+            );
+        if is_size {
+            let rest = trimmed[i..].trim();
+            if !rest.is_empty() {
+                return Some(rest);
+            }
+            return None;
+        }
+    }
+    None
+}
+
+fn normalize_font_family_value(raw: &str) -> Option<FontFamilyDecl> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if lower == "inherit" {
+        return Some(FontFamilyDecl::Inherit);
+    }
+    if matches!(lower.as_str(), "initial" | "unset" | "revert") {
+        return Some(FontFamilyDecl::Reset);
+    }
+
+    let mut families = Vec::new();
+    for part in split_css_top_level(trimmed, b',') {
+        let p = part.trim();
+        let unquoted = if (p.starts_with('"') && p.ends_with('"') && p.len() >= 2)
+            || (p.starts_with('\'') && p.ends_with('\'') && p.len() >= 2)
+        {
+            p[1..p.len() - 1].trim()
+        } else {
+            p
+        };
+        if unquoted.is_empty() {
+            continue;
+        }
+        families.push(unquoted.to_string());
+    }
+    if families.is_empty() {
+        None
+    } else {
+        Some(FontFamilyDecl::Value(families.join(", ")))
+    }
+}
+
+fn parse_css_selector(raw: &str) -> Option<CssSelector> {
+    let s = raw.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let bytes = s.as_bytes();
+    let mut parts: Vec<(Option<CssCombinator>, CssCompound)> = Vec::new();
+    let mut i = 0usize;
+    let mut pending_comb: Option<CssCombinator> = None;
+
+    while i < bytes.len() {
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if i >= bytes.len() {
+            break;
+        }
+        if bytes[i] == b'>' {
+            if parts.is_empty() || pending_comb == Some(CssCombinator::Child) {
+                return None;
+            }
+            pending_comb = Some(CssCombinator::Child);
+            i += 1;
+            continue;
+        }
+        if bytes[i] == b'+' || bytes[i] == b'~' {
+            return None;
+        }
+
+        let comp_start = i;
+        let mut quote: Option<u8> = None;
+        let mut bracket_depth = 0usize;
+        let mut paren_depth = 0usize;
+        while i < bytes.len() {
+            let b = bytes[i];
+            if let Some(q) = quote {
+                if b == b'\\' && i + 1 < bytes.len() {
+                    i += 2;
+                    continue;
+                }
+                if b == q {
+                    quote = None;
+                }
+            } else {
+                match b {
+                    b'"' | b'\'' => quote = Some(b),
+                    b'[' => bracket_depth += 1,
+                    b']' => bracket_depth = bracket_depth.saturating_sub(1),
+                    b'(' => paren_depth += 1,
+                    b')' => paren_depth = paren_depth.saturating_sub(1),
+                    b'>' | b'+' | b'~' if bracket_depth == 0 && paren_depth == 0 => break,
+                    _ if b.is_ascii_whitespace() && bracket_depth == 0 && paren_depth == 0 => {
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            i += 1;
+        }
+
+        let comp_str = &s[comp_start..i];
+        let compound = parse_css_compound(comp_str)?;
+        let comb = if parts.is_empty() {
+            None
+        } else {
+            Some(pending_comb.take().unwrap_or(CssCombinator::Descendant))
+        };
+        parts.push((comb, compound));
+    }
+
+    if parts.is_empty() || pending_comb.is_some() {
+        return None;
+    }
+
+    let mut id_count = 0u32;
+    let mut class_count = 0u32;
+    let mut tag_count = 0u32;
+    for (_, c) in &parts {
+        if c.id.is_some() {
+            id_count += 1;
+        }
+        class_count += c.classes.len() as u32 + c.attrs.len() as u32;
+        if c.require_root {
+            class_count += 1;
+        }
+        if c.tag.is_some() {
+            tag_count += 1;
+        }
+    }
+
+    Some(CssSelector {
+        parts,
+        specificity: (id_count, class_count, tag_count),
+    })
+}
+
+fn parse_css_compound(s: &str) -> Option<CssCompound> {
+    let mut comp = CssCompound {
+        tag: None,
+        id: None,
+        classes: Vec::new(),
+        attrs: Vec::new(),
+        require_root: false,
+    };
+    let chars: Vec<char> = s.chars().collect();
+    let mut i = 0usize;
+    let mut matched_anything = false;
+
+    if i < chars.len() && chars[i] == '*' {
+        matched_anything = true;
+        i += 1;
+    } else if i < chars.len() && !matches!(chars[i], '#' | '.' | '[' | ':') {
+        let mut name = String::new();
+        while i < chars.len() && (chars[i].is_alphanumeric() || matches!(chars[i], '-' | '_' | '|'))
+        {
+            name.push(chars[i]);
+            i += 1;
+        }
+        if name.is_empty() {
+            return None;
+        }
+        let local = name.rsplit_once('|').map(|(_, l)| l).unwrap_or(&name);
+        if local != "*" {
+            comp.tag = Some(local.to_ascii_lowercase());
+        }
+        matched_anything = true;
+    }
+
+    while i < chars.len() {
+        match chars[i] {
+            '#' => {
+                i += 1;
+                let mut name = String::new();
+                while i < chars.len()
+                    && (chars[i].is_alphanumeric() || matches!(chars[i], '-' | '_'))
+                {
+                    name.push(chars[i]);
+                    i += 1;
+                }
+                if name.is_empty() {
+                    return None;
+                }
+                comp.id = Some(name);
+                matched_anything = true;
+            }
+            '.' => {
+                i += 1;
+                let mut name = String::new();
+                while i < chars.len()
+                    && (chars[i].is_alphanumeric() || matches!(chars[i], '-' | '_'))
+                {
+                    name.push(chars[i]);
+                    i += 1;
+                }
+                if name.is_empty() {
+                    return None;
+                }
+                comp.classes.push(name);
+                matched_anything = true;
+            }
+            '[' => {
+                i += 1;
+                let start = i;
+                let mut quote: Option<char> = None;
+                while i < chars.len() {
+                    let ch = chars[i];
+                    if let Some(q) = quote {
+                        if ch == '\\' && i + 1 < chars.len() {
+                            i += 2;
+                            continue;
+                        }
+                        if ch == q {
+                            quote = None;
+                        }
+                    } else if ch == '"' || ch == '\'' {
+                        quote = Some(ch);
+                    } else if ch == ']' {
+                        break;
+                    }
+                    i += 1;
+                }
+                if i >= chars.len() {
+                    return None;
+                }
+                let inner: String = chars[start..i].iter().collect();
+                i += 1;
+                let inner = inner.trim();
+                if let Some(eq_pos) = inner.find('=') {
+                    let (raw_attr, op_prefix) =
+                        if eq_pos > 0 && matches!(inner.as_bytes()[eq_pos - 1], b'~' | b'|') {
+                            (&inner[..eq_pos - 1], Some(inner.as_bytes()[eq_pos - 1]))
+                        } else {
+                            (&inner[..eq_pos], None)
+                        };
+                    let attr = raw_attr.trim().replace('|', ":").to_ascii_lowercase();
+                    let val = inner[eq_pos + 1..]
+                        .trim()
+                        .trim_matches(|c| c == '"' || c == '\'')
+                        .to_string();
+                    let op = match op_prefix {
+                        Some(b'~') => CssAttrOp::WordContains(val),
+                        Some(b'|') => CssAttrOp::DashMatch(val),
+                        _ => CssAttrOp::Equals(val),
+                    };
+                    comp.attrs.push((attr, op));
+                } else {
+                    let attr = inner.replace('|', ":").to_ascii_lowercase();
+                    comp.attrs.push((attr, CssAttrOp::Exists));
+                }
+                matched_anything = true;
+            }
+            ':' => {
+                i += 1;
+                let is_double = i < chars.len() && chars[i] == ':';
+                if is_double {
+                    return None;
+                }
+                let mut name = String::new();
+                while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '-') {
+                    name.push(chars[i]);
+                    i += 1;
+                }
+                if i < chars.len() && chars[i] == '(' {
+                    let mut depth = 1usize;
+                    i += 1;
+                    while i < chars.len() && depth > 0 {
+                        if chars[i] == '(' {
+                            depth += 1;
+                        } else if chars[i] == ')' {
+                            depth -= 1;
+                        }
+                        i += 1;
+                    }
+                }
+                let pseudo = name.to_ascii_lowercase();
+                if matches!(
+                    pseudo.as_str(),
+                    "before"
+                        | "after"
+                        | "first-line"
+                        | "first-letter"
+                        | "hover"
+                        | "active"
+                        | "focus"
+                        | "visited"
+                ) {
+                    return None;
+                }
+                if pseudo == "root" {
+                    comp.require_root = true;
+                }
+                matched_anything = true;
+            }
+            _ => return None,
+        }
+    }
+
+    matched_anything.then_some(comp)
+}
+
+fn compound_matches_node(node: &DomNode, comp: &CssCompound) -> bool {
+    let DomNode::Element {
+        tag_name,
+        attributes,
+        ..
+    } = node
+    else {
+        return false;
+    };
+    if comp.require_root && !tag_name.eq_ignore_ascii_case("html") {
+        return false;
+    }
+    if let Some(tag) = &comp.tag
+        && !tag_name.eq_ignore_ascii_case(tag)
+    {
+        return false;
+    }
+    if let Some(id) = &comp.id {
+        match get_attr_ci(attributes, "id") {
+            Some(v) if v.trim() == id => {}
+            _ => return false,
+        }
+    }
+    if !comp.classes.is_empty() {
+        let Some(class_attr) = get_attr_ci(attributes, "class") else {
+            return false;
+        };
+        for cls in &comp.classes {
+            if !class_attr.split_whitespace().any(|c| c == cls) {
+                return false;
+            }
+        }
+    }
+    for (attr, op) in &comp.attrs {
+        let val = get_attr_ci(attributes, attr).or_else(|| {
+            attr.rsplit_once(':')
+                .and_then(|(_, local)| get_attr_ci(attributes, local))
+        });
+        let Some(actual) = val else {
+            return false;
+        };
+        match op {
+            CssAttrOp::Exists => {}
+            CssAttrOp::Equals(expected) => {
+                if actual != expected {
+                    return false;
+                }
+            }
+            CssAttrOp::WordContains(expected) => {
+                if !actual.split_whitespace().any(|w| w == expected) {
+                    return false;
+                }
+            }
+            CssAttrOp::DashMatch(expected) => {
+                let is_match = actual == expected
+                    || (actual.starts_with(expected.as_str())
+                        && actual.as_bytes().get(expected.len()) == Some(&b'-'));
+                if !is_match {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
+fn selector_matches_node(node: &DomNode, ancestors: &[&DomNode], sel: &CssSelector) -> bool {
+    let n = sel.parts.len();
+    if n == 0 || !compound_matches_node(node, &sel.parts[n - 1].1) {
+        return false;
+    }
+    let mut anc = ancestors;
+    for idx in (1..n).rev() {
+        let comb = sel.parts[idx].0.unwrap_or(CssCombinator::Descendant);
+        let parent_comp = &sel.parts[idx - 1].1;
+        match comb {
+            CssCombinator::Child => {
+                let Some(&parent) = anc.last() else {
+                    return false;
+                };
+                if !compound_matches_node(parent, parent_comp) {
+                    return false;
+                }
+                anc = &anc[..anc.len() - 1];
+            }
+            CssCombinator::Descendant => {
+                let mut found = None;
+                for k in (0..anc.len()).rev() {
+                    if compound_matches_node(anc[k], parent_comp) {
+                        found = Some(k);
+                        break;
+                    }
+                }
+                let Some(k) = found else {
+                    return false;
+                };
+                anc = &anc[..k];
+            }
+        }
+    }
+    true
+}
+
+type CascadeKey = (bool, bool, (u32, u32, u32), usize);
+
+fn resolve_element_font_family(
+    node: &DomNode,
+    ancestors: &[&DomNode],
+    css_rules: &[FontFamilyRule],
+    inherited: Option<&str>,
+) -> Option<String> {
+    let mut best_key: Option<CascadeKey> = None;
+    let mut best_decl: Option<FontFamilyDecl> = None;
+
+    for rule in css_rules {
+        if selector_matches_node(node, ancestors, &rule.selector) {
+            let key = (rule.important, false, rule.selector.specificity, rule.order);
+            if best_key.is_none_or(|prev| key >= prev) {
+                best_key = Some(key);
+                best_decl = Some(rule.decl.clone());
+            }
+        }
+    }
+
+    if let DomNode::Element { attributes, .. } = node
+        && let Some(style_attr) = get_attr_ci(attributes, "style")
+    {
+        let decoded = decode_html_entities(style_attr);
+        if let Some((decl, important)) = extract_font_family_from_decls(&decoded) {
+            let key = (important, true, (0, 0, 0), usize::MAX);
+            if best_key.is_none_or(|prev| key >= prev) {
+                best_decl = Some(decl);
+            }
+        }
+    }
+
+    match best_decl {
+        Some(FontFamilyDecl::Value(v)) => Some(v),
+        Some(FontFamilyDecl::Reset) => None,
+        Some(FontFamilyDecl::Inherit) | None => inherited.map(ToOwned::to_owned),
+    }
 }

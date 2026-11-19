@@ -482,3 +482,154 @@ fn issue_34_kfx_preserves_declared_cover_and_non_spine_images() {
         "Round-tripped KfxBook should expose cover_image()"
     );
 }
+
+#[test]
+fn issue_35_kfx_preserves_font_family_assignments_and_inheritance() {
+    let container_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="EPUB/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>"#;
+
+    let opf_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="id">font-family-probe</dc:identifier>
+    <dc:title>Font Family Probe</dc:title>
+    <dc:language>en</dc:language>
+  </metadata>
+  <manifest>
+    <item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="css" href="main.css" media-type="text/css"/>
+    <item id="altcss" href="night.css" media-type="text/css"/>
+    <item id="fcss" href="fonts.css" media-type="text/css"/>
+    <item id="f_reg" href="OldStandard-Regular.otf" media-type="font/otf"/>
+  </manifest>
+  <spine>
+    <itemref idref="ch1"/>
+  </spine>
+</package>"#;
+
+    let fonts_css = br#"
+@font-face {
+  font-family: 'OldStandard';
+  font-style: normal;
+  font-weight: normal;
+  src: url(OldStandard-Regular.otf) format('opentype');
+}
+"#;
+
+    let main_css = br#"
+@charset "UTF-8";
+@import "fonts.css";
+body {
+  /* comment before font-family */
+  font-family: 'OldStandard', sans-serif;
+}
+h1 {
+  font-family: "Heading Serif", serif;
+}
+.quote > p {
+  font-family: 'QuoteFont', serif;
+}
+span.mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+"#;
+
+    let night_css = br#"
+body {
+  font-family: 'ShouldNotApply', fantasy !important;
+}
+"#;
+
+    let ch1 = br#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <title>Ch1</title>
+  <link rel="stylesheet" type="text/css" href="main.css"/>
+  <link rel="alternate stylesheet" type="text/css" href="night.css"/>
+</head>
+<body>
+  <h1>Title Heading</h1>
+  <p>Body paragraph with <span class="mono">inline code</span> and <span style="font-family: 'InlineFont', sans-serif;">inline style</span>.</p>
+  <div class="quote"><p>Quoted paragraph.</p></div>
+  <table><tr><td>Table cell text</td></tr></table>
+</body>
+</html>"#;
+
+    let fake_otf_reg = b"OTTO\x00\x0c\x00\x80\x00\x03\x00\x40CFF \x00\x00\x00\x00regular";
+
+    let epub_bytes = build_test_epub(&[
+        ("META-INF/container.xml", container_xml),
+        ("EPUB/content.opf", opf_xml),
+        ("EPUB/fonts.css", fonts_css),
+        ("EPUB/main.css", main_css),
+        ("EPUB/night.css", night_css),
+        ("EPUB/ch1.xhtml", ch1),
+        ("EPUB/OldStandard-Regular.otf", fake_otf_reg),
+    ]);
+
+    let book = Book::from_bytes(&epub_bytes).unwrap();
+    let kfx_bytes = UniversalKfxExporter::export(&book).unwrap();
+    let c = KfxContainer::parse(&kfx_bytes).unwrap();
+
+    // Collect all $157 style entities and their $11 font_family values
+    let font_families: Vec<String> = c
+        .index_entries
+        .iter()
+        .filter(|e| e.type_id == 157)
+        .filter_map(|e| {
+            let val = decode_enty(c.get_entry_payload(e).unwrap());
+            val.get_field(11)
+                .and_then(|v| v.as_str())
+                .map(ToOwned::to_owned)
+        })
+        .collect();
+
+    assert!(
+        font_families.iter().any(|f| f == "OldStandard, sans-serif"),
+        "Expected inherited body font-family 'OldStandard, sans-serif' in $157 styles, got {font_families:?}"
+    );
+    assert!(
+        font_families.iter().any(|f| f == "Heading Serif, serif"),
+        "Expected h1 font-family 'Heading Serif, serif' in $157 styles, got {font_families:?}"
+    );
+    assert!(
+        font_families.iter().any(|f| f == "QuoteFont, serif"),
+        "Expected child-selector '.quote > p' font-family 'QuoteFont, serif', got {font_families:?}"
+    );
+    assert!(
+        font_families
+            .iter()
+            .any(|f| f == "JetBrains Mono, monospace"),
+        "Expected inline class 'span.mono' font-family in $157 styles, got {font_families:?}"
+    );
+    assert!(
+        font_families.iter().any(|f| f == "InlineFont, sans-serif"),
+        "Expected inline style attribute font-family in $157 styles, got {font_families:?}"
+    );
+    assert!(
+        !font_families.iter().any(|f| f.contains("ShouldNotApply")),
+        "Alternate stylesheet must not be applied, got {font_families:?}"
+    );
+
+    // Verify round-trip via KfxBook::parse preserves font-family in HTML
+    let parsed = KfxBook::parse(&kfx_bytes).unwrap();
+    let sec = parsed.get_section(0).unwrap();
+    assert!(
+        sec.raw_html
+            .contains("font-family: OldStandard, sans-serif;")
+    );
+    assert!(sec.raw_html.contains("font-family: Heading Serif, serif;"));
+    assert!(sec.raw_html.contains("font-family: QuoteFont, serif;"));
+    assert!(
+        sec.raw_html
+            .contains("font-family: JetBrains Mono, monospace;")
+    );
+    assert!(
+        sec.raw_html
+            .contains("font-family: InlineFont, sans-serif;")
+    );
+}

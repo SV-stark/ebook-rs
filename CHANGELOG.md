@@ -5,6 +5,14 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.7] - 2026-11-19
+
+### Fixed
+
+- **KFX Publisher `font-family` Assignment & Inheritance (`src/kfx/writer.rs`, `src/kfx/reader.rs`)**:
+  - Parsed active `<link rel="stylesheet">` stylesheets (skipping `alternate stylesheet` and non-screen media), inline `<style>` blocks, recursive `@import` chains, and inline `style="..."` attributes for `font-family` and `font` shorthand declarations with CSS specificity, `!important`, combinators, and DOM inheritance.
+  - Emitted KFX `$11` (`font_family`) in `$157` style entities across section page templates, storyline text blocks, table cells, and `$142` inline `style_events` (unified with bidi `$682`/`$674` styles), and round-tripped `font-family` in `KfxBook::parse` (#35).
+
 ## [0.18.6] - 2026-11-16
 
 ### Fixed

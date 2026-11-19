@@ -322,15 +322,14 @@ impl KfxBook {
                     }
                 }
 
-                let sec_dir = reading_order_secs
+                let sec_page_style = reading_order_secs
                     .get(idx)
                     .and_then(|s| sections_map.get(s))
                     .and_then(|sv| sv.get_field(141))
                     .and_then(|v| v.as_list())
                     .and_then(|l| l.first())
-                    .and_then(|pt| {
-                        style_dir_info(pt.get_field(157).and_then(|v| v.as_symbol()), &styles_map)
-                    })
+                    .and_then(|pt| pt.get_field(157).and_then(|v| v.as_symbol()));
+                let sec_dir = style_dir_info(sec_page_style, &styles_map)
                     .map(|(d, _)| d)
                     .or_else(|| {
                         if metadata.direction == PageProgressionDirection::Rtl {
@@ -339,12 +338,17 @@ impl KfxBook {
                             None
                         }
                     });
+                let sec_font = style_font_family(sec_page_style, &styles_map);
 
                 let sec_id = format!("kfx_sec_{idx}");
                 let href = format!("sec_{idx}.xhtml");
                 let full_path = format!("OEBPS/sec_{idx}.xhtml");
                 let dir_attr = sec_dir.map(|d| format!(" dir=\"{d}\"")).unwrap_or_default();
-                let raw_html = format!("<div class=\"kfx-section\"{dir_attr}>\n{body_html}</div>");
+                let style_attr = sec_font
+                    .map(|ff| format!(" style=\"font-family: {};\"", xml_escape(ff)))
+                    .unwrap_or_default();
+                let raw_html =
+                    format!("<div class=\"kfx-section\"{dir_attr}{style_attr}>\n{body_html}</div>");
                 let plain_text = crate::section::extract_plain_text(&raw_html);
                 let plain_text_lower = plain_text.to_lowercase();
                 let char_count = plain_text.chars().count();
@@ -689,6 +693,16 @@ fn style_dir_info(
     Some((dir, tag))
 }
 
+fn style_font_family(style_sym: Option<u64>, styles_map: &AHashMap<u32, IonValue>) -> Option<&str> {
+    let sym_u32 = u32::try_from(style_sym?).ok()?;
+    let style_val = styles_map.get(&sym_u32)?;
+    style_val
+        .get_field(11)
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+}
+
 fn resolve_local_symbol(container: &KfxContainer, sym_id: u32) -> Option<String> {
     const YJ_MAX_ID: usize = 851;
     let idx = (sym_id as usize).checked_sub(YJ_MAX_ID + 1)?;
@@ -837,13 +851,14 @@ fn render_text_with_style_events(
     };
     let chars: Vec<char> = text.chars().collect();
     let total = chars.len();
-    struct InlineSpan {
+    struct InlineSpan<'a> {
         start: usize,
         end: usize,
         href: Option<String>,
         dir: Option<(&'static str, &'static str)>,
+        font_family: Option<&'a str>,
     }
-    let mut spans: Vec<InlineSpan> = Vec::new();
+    let mut spans: Vec<InlineSpan<'_>> = Vec::new();
     for ev in events {
         let Some(off) = ev.get_field(143).and_then(|v| v.as_i64()) else {
             continue;
@@ -863,16 +878,16 @@ fn render_text_with_style_events(
             .get_field(179)
             .and_then(|v| v.as_symbol())
             .and_then(|anc_sym| resolve_anchor_href(anc_sym, ctx));
-        let dir = style_dir_info(
-            ev.get_field(157).and_then(|v| v.as_symbol()),
-            ctx.styles_map,
-        );
-        if href.is_some() || dir.is_some() {
+        let ev_style = ev.get_field(157).and_then(|v| v.as_symbol());
+        let dir = style_dir_info(ev_style, ctx.styles_map);
+        let font_family = style_font_family(ev_style, ctx.styles_map);
+        if href.is_some() || dir.is_some() || font_family.is_some() {
             spans.push(InlineSpan {
                 start,
                 end,
                 href,
                 dir,
+                font_family,
             });
         }
     }
@@ -891,12 +906,24 @@ fn render_text_with_style_events(
             out.push_str(&xml_escape(&plain));
         }
         let seg: String = chars[sp.start..sp.end].iter().collect();
-        if let Some((d, tag)) = sp.dir {
+        let wrap_tag = sp
+            .dir
+            .map(|(_, tag)| tag)
+            .or(sp.font_family.map(|_| "span"));
+        if let Some(tag) = wrap_tag {
             out.push('<');
             out.push_str(tag);
-            out.push_str(" dir=\"");
-            out.push_str(d);
-            out.push_str("\">");
+            if let Some((d, _)) = sp.dir {
+                out.push_str(" dir=\"");
+                out.push_str(d);
+                out.push('"');
+            }
+            if let Some(ff) = sp.font_family {
+                out.push_str(" style=\"font-family: ");
+                out.push_str(&xml_escape(ff));
+                out.push_str(";\"");
+            }
+            out.push('>');
         }
         if let Some(href) = &sp.href {
             out.push_str("<a href=\"");
@@ -907,7 +934,7 @@ fn render_text_with_style_events(
         if sp.href.is_some() {
             out.push_str("</a>");
         }
-        if let Some((_, tag)) = sp.dir {
+        if let Some(tag) = wrap_tag {
             out.push_str("</");
             out.push_str(tag);
             out.push('>');
@@ -1017,6 +1044,15 @@ fn render_kfx_block(blk: &IonValue, ctx: &StructuredRenderCtx<'_>, out: &mut Str
                             {
                                 out.push_str(&format!(" rowspan=\"{rs}\""));
                             }
+                            let cell_style = cell.get_field(157).and_then(|v| v.as_symbol());
+                            if let Some((d, _)) = style_dir_info(cell_style, ctx.styles_map) {
+                                out.push_str(&format!(" dir=\"{d}\""));
+                            }
+                            if let Some(ff) = style_font_family(cell_style, ctx.styles_map) {
+                                out.push_str(" style=\"font-family: ");
+                                out.push_str(&xml_escape(ff));
+                                out.push_str(";\"");
+                            }
                             out.push('>');
                             let text = resolve_block_text(cell, ctx.content_map);
                             render_text_with_style_events(text, cell, ctx, out);
@@ -1040,11 +1076,14 @@ fn render_kfx_block(blk: &IonValue, ctx: &StructuredRenderCtx<'_>, out: &mut Str
             if !text.is_empty() {
                 out.push_str("<p");
                 push_id_attr(eid, ctx, out);
-                if let Some((d, _)) = style_dir_info(
-                    blk.get_field(157).and_then(|v| v.as_symbol()),
-                    ctx.styles_map,
-                ) {
+                let blk_style = blk.get_field(157).and_then(|v| v.as_symbol());
+                if let Some((d, _)) = style_dir_info(blk_style, ctx.styles_map) {
                     out.push_str(&format!(" dir=\"{d}\""));
+                }
+                if let Some(ff) = style_font_family(blk_style, ctx.styles_map) {
+                    out.push_str(" style=\"font-family: ");
+                    out.push_str(&xml_escape(ff));
+                    out.push_str(";\"");
                 }
                 out.push('>');
                 render_text_with_style_events(text, blk, ctx, out);
