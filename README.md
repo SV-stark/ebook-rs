@@ -44,19 +44,19 @@
 
 | Feature | 🚀 `ebook-rs` | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
-| **EPUB 2 & 3 Support** | ✅ Full OPF + NCX/NAV | ✅ Yes | ✅ Yes | ✅ Yes |
+| **EPUB 2, EPUB 3 & KEPUB** | ✅ Full OPF + NCX/NAV + Kobo KEPUB | ✅ EPUB 2/3 | ✅ EPUB 2/3 | ✅ EPUB 2/3 |
 | **EPUB 3 Fixed-Layout (FXL)** | ✅ 2-page spread renderer | ✅ Yes | ✅ Yes | ❌ No |
-| **Amazon KFX (KF10) Support** | ✅ Clean-room Ion 1.0 `CONT` v2 read & write (fonts, `font-family`, bidi/RTL, tables, links, TOC, cover/images) | ❌ No | ✅ Read-only | ❌ No |
-| **MOBI & AZW3 (KF8) Support** | ✅ Native PalmDOC LZ77 | ❌ No | ✅ Yes | ❌ No |
-| **FB2 (FictionBook 2) Support** | ✅ Native XML + xlink:href | ❌ No | ✅ Yes | ❌ No |
-| **LIT (Microsoft Reader) Support** | ✅ Native | ❌ No | ✅ Yes | ❌ No |
-| **CBZ (Comic Book ZIP) Support** | ✅ Native ZIP Images | ❌ No | ✅ Yes | ❌ No |
-| **PDF Support & Two-Column Reflow** | ✅ `unpdf` + reading-order reflow | ❌ No | ❌ No | ❌ No |
+| **Amazon KFX (KF10) Read & Write** | ✅ Clean-room Ion 1.0 `CONT` v2 (fonts, `font-family`, bidi/RTL, tables, links, TOC, cover/images) | ❌ No | ❌ No | ❌ No |
+| **MOBI & AZW3 (KF8) Support** | ✅ Native PalmDOC LZ77 + Huffman/CDIC | ❌ No | ✅ Read-only | ❌ No |
+| **FB2 (FictionBook 2) Support** | ✅ Native XML + `xlink:href` binaries | ❌ No | ✅ Read-only | ❌ No |
+| **LIT (Microsoft Reader) Support** | ✅ Native ITOL/ITLS parser | ❌ No | ❌ No | ❌ No |
+| **CBZ (Comic Book ZIP) Support** | ✅ Native ZIP pages + prefetch | ❌ No | ✅ Read-only | ❌ No |
+| **PDF Support & Two-Column Reflow** | ✅ `unpdf` (`pdf` feature) + reading-order reflow | ❌ No | ❌ No | ❌ No |
 | **ODT (OpenDocument Text)** | ✅ Native XML + `content.xml` | ❌ No | ❌ No | ❌ No |
-| **DOCX (Microsoft Word)** | ✅ Native WordML + `rdocx` | ❌ No | ❌ No | ❌ No |
-| **RTF (Rich Text Format)** | ✅ Native Control Words + Unicode | ❌ No | ❌ No | ❌ No |
-| **TXT / Markdown Support** | ✅ Auto-reflow sections | ❌ No | ❌ No | ❌ No |
-| **Auto Format Detection** | ✅ Magic-byte detection | ❌ No | ❌ No | ❌ No |
+| **DOCX (Microsoft Word)** | ✅ Native WordML + embedded media | ❌ No | ❌ No | ❌ No |
+| **RTF (Rich Text Format)** | ✅ Native Control Words + embedded images | ❌ No | ❌ No | ❌ No |
+| **TXT & Markdown Support** | ✅ Frontmatter, wikilinks, callouts & auto-reflow | ❌ No | ❌ No | ❌ No |
+| **Auto Format Detection** | ✅ Magic-byte + container inspection | ❌ No | ✅ Basic | ❌ No |
 
 ### 🧭 Navigation, Rendering & Security
 
@@ -67,14 +67,15 @@
 | **Readium CFI Unified Locator** | ✅ Full model | ✅ Yes | ✅ Yes | ❌ No |
 | **Location / Reading Progress** | ✅ `Book::locations_from_sections()` | ✅ Yes | ✅ Yes | ✅ Yes |
 | **SpeechSynthesis TTS Word Synchronizer** | ✅ `tokenize_tts_words()` token spans | ❌ No | ❌ No | ❌ No |
-| **SMIL Media Overlays (Sync)** | ✅ NPT clock parser | ✅ Yes | ✅ Yes | ❌ No |
+| **SMIL Media Overlays (Sync)** | ✅ NPT clock parser + karaoke highlight | ✅ Yes | ✅ Yes | ❌ No |
 | **EPUB NCX / NAV TOC Parsing** | ✅ Deep recursive nav tree | ✅ Yes | ✅ Yes | ✅ Yes |
+| **Popup Footnotes & Endnotes** | ✅ `Footnote` resolver (`epub:type="noteref"`) | ❌ No | ✅ Yes | ❌ No |
 | **RTL & CJK Vertical Writing** | ✅ `direction: rtl` + `vertical-rl` | ✅ Yes | ✅ Yes | ❌ No |
-| **Viewport Meta Parsing** | ✅ Zero-alloc slice parse | ✅ Yes | ✅ Yes | ❌ No |
-| **Reflow Paginator** | ✅ `ReflowPaginator::paginate_section` | ✅ Yes | ✅ Yes | ❌ No |
-| **Readium LCP DRM License Parser** | ✅ `LcpLicense` + expiry checks | ❌ No | ✅ Yes | ❌ No |
-| **Legacy Non-UTF-8 Auto-Decoding** | ✅ Auto Win-1252/Shift-JIS/GBK | ❌ No | ❌ No | ❌ No |
-| **HTML Entity Decoding** | ✅ `decode_html_entities()` single-pass | ❌ No | ❌ No | ❌ No |
+| **Viewport Meta & Reflow Paginator** | ✅ `ReflowPaginator` + zero-alloc viewport | ✅ Yes | ✅ Yes | ❌ No |
+| **Font Deobfuscation (IDPF / Adobe)** | ✅ `FontDeobfuscator` XOR | ❌ No | ✅ Yes | ❌ No |
+| **Readium LCP DRM License Parser** | ✅ `LcpLicense` + AES-256-CBC decryption | ❌ No | ❌ No | ❌ No |
+| **Security & DoS Hardening** | ✅ XSS/URI sanitizer, zip-bomb budget, XML depth & regex bounds | ❌ No | ❌ No | ❌ No |
+| **Legacy Non-UTF-8 & Entity Decoding** | ✅ Auto Win-1252/Shift-JIS/GBK + single-pass entities | ❌ No | ❌ No | ❌ No |
 
 ### 🔍 Search, Analytics & AI RAG
 
@@ -83,8 +84,8 @@
 | **Model Context Protocol (MCP 2024-11-05)** | ✅ Built-in Stdio & HTTP Server | ❌ No | ❌ No | ❌ No |
 | **Okapi BM25 Relevance Scoring** | ✅ `rank_chunks_bm25()` TF-IDF | ❌ No | ❌ No | ❌ No |
 | **AI & RAG Chunking Engine** | ✅ `to_rag_chunks()` + CFI citations | ❌ No | ❌ No | ❌ No |
-| **SIMD Accelerated Full-Text Search** | ✅ SIMD + memchr match scanning | ❌ No | ✅ Basic | ❌ No |
-| **Regex Search** | ✅ `Book::search_regex()` | ❌ No | ❌ No | ❌ No |
+| **SIMD Accelerated Full-Text Search** | ✅ SIMD + `memchr` match scanning | ❌ No | ✅ Basic | ❌ No |
+| **Bounded Regex Search** | ✅ `Book::search_regex()` | ❌ No | ❌ No | ❌ No |
 | **Search Context Snippets** | ✅ `<mark>` highlights + XSS guard | ❌ No | ✅ Yes | ❌ No |
 | **Readium Search JSON Export** | ✅ Readium-compliant JSON | ❌ No | ✅ Yes | ❌ No |
 | **NLP Reading Analytics** | ✅ Word count / reading time / complexity | ❌ No | ❌ No | ❌ No |
@@ -94,12 +95,14 @@
 
 | Feature | 🚀 `ebook-rs` | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
-| **Universal EPUB 3 & KFX Exporters** | ✅ `Book::export_epub3_bytes()` & `Book::export_kfx_bytes()` | ❌ No | ❌ No | ❌ No |
-| **Lazy On-Demand Resource Hydration** | ✅ Sections + assets loaded on access | ❌ No | ❌ No | ❌ No |
+| **Universal EPUB 3 & KFX Exporters** | ✅ `export_epub3_bytes()` & `export_kfx_bytes()` | ❌ No | ❌ No | ❌ No |
+| **Lossless EPUB 3 Optimizer & Validator** | ✅ HTML/asset minifier + structural validator | ❌ No | ❌ No | ❌ No |
+| **Academic Citations & Fingerprinting** | ✅ APA / MLA / Chicago / BibTeX + `BookFingerprint` | ❌ No | ❌ No | ❌ No |
+| **OPDS 1.2 / 2.0 Catalog Client** | ✅ `opds` feed parser & download resolver | ❌ No | ✅ Yes | ❌ No |
+| **Lazy Hydration & Streaming ZIP** | ✅ On-demand sections + HTTP Range ZIP | ✅ Partial | ✅ Partial | ✅ Partial |
 | **Zstd Compressed State Caching** | ✅ Instant `export_zstd_cache()` | ❌ No | ❌ No | ❌ No |
-| **C / Python / Node FFI Bindings** | ✅ `ebook_rs::ffi` C ABI + PyO3 | ❌ No | ❌ No | ❌ No |
-| **Web Component Generator** | ✅ `<ebook-reader>` HTMLElement | ❌ No | ❌ No | ❌ No |
-| **WASM Client SDK** | ✅ `WasmBook` WASM bindings | ✅ Yes | ✅ Yes | ❌ No |
+| **Mobile, Python & C Bindings** | ✅ Mozilla UniFFI (Swift/Kotlin) + PyO3 + C ABI | ❌ No | ❌ No | ❌ No |
+| **WASM SDK & Web Component** | ✅ `WasmBook` + `<ebook-reader>` | ✅ JS native | ✅ JS native | ❌ No |
 | **W3C Web Annotation (JSON-LD)** | ✅ Full CRUD + `to_w3c_json` | ❌ No | ✅ Yes | ❌ No |
 | **Readium WebPub Manifest Export** | ✅ `book.to_webpub_manifest()` | ❌ No | ✅ Yes | ❌ No |
 
