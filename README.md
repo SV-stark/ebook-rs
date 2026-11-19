@@ -46,7 +46,7 @@
 |---|:---:|:---:|:---:|:---:|
 | **EPUB 2 & 3 Support** | ✅ Full OPF + NCX/NAV | ✅ Yes | ✅ Yes | ✅ Yes |
 | **EPUB 3 Fixed-Layout (FXL)** | ✅ 2-page spread renderer | ✅ Yes | ✅ Yes | ❌ No |
-| **Amazon KFX (KF10) Support** | ✅ Clean-room Ion 1.0 `b"CONT"` v2 container | ❌ No | ✅ Yes | ❌ No |
+| **Amazon KFX (KF10) Support** | ✅ Clean-room Ion 1.0 `CONT` v2 read & write (fonts, `font-family`, bidi/RTL, tables, links, TOC, cover/images) | ❌ No | ✅ Read-only | ❌ No |
 | **MOBI & AZW3 (KF8) Support** | ✅ Native PalmDOC LZ77 | ❌ No | ✅ Yes | ❌ No |
 | **FB2 (FictionBook 2) Support** | ✅ Native XML + xlink:href | ❌ No | ✅ Yes | ❌ No |
 | **LIT (Microsoft Reader) Support** | ✅ Native | ❌ No | ✅ Yes | ❌ No |
@@ -107,17 +107,20 @@
 
 ## ⚡ Format Conversion Benchmark (`ebook-rs` vs Calibre `ebook-convert`)
 
-Empirically measured conversion benchmark converting sample eBook corpora to **EPUB 3** on AMD Ryzen 9 / PCIe 4.0 NVMe:
+Empirically measured 3-run median conversion benchmark on **ebook-rs v0.18.7** (`--release`) vs **Calibre 9.18** (`ebook-convert` / `KFX Input 2.34.2` / `KFX Output` + Kindle Previewer) on Windows 11 / AMD Ryzen 9 / PCIe 4.0 NVMe:
 
-| Input Format | Sample Book | 🚀 `ebook-rs` | 🐍 Calibre `ebook-convert` | Speedup | Image Assets Extracted | Chapter Sections | Output Parity |
+| Conversion | Sample Book | 🚀 `ebook-rs` | 🐍 Calibre 9.18 | Speedup | Image Assets Extracted | Chapter Sections | Output Parity |
 |---|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **MOBI → EPUB** | *Alice in Wonderland (MOBI)* | **0.34s** ⚡ | 2.23s | **6.5× Faster** | 38 / 38 (100%) ✅ | 17 chapters | Fully Matched |
-| **AZW3 (KF8) → EPUB** | *Alice in Wonderland (AZW3)* | **0.22s** ⚡ | 2.03s | **9.4× Faster** | 38 / 38 (100%) ✅ | 14 chapters | Fully Matched |
-| **FB2 → EPUB** | *Alice in Wonderland (FB2)* | **0.18s** ⚡ | 1.66s | **9.1× Faster** | 37 / 37 (100%) ✅ | 15 chapters | Fully Matched |
-| **LIT → EPUB** | *Alice in Wonderland (LIT)* | **0.32s** ⚡ | 1.94s | **6.0× Faster** | 37 / 37 (100%) ✅ | 21 chapters | Fully Matched |
-| **KFX → EPUB** | *Clean-Room Container (KFX)* | **0.29s** ⚡ | 3.84s *(Plugin Req.)* | **10.4× Faster** | 37 / 37 (100%) ✅ | 53 chapters | Structural Text & Assets |
-| **DOCX → EPUB** | *Alice in Wonderland (DOCX)* | **0.15s** ⚡ | 2.85s | **19.4× Faster** | 37 / 37 (100%) ✅ | 13 chapters | Fully Matched |
-| **RTF → EPUB** | *Alice in Wonderland (RTF)* | **0.85s** ⚡ | 2.34s | **2.8× Faster** | 36 / 36 (100%) ✅ | 15 chapters | Fully Matched |
+| **EPUB → KFX** | *Alice in Wonderland (EPUB 3)* | **0.31s** ⚡ | 60.99s *(KFX Output + KP3)* | **~195× Faster** | 37 / 37 (100%) ✅ | 16 chapters | Verified via KFX Input |
+| **DOCX → EPUB** | *Alice in Wonderland (DOCX)* | **0.16s** ⚡ | 2.95s | **18.1× Faster** | 37 / 37 (100%) ✅ | 13 chapters | Fully Matched |
+| **TXT → EPUB** | *Alice in Wonderland (TXT)* | **0.11s** ⚡ | 1.98s | **17.8× Faster** | — | 1 chapter | Fully Matched |
+| **CBZ → EPUB** | *Jumbo Comics 099 (21 MB CBZ)* | **0.83s** ⚡ | 12.87s | **15.5× Faster** | 52 / 52 (100%) ✅ | 52 pages | Fully Matched |
+| **AZW3 (KF8) → EPUB** | *Alice in Wonderland (AZW3)* | **0.15s** ⚡ | 2.19s | **14.7× Faster** | 38 / 38 (100%) ✅ | 14 chapters | Fully Matched |
+| **FB2 → EPUB** | *Alice in Wonderland (FB2)* | **0.15s** ⚡ | 1.77s | **11.9× Faster** | 37 / 37 (100%) ✅ | 15 chapters | Fully Matched |
+| **LIT → EPUB** | *Alice in Wonderland (LIT)* | **0.24s** ⚡ | 1.99s | **8.4× Faster** | 37 / 37 (100%) ✅ | 21 chapters | Fully Matched |
+| **MOBI → EPUB** | *Alice in Wonderland (MOBI)* | **0.27s** ⚡ | 2.19s | **8.0× Faster** | 38 / 38 (100%) ✅ | 17 chapters | Fully Matched |
+| **KFX → EPUB** | *Alice in Wonderland (Calibre/kfxgen KFX)* | **0.40s** ⚡ | 3.05s *(KFX Input)* | **7.6× Faster** | 38 / 38 (100%) ✅ | 16 chapters | Full Ion Text, Styles & Assets *(17.1× on `ebook-rs` KFX)* |
+| **RTF → EPUB** | *Alice in Wonderland (RTF)* | **0.58s** ⚡ | 2.86s | **4.9× Faster** | 36 / 36 (100%) ✅ | 15 chapters | All 36 images preserved *(Calibre extracts 1)* |
 
 ---
 
