@@ -136,20 +136,19 @@ Empirically measured 3-run median conversion benchmark on **ebook-rs v0.18.7** (
 - **Continuous Coverage-Guided Fuzzing**: Continuous LLVM `libFuzzer` (`cargo-fuzz`) runs mutate raw byte streams over millions of iterations against `Book::from_bytes` and CFI locators.
 - **Mass Corpus Stress Testing**: A dedicated chaos-testing runner (`examples/corpus_stress.rs`) evaluates real-world books across all 14 supported formats, injecting byte truncations (10% to 90%), zeroed headers, and bit-flipped noise.
 
-### 📊 Real-World Resilience Scorecard
+### 📊 Real-World Resilience Scorecard *(Re-verified on v0.18.7)*
 
-| Test Suite / Corpus | Formats Evaluated | Ingestion Status | Panics / Crashes | Error Handling |
+| Test Suite / Corpus | Formats / Vectors Evaluated | Ingestion Status | Panics / Crashes | Error Handling |
 | :--- | :--- | :--- | :--- | :--- |
-| **Real-World Sample Suite** | EPUB2, EPUB3, MOBI, AZW3, KFX, FB2, LIT, CBZ, PDF, DOCX, RTF, TXT | ✅ 100% Ingested | **0 Panics** | Graceful |
-| **Header Zeroing (16 bytes)** | All formats | ⚠️ Handled | **0 Panics** | Clean `Err(InvalidFormat)` |
-| **Truncation (10%, 25%, 50%, 90%)** | All formats | ⚠️ Handled / Repaired | **0 Panics** | Clean `Err(InvalidFormat)` |
-| **Bit-Flipped Noise Injection** | All formats | ⚠️ Handled / Resilient | **0 Panics** | Clean `Err` |
-| **Structured-Adversarial Sweep** | Deep XML nesting, LCP licence dates, hostile token counts, ZIP central-directory under-declaration | ⚠️ Rejected or bounded | **0 Panics** | Clean `Err` |
-| **Coverage-Guided Fuzzing (libFuzzer)** | Arbitrary byte streams | Millions of mutations | **0 Panics** | 100% Memory-Safe |
+| **Real-World Sample Suite** (`corpus_stress` + `test_real_samples_golden`) | 14 files: EPUB2, EPUB3, KEPUB, MOBI, AZW3, KFX, FB2, LIT, CBZ, CBR, PDF, DOCX, RTF, TXT | ✅ 13/13 supported ingested (1.15s total) + CBR cleanly rejected | **0 Panics** | Graceful `Result` |
+| **Chaos Mutation Sweep** (Header Zeroing, 10%/25%/50%/90% Truncation, Bit-Flips) | 84 mutated streams across all 14 samples | ⚠️ 45 fuzzy-recovered, 39 rejected (1.21s total) | **0 Panics** | Clean `Err(InvalidFormat)` |
+| **Structured-Adversarial Sweep** (`tests/test_security_regressions.rs`) | 15 tests: deep XML nesting, decompression budget, LCP dates, hostile token counts, path traversal, ZIP EOCD, XSS/URI guards | ✅ 15/15 passed (0.02s) | **0 Panics** | Clean `Err` / Bounded |
+| **KFX Fidelity & Round-Trip Suite** (`tests/test_kfx_issues.rs`) | 7 tests: Ion v2 IDs, images, TOC, links, RTL/bidi, tables, embedded fonts + `font-family` cascade, cover | ✅ 7/7 passed (0.03s) | **0 Panics** | Verified via KFX Input |
+| **Coverage-Guided Fuzzing (libFuzzer)** | Arbitrary byte streams | Millions of mutations (scheduled CI) | **0 Panics** | 100% Memory-Safe |
 
-These figures are snapshots from the runs described above, not a standing guarantee — they are
-regression-tested in `tests/test_security_regressions.rs` and re-measured by the scheduled
-fuzz/chaos workflow.
+These figures are snapshots from the v0.18.7 runs above, not a standing guarantee — they are
+regression-tested in `tests/test_security_regressions.rs` and `tests/test_real_samples_golden.rs`,
+and re-measured by the scheduled fuzz/chaos workflow.
 
 #### Run the Automated Gutenberg Stress Test:
 ```bash
