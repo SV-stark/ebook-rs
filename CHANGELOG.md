@@ -5,6 +5,29 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-11-20
+
+### Added
+
+- **Pure-Rust Multi-Format Input & Output Codecs (`src/formats/web_and_archives.rs`, `src/formats/office_and_markup.rs`, `src/formats/mod.rs`)**:
+  - **Kobo KEPUB Output (`Book::export_kepub_bytes`)**: EPUB 3 export with `#book-columns > #book-inner` wrappers, sentence-level `<span class="koboSpan" id="kobo.P.S">` instrumentation, and externalized image assets.
+  - **Web & Archive Packages (Input & Output)**: Standalone **HTML5** (`export_html_bytes`, `parse_html` with inlined `data:` URI images and `<meta>` extraction), **HTMLZ** (`export_htmlz_bytes`), **TXTZ** (`export_txtz_bytes`), **Open eBook / OEB** (`export_oeb_dir`, `export_oeb_bytes`, `parse_oeb_path` supporting directories, `.opf` files, and OEB ZIPs), and generic **HTML/TXT ZIP** (`export_zip_bytes`).
+  - **FictionBook 2.0, Plain Text & Markdown Output**: `Book::export_fb2_bytes` (with `<title-info>`, `<coverpage>`, inline `<emphasis>`/`<strong>`, and base64 `<binary>` images), `Book::export_txt_bytes`, and `Book::export_markdown_bytes` (with YAML frontmatter and GFM tables).
+  - **Psion TCR (`!!8-Bit!!`) Input & Output**: `export_tcr_bytes` (256-entry dictionary compressor) and `parse_tcr` (with 64 MiB decompression budget guard).
+  - **Office & RTF Output**: `Book::export_docx_bytes` (OOXML WordprocessingML with headings, styles, tables, and `<w:drawing>` inline images), `Book::export_odt_bytes` (ODF 1.2 with `Pictures/*` and `manifest.xml`), and `Book::export_rtf_bytes` (RTF 1.x with `\uN?` UTF-16 escapes, tables, and `\pngblip`/`\jpegblip` images).
+  - **Legacy eBook Containers (Input & Output)**: **Palm Markup Language ZIP (`pmlz`)** (`export_pmlz_bytes`, `parse_pmlz_archive`) and **Rocket eBook (`rb`)** (`export_rb_bytes`, `parse_rb` with `NUVO` header, `info.info`, 4 KiB chunked zlib HTML, and embedded images).
+  - **Kindle & PalmDB Codecs (`src/formats/kindle_and_palm.rs`)**: Pure-Rust **MOBI** (`export_mobi_bytes`) and **AZW3** (`export_azw3_bytes`) writers with PalmDOC LZ77 compression, EXTH metadata, and embedded image records; plus **PalmDB / PalmDOC / zTXT (`.pdb`)** Input & Output (`parse_pdb`, `export_pdb_bytes`).
+  - **PDF, LaTeX & PowerPoint Codecs (`src/formats/pdf_tex_pptx.rs`)**: Zero-dependency pure-Rust **PDF 1.4** paginated writer (`export_pdf_bytes`), **LaTeX (`.tex`)** Input & Output (`parse_tex`, `export_tex_bytes`), and **PowerPoint OOXML (`.pptx`)** Input & Output (`parse_pptx`, `export_pptx_bytes`).
+  - **Structured Markup Formats (Input & Output)**: **Typst (`.typ` / `.typst`)**, **AsciiDoc (`.adoc`)**, **Emacs Org-mode (`.org`)**, and **reStructuredText (`.rst`)** with UTF-8 char-boundary safety.
+- **Unified Export API & Bindings (`src/book.rs`, `src/python.rs`, `src/main.rs`)**:
+  - Added `Book::export_format_bytes(&self, format: &str)` and `Book::supported_output_formats()` for dynamic 21-format export.
+  - Exposed `PyBook::export_format_bytes(format)` in PyO3 Python bindings.
+  - Extended `ebook-rs convert <input> <output>` CLI to support all 21 output formats + RAG JSON.
+- **Upgraded MCP Server (`src/mcp.rs`)**:
+  - Expanded `convert_ebook` MCP tool to convert across all 21 supported output formats (plus OEB directories and RAG JSON) within the configured sandbox.
+  - Added `export_ebook_text` MCP tool to return inline UTF-8 text/markup (`md`, `txt`, `html`, `fb2`, `typst`, `adoc`, `org`, `rst`) directly to LLMs with configurable `max_chars` capping.
+  - Updated `ebook://info` resource with complete `supported_input_formats`, `supported_output_formats`, and engine capabilities.
+
 ## [0.18.7] - 2026-11-19
 
 ### Fixed

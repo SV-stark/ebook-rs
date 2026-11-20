@@ -31,4 +31,9 @@ for hit in hits:
 
 # Export RAG chunks
 rag_data = book.to_rag_chunks_json(max_tokens=256)
+
+# Export to any of the 27 pure-Rust output formats (v0.19.0)
+pdf_bytes = book.export_format_bytes("pdf")
+kfx_bytes = book.export_format_bytes("kfx")
+typst_bytes = book.export_format_bytes("typst")
 ```

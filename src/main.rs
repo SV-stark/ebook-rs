@@ -121,25 +121,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("🔄 Loading eBook from: {in_path}");
             let book = Book::from_file(in_path)?;
 
+            let out_lower = out_path.to_ascii_lowercase();
             let out_ext = Path::new(out_path)
                 .extension()
                 .and_then(|e| e.to_str())
                 .unwrap_or("");
-            if out_ext.eq_ignore_ascii_case("epub") {
-                let epub_bytes = ebook_rs::UniversalEpub3Exporter::export(&book)?;
-                fs::write(out_path, epub_bytes)?;
-                println!("✅ Converted and exported EPUB 3 file to: {out_path}");
-            } else if out_ext.eq_ignore_ascii_case("kfx") {
-                let kfx_bytes = ebook_rs::UniversalKfxExporter::export(&book)?;
-                fs::write(out_path, kfx_bytes)?;
-                println!("✅ Converted and exported Amazon KFX file to: {out_path}");
-            } else if out_ext.eq_ignore_ascii_case("json") {
+            let target_fmt = if out_lower.ends_with(".kepub.epub") {
+                "kepub"
+            } else {
+                out_ext
+            };
+            if target_fmt.eq_ignore_ascii_case("json") {
                 let chunks = book.to_rag_chunks(&ebook_rs::RagChunkConfig::default());
                 let json = serde_json::to_string_pretty(&chunks)?;
                 fs::write(out_path, json)?;
                 println!("✅ Exported RAG chunks JSON file to: {out_path}");
+            } else if target_fmt.eq_ignore_ascii_case("oeb") {
+                book.export_oeb_dir(out_path)?;
+                println!("✅ Converted and exported Open eBook (OEB) directory to: {out_path}");
+            } else if target_fmt.eq_ignore_ascii_case("epub") {
+                let epub_bytes = ebook_rs::UniversalEpub3Exporter::export(&book)?;
+                fs::write(out_path, epub_bytes)?;
+                println!("✅ Converted and exported EPUB 3 file to: {out_path}");
+            } else if target_fmt.eq_ignore_ascii_case("kfx") {
+                let kfx_bytes = ebook_rs::UniversalKfxExporter::export(&book)?;
+                fs::write(out_path, kfx_bytes)?;
+                println!("✅ Converted and exported Amazon KFX file to: {out_path}");
             } else {
-                return Err("Unsupported output extension. Supported: .epub, .kfx, .json".into());
+                let bytes = book.export_format_bytes(target_fmt)?;
+                fs::write(out_path, bytes)?;
+                println!(
+                    "✅ Converted and exported {} file to: {out_path}",
+                    target_fmt.to_ascii_uppercase()
+                );
             }
         }
         "rag" => {

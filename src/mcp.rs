@@ -523,11 +523,11 @@ fn list_mcp_tools() -> Vec<Value> {
     vec![
         json!({
             "name": "get_metadata",
-            "description": "Extract full metadata (title, author, publisher, description, language, rights, total section count) from an eBook file (EPUB, MOBI, AZW3, FB2, LIT, CBZ, PDF, ODT, TXT, MD).",
+            "description": "Extract full metadata (title, author, publisher, description, language, rights, total section count) from an eBook file (EPUB 2/3, KEPUB, KFX, MOBI, AZW3, PDB, FB2, LIT, CBZ, PDF, DOCX, ODT, RTF, PPTX, HTML, HTMLZ, TXTZ, OEB, ZIP, TCR, PMLZ, RB, Typst, AsciiDoc, Org, RST, LaTeX, TXT, MD).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "Absolute or relative path to the eBook file" }
+                    "path": { "type": "string", "description": "Absolute or relative path to the eBook file or OEB directory" }
                 },
                 "required": ["path"]
             }
@@ -586,14 +586,33 @@ fn list_mcp_tools() -> Vec<Value> {
         }),
         json!({
             "name": "convert_ebook",
-            "description": "Convert an eBook between supported formats (.epub, .kfx, or RAG .json).",
+            "description": "Convert an eBook between 27+ pure-Rust formats (.epub, .kepub, .kepub.epub, .kfx, .mobi, .azw3, .pdb, .pdf, .fb2, .html, .htmlz, .txt, .txtz, .md, .oeb, .zip, .tcr, .docx, .odt, .rtf, .pptx, .pmlz, .rb, .typ, .typst, .adoc, .org, .rst, .tex, or RAG .json).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "input_path": { "type": "string", "description": "Path to input eBook file" },
-                    "output_path": { "type": "string", "description": "Path to output file (.epub, .kfx, or .json)" }
+                    "input_path": { "type": "string", "description": "Path to input eBook file or OEB directory" },
+                    "output_path": { "type": "string", "description": "Path to output file/directory with target extension (.epub, .kepub, .kfx, .mobi, .azw3, .pdb, .pdf, .docx, .odt, .rtf, .pptx, .fb2, .html, .htmlz, .txt, .txtz, .md, .oeb, .zip, .tcr, .pmlz, .rb, .typ, .adoc, .org, .rst, .tex, or .json)" }
                 },
                 "required": ["input_path", "output_path"]
+            }
+        }),
+        json!({
+            "name": "export_ebook_text",
+            "description": "Export an eBook directly to a text or markup format (md, txt, html, fb2, typst, adoc, org, rst, tex) and return the rendered content inline without writing a file.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Path to input eBook file" },
+                    "format": {
+                        "type": "string",
+                        "description": "Target text/markup format: 'md', 'txt', 'html', 'fb2', 'typst', 'adoc', 'org', 'rst', or 'tex' (default 'md')"
+                    },
+                    "max_chars": {
+                        "type": "integer",
+                        "description": "Optional character cap to avoid oversized responses (default 100000)"
+                    }
+                },
+                "required": ["path"]
             }
         }),
         json!({
@@ -651,8 +670,22 @@ fn handle_resource_read(
         let info = json!({
             "engine": "ebook-rs",
             "version": env!("CARGO_PKG_VERSION"),
-            "supported_formats": ["EPUB2", "EPUB3", "MOBI", "AZW3", "FB2", "LIT", "CBZ", "PDF", "ODT", "TXT", "MD"],
-            "features": ["TTS Synchronizer", "Readium LCP/Locator", "Zstd State Caching", "RAG BM25 Chunker", "EPUB3 Exporter", "MCP Server"]
+            "supported_input_formats": [
+                "EPUB2", "EPUB3", "KEPUB", "KFX", "MOBI", "AZW3", "PDB", "FB2", "LIT", "CBZ", "PDF",
+                "DOCX", "ODT", "RTF", "PPTX", "HTML", "HTMLZ", "TXT", "TXTZ", "MD", "OEB", "ZIP", "TCR",
+                "PMLZ", "RB", "TYPST", "ADOC", "ORG", "RST", "TEX"
+            ],
+            "supported_output_formats": Book::supported_output_formats(),
+            "features": [
+                "Universal Multi-Format Converter (20+ output formats)",
+                "Clean-Room Amazon KFX Ion v2 Codec (fonts, font-family, bidi/RTL, tables, links, TOC, cover)",
+                "Kobo KEPUB Sentence Instrumentation",
+                "TTS Synchronizer",
+                "Readium CFI / LCP / Locator",
+                "Zstd State Caching",
+                "RAG BM25 Chunker",
+                "MCP Server"
+            ]
         });
         Ok((
             uri.to_string(),
@@ -999,13 +1032,61 @@ fn handle_tool_call(
             if resolved_output == resolved_input {
                 return Err("Refusing to overwrite the input file".into());
             }
+            let out_lower = resolved_output.to_string_lossy().to_ascii_lowercase();
             let out_ext = resolved_output
                 .extension()
                 .and_then(|e| e.to_str())
                 .unwrap_or("")
                 .to_ascii_lowercase();
-            if !matches!(out_ext.as_str(), "epub" | "kfx" | "json") {
-                return Err("Unsupported output extension. Expected .epub, .kfx, or .json".into());
+            let target_fmt = if out_lower.ends_with(".kepub.epub") {
+                "kepub"
+            } else {
+                out_ext.as_str()
+            };
+
+            let is_supported_ext = matches!(
+                target_fmt,
+                "epub"
+                    | "kepub"
+                    | "kfx"
+                    | "mobi"
+                    | "azw3"
+                    | "pdb"
+                    | "pdf"
+                    | "fb2"
+                    | "html"
+                    | "htm"
+                    | "xhtml"
+                    | "htmlz"
+                    | "txt"
+                    | "txtz"
+                    | "md"
+                    | "markdown"
+                    | "oeb"
+                    | "zip"
+                    | "tcr"
+                    | "docx"
+                    | "odt"
+                    | "rtf"
+                    | "pmlz"
+                    | "rb"
+                    | "typ"
+                    | "typst"
+                    | "adoc"
+                    | "asciidoc"
+                    | "org"
+                    | "rst"
+                    | "tex"
+                    | "latex"
+                    | "pptx"
+                    | "json"
+            );
+            if !is_supported_ext {
+                return Err(format!(
+                    "Unsupported output extension '.{out_ext}'. Supported: {}, json",
+                    Book::supported_output_formats().join(", ")
+                )
+                .into());
             }
 
             if let Some(parent) = resolved_output.parent()
@@ -1017,23 +1098,7 @@ fn handle_tool_call(
 
             let book = Book::from_file(&resolved_input)?;
             let output_str = resolved_output.to_string_lossy().to_string();
-            if out_ext == "epub" {
-                let bytes = crate::UniversalEpub3Exporter::export(&book)?;
-                std::fs::write(&resolved_output, bytes)?;
-                Ok(format!(
-                    "Successfully converted '{}' to EPUB3 at '{}'",
-                    resolved_input.display(),
-                    output_str
-                ))
-            } else if out_ext == "kfx" {
-                let bytes = crate::UniversalKfxExporter::export(&book)?;
-                std::fs::write(&resolved_output, bytes)?;
-                Ok(format!(
-                    "Successfully converted '{}' to KFX at '{}'",
-                    resolved_input.display(),
-                    output_str
-                ))
-            } else {
+            if target_fmt == "json" {
                 let chunks = book.to_rag_chunks(&RagChunkConfig::default());
                 let json_data = serde_json::to_string_pretty(&chunks)?;
                 std::fs::write(&resolved_output, json_data)?;
@@ -1042,6 +1107,73 @@ fn handle_tool_call(
                     resolved_input.display(),
                     output_str
                 ))
+            } else if target_fmt == "oeb" {
+                book.export_oeb_dir(&resolved_output)?;
+                Ok(format!(
+                    "Successfully converted '{}' to OEB directory at '{}'",
+                    resolved_input.display(),
+                    output_str
+                ))
+            } else {
+                let bytes = book.export_format_bytes(target_fmt)?;
+                std::fs::write(&resolved_output, bytes)?;
+                Ok(format!(
+                    "Successfully converted '{}' to {} at '{}'",
+                    resolved_input.display(),
+                    target_fmt.to_ascii_uppercase(),
+                    output_str
+                ))
+            }
+        }
+        "export_ebook_text" => {
+            let path = args
+                .get("path")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing required argument 'path'")?;
+            let fmt = args
+                .get("format")
+                .and_then(|v| v.as_str())
+                .unwrap_or("md")
+                .trim()
+                .to_ascii_lowercase();
+            if !matches!(
+                fmt.as_str(),
+                "md" | "markdown"
+                    | "txt"
+                    | "html"
+                    | "htm"
+                    | "xhtml"
+                    | "fb2"
+                    | "typ"
+                    | "typst"
+                    | "adoc"
+                    | "asciidoc"
+                    | "org"
+                    | "rst"
+                    | "tex"
+                    | "latex"
+            ) {
+                return Err(format!(
+                    "Unsupported inline text format '{fmt}'. Expected one of: md, txt, html, fb2, typst, adoc, org, rst"
+                )
+                .into());
+            }
+            let max_chars = args
+                .get("max_chars")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(100_000)
+                .min(2_000_000) as usize;
+
+            let book = get_cached_mcp_book(path, sandbox_root)?;
+            let bytes = book.export_format_bytes(&fmt)?;
+            let text = String::from_utf8_lossy(&bytes);
+            if text.chars().count() > max_chars {
+                let truncated: String = text.chars().take(max_chars).collect();
+                Ok(format!(
+                    "{truncated}\n\n[Truncated at {max_chars} characters]"
+                ))
+            } else {
+                Ok(text.into_owned())
             }
         }
         "validate_epub" => {
@@ -1188,5 +1320,53 @@ mod tests {
         assert!(cfg.min_chunk_size <= RagChunkConfig::MAX_MIN_CHUNK_SIZE);
         // The multiply that used to panic.
         let _ = cfg.max_tokens.saturating_mul(4);
+    }
+
+    #[test]
+    fn test_mcp_convert_and_export_ebook_text() {
+        let dir = std::env::temp_dir().join("ebook_rs_mcp_v19_test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = dir.join("sample.md");
+        std::fs::write(&src, "# Hello MCP\n\nBody paragraph here.\n").unwrap();
+        let out_docx = dir.join("out.docx");
+
+        // 1. convert_ebook to .docx
+        let req_conv = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: Some(json!(10)),
+            method: "tools/call".to_string(),
+            params: Some(json!({
+                "name": "convert_ebook",
+                "arguments": {
+                    "input_path": src.to_string_lossy(),
+                    "output_path": out_docx.to_string_lossy()
+                }
+            })),
+        };
+        let resp = process_mcp_request(&req_conv, Some(&dir)).unwrap();
+        assert!(resp["result"]["isError"].is_null());
+        assert!(out_docx.exists());
+
+        // 2. export_ebook_text to Typst inline
+        let req_exp = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: Some(json!(11)),
+            method: "tools/call".to_string(),
+            params: Some(json!({
+                "name": "export_ebook_text",
+                "arguments": {
+                    "path": out_docx.to_string_lossy(),
+                    "format": "typst"
+                }
+            })),
+        };
+        let resp_exp = process_mcp_request(&req_exp, Some(&dir)).unwrap();
+        assert!(resp_exp["result"]["isError"].is_null());
+        let txt = resp_exp["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(txt.contains("#set document("));
+        assert!(txt.contains("Hello MCP"));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

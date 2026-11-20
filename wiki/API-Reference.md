@@ -1,110 +1,74 @@
-# 📚 `ebook-rs` Complete API Reference & Parity Guide (v0.15.5)
+# 📚 `ebook-rs` Complete API Reference & Parity Guide (v0.19.0)
 
-This document provides complete API documentation for `ebook-rs` (v0.15.5), bifurcated into **Drop-in Replacements for `epub.js`** and **`ebook-rs` Native Extensions**.
+This document summarizes `ebook-rs` (**v0.19.0**) APIs across **Drop-in `epub.js` Replacements** and **`ebook-rs` Native Extensions** (see root [`API.md`](https://github.com/SV-stark/ebook-rs/blob/main/API.md) for all 38 sections).
 
 ---
 
 ## 🟢 Section A: Drop-in Replacement for `epub.js` APIs
 
-These `ebook-rs` APIs match the concepts, structures, and behavior of **`epub.js`** (e.g. `ePub(url)`, `book.loaded.*`, `rendition.display()`, `rendition.annotations`), enabling web developers and Rust engineers to migrate seamlessly.
-
 | `epub.js` Feature / API | 🚀 `ebook-rs` Equivalent API | Description |
 |---|---|---|
-| `ePub(url)` / `ePub(buffer)` | `Book::from_file(path)` / `Book::from_bytes(bytes)` | Loads and parses package files into an in-memory `Book` struct. |
-| `book.loaded.metadata` | `book.metadata()` | Returns `Metadata` containing `title`, `creators`, `publishers`, `languages`, `pub_date`, etc. |
-| `book.loaded.spine` | `book.spine()` | Returns `Vec<SpineItem>` containing ordered chapter items (`idref`, `href`, `linear`). |
-| `book.loaded.navigation.toc` | `book.toc()` | Returns `Vec<NavPoint>` hierarchical Table of Contents points. |
-| `book.loaded.navigation.landmarks` | `book.landmarks()` | Returns `Vec<Landmark>` (cover, titlepage, bodymatter). |
-| `book.loaded.navigation.pageList` | `book.page_list()` | Returns `Vec<PageListItem>` printed page numbers. |
+| `ePub(url)` / `ePub(buffer)` | `Book::from_file(path)` / `Book::from_bytes(bytes)` | Auto-detects and loads 30 formats into a unified `Book`. |
+| `book.loaded.metadata` | `book.metadata()` | Returns `&Metadata` (`title`, `creators`, `publishers`, `languages`, `direction`, etc.). |
+| `book.loaded.spine` | `book.spine()` | Returns `&[SpineItem]` ordered chapter items. |
+| `book.loaded.navigation.toc` | `book.toc()` | Returns `&[NavPoint]` hierarchical Table of Contents. |
+| `book.loaded.navigation.landmarks` | `book.landmarks()` | Returns `&[Landmark]` (cover, titlepage, bodymatter). |
+| `book.loaded.navigation.pageList` | `book.page_list()` | Returns `&[PageListItem]` printed page numbers. |
 | `book.locations.generate()` | `book.generate_locations(chunk_size)` | Generates discrete location progress markers across chapters. |
-| `book.locations.percentageFromCfi()` | `book.locations.percentage_from_location(loc)` | Converts location integer indices to decimal progress percentage (`0.0 .. 1.0`). |
-| `rendition.display(cfi)` | `book.get_section(spine_idx)` / `Cfi::parse()` | Retrieves raw and processed HTML content at specified CFI location. |
-| `rendition.annotations.add()` | `book.annotations.add_annotation()` | Creates, updates, and serializes highlights, notes, and bookmarks. |
-
-### Code Comparison: `epub.js` vs `ebook-rs`
-
-#### JavaScript (`epub.js`)
-```javascript
-const book = ePub("alice.epub");
-await book.opened;
-
-console.log("Title:", book.packaging.metadata.title);
-console.log("Spine:", book.spine.spineItems);
-
-await book.locations.generate(1000);
-const progress = book.locations.percentageFromCfi("epubcfi(/6/4!/4/2)");
-```
-
-#### Rust (`ebook-rs`)
-```rust
-use ebook_rs::Book;
-
-let mut book = Book::from_file("alice.epub")?;
-
-println!("Title: {}", book.metadata().title);
-println!("Spine: {:?}", book.spine());
-
-book.generate_locations(1000);
-let progress = book.locations.percentage_from_location(5);
-```
+| `book.locations.percentageFromCfi()` | `book.locations().percentage_from_location(loc)` | Converts location indices to decimal progress (`0.0..=1.0`). |
+| `rendition.display(cfi)` | `book.get_section(idx)` / `book.resolve_cfi(...)` | Retrieves rendered section HTML, offset, and DOM CSS selector. |
+| `rendition.annotations.add()` | `book.annotations_mut().add_annotation(...)` | Creates, updates, and exports W3C JSON-LD annotations. |
 
 ---
 
 ## 🔵 Section B: `ebook-rs` Native Extensions (Beyond `epub.js`)
 
-Where `ebook-rs` extends far beyond `epub.js` to provide native multi-format support, zero-alloc searching, font de-obfuscation, and built-in HTTP reader server capabilities.
-
-### 1. Multi-Format Native Parsers (`MobiBook`, `Fb2Book`, `LitBook`)
-`epub.js` only supports `.epub` files. `ebook-rs` natively supports MOBI, AZW3, FB2, KEPUB, and LIT formats out of the box:
+### 1. Universal 27-Format Pure-Rust Exporters (`Book::export_format_bytes`)
+Export any loaded `Book` to 27 pure-Rust output formats without external tools:
 
 ```rust
-use ebook_rs::{MobiBook, Fb2Book, LitBook};
+use ebook_rs::Book;
 
-// Native MOBI / AZW3 PalmDOC LZ77 decompressor & parser
-let mobi = MobiBook::parse(&mobi_bytes)?;
+let book = Book::from_file("alice.epub")?;
 
-// Native FictionBook 2 XML parser with Base64 images
-let fb2 = Fb2Book::parse(&fb2_bytes)?;
+// Dynamic dispatch by format name or extension
+for fmt in Book::supported_output_formats() {
+    let bytes = book.export_format_bytes(fmt)?;
+    println!("{fmt}: {} bytes", bytes.len());
+}
 
-// Native Microsoft Reader LIT parser
-let lit = LitBook::parse(&lit_bytes)?;
+// Or call typed exporters directly
+let kfx  = book.export_kfx_bytes()?;
+let mobi = book.export_mobi_bytes()?;
+let docx = book.export_docx_bytes()?;
+let pdf  = book.export_pdf_bytes()?;
+book.export_oeb_dir("alice.oeb")?;
 ```
 
-### 2. Zero-Allocation Full-Text Search Engine
-`epub.js` lacks built-in full-text searching (requiring custom JS DOM loops). `ebook-rs` includes a pre-computed search engine that executes searches across millions of characters in < 1ms:
+Python (`PyO3`) bindings also expose `book.export_format_bytes("docx")` (and all other supported formats).
+
+### 2. Zero-Allocation Full-Text & Bounded Regex Search
 
 ```rust
 let matches = book.search("Wonderland");
-for m in matches {
-    println!("Spine #{}, char {}: {}", m.spine_index, m.char_offset, m.snippet);
-}
+let regex_matches = book.search_regex(r"Chapter\s+\d+")?;
 ```
 
-### 3. Pre-Display Transformation Hooks
-Custom transformation pipelines executed before rendering HTML sections:
+### 3. AI RAG Chunking & Okapi BM25 Ranking
 
 ```rust
-book.add_before_display_hook(|html| {
-    html.replace("old-class", "new-class")
-});
+use ebook_rs::{RagChunkConfig, RagChunker};
+
+let chunks = book.to_rag_chunks(&RagChunkConfig::default());
+let top = RagChunker::rank_chunks_bm25(&chunks, "Cheshire Cat", 5);
 ```
 
-### 4. Font De-Obfuscation Engine (`FontDeobfuscator`)
-Native IDPF & Adobe font decryption supporting SHA-1 key generation and XOR transformations:
+### 4. Pre-Display Transformation Hooks & Font Deobfuscation
 
 ```rust
-use ebook_rs::FontDeobfuscator;
-
-let deobfuscator = FontDeobfuscator::parse_encryption_xml(&encryption_xml);
-let decrypted_font_bytes = deobfuscator.deobfuscate("fonts/custom.otf", &raw_font_bytes, "urn:uuid:12345");
+book.add_before_display_hook(|html| html.replace("old-class", "new-class"));
 ```
 
-### 5. Multithreaded HTTP Reader Server (`ReaderServer`)
-Built-in HTTP server serving interactive reader web UI and API endpoints:
-
-```rust
-use ebook_rs::server::ReaderServer;
-
-let server = ReaderServer::new(book, 8080);
-server.start()?; // Starts server on http://localhost:8080
-```
+### 5. Built-in MCP (`2024-11-05`) & HTTP Reader Servers
+- **MCP Server**: `ebook-rs mcp --sandbox-root ./books` exposes `get_metadata`, `get_toc`, `read_section`, `search_book`, `chunk_book_for_rag`, `convert_ebook` (all 27+ formats + RAG JSON), `export_ebook_text` (inline `md`/`txt`/`html`/`fb2`/`typst`/`adoc`/`org`/`rst`/`tex`), and `validate_epub`.
+- **HTTP Reader Server**: `ReaderServer::new(book, 8080).start()?` serves the interactive reader UI and JSON APIs on `127.0.0.1`.

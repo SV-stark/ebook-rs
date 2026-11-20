@@ -13,6 +13,7 @@ pub mod fb2;
 pub mod ffi;
 pub mod fingerprint;
 pub mod footnote;
+pub mod formats;
 pub mod kfx;
 pub mod layout;
 pub mod lcp;

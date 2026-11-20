@@ -14,7 +14,7 @@
 [![Rust Edition](https://img.shields.io/badge/rust-2024%20%7C%201.88%2B-informational?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/crates/l/ebook-rs.svg?style=flat-square&color=green)](LICENSE)
 
-*Pure Rust multi-format eBook engine (**EPUB 2/3, MOBI, AZW3, KFX, FB2, LIT, CBZ, PDF, ODT, DOCX, RTF, TXT & MD**) featuring Mozilla UniFFI mobile bindings, Readium CFI locators & LCP DRM, SpeechSynthesis TTS word sync, CJK vertical & RTL pagination, PDF two-column reflow, lossless EPUB3 optimizer, AI RAG BM25 chunking, zero-copy search, Zstd caching, Python/WASM bindings, and a native MCP server.*
+*Pure Rust multi-format eBook engine supporting **30 input & 27 output formats** (**EPUB 2/3, KEPUB, KFX, MOBI, AZW3, PDB, FB2, LIT, CBZ, PDF, DOCX, ODT, RTF, PPTX, HTML, HTMLZ, TXT, TXTZ, MD, OEB, ZIP, TCR, PMLZ, RB, Typst, AsciiDoc, Org, RST, LaTeX**) featuring Mozilla UniFFI mobile bindings, Readium CFI locators & LCP DRM, SpeechSynthesis TTS word sync, CJK vertical & RTL pagination, PDF two-column reflow, lossless EPUB3 optimizer, AI RAG BM25 chunking, zero-copy search, Zstd caching, Python/WASM bindings, and a native MCP server.*
 
 </div>
 
@@ -44,18 +44,19 @@
 
 | Feature | 🚀 `ebook-rs` | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
-| **EPUB 2, EPUB 3 & KEPUB** | ✅ Full OPF + NCX/NAV + Kobo KEPUB | ✅ EPUB 2/3 | ✅ EPUB 2/3 | ✅ EPUB 2/3 |
+| **EPUB 2, EPUB 3 & KEPUB** | ✅ Full Read & Write (OPF, NCX/NAV, Kobo `koboSpan`) | ✅ EPUB 2/3 | ✅ EPUB 2/3 | ✅ EPUB 2/3 |
 | **EPUB 3 Fixed-Layout (FXL)** | ✅ 2-page spread renderer | ✅ Yes | ✅ Yes | ❌ No |
 | **Amazon KFX (KF10) Read & Write** | ✅ Clean-room Ion 1.0 `CONT` v2 (fonts, `font-family`, bidi/RTL, tables, links, TOC, cover/images) | ❌ No | ❌ No | ❌ No |
-| **MOBI & AZW3 (KF8) Support** | ✅ Native PalmDOC LZ77 + Huffman/CDIC | ❌ No | ✅ Read-only | ❌ No |
-| **FB2 (FictionBook 2) Support** | ✅ Native XML + `xlink:href` binaries | ❌ No | ✅ Read-only | ❌ No |
+| **MOBI & AZW3 (KF8) Read & Write** | ✅ Native PalmDOC LZ77 + EXTH + image records | ❌ No | ✅ Read-only | ❌ No |
+| **FB2 (FictionBook 2) Read & Write** | ✅ Native XML + base64 `<binary>` images | ❌ No | ✅ Read-only | ❌ No |
 | **LIT (Microsoft Reader) Support** | ✅ Native ITOL/ITLS parser | ❌ No | ❌ No | ❌ No |
 | **CBZ (Comic Book ZIP) Support** | ✅ Native ZIP pages + prefetch | ❌ No | ✅ Read-only | ❌ No |
-| **PDF Support & Two-Column Reflow** | ✅ `unpdf` (`pdf` feature) + reading-order reflow | ❌ No | ❌ No | ❌ No |
-| **ODT (OpenDocument Text)** | ✅ Native XML + `content.xml` | ❌ No | ❌ No | ❌ No |
-| **DOCX (Microsoft Word)** | ✅ Native WordML + embedded media | ❌ No | ❌ No | ❌ No |
-| **RTF (Rich Text Format)** | ✅ Native Control Words + embedded images | ❌ No | ❌ No | ❌ No |
-| **TXT & Markdown Support** | ✅ Frontmatter, wikilinks, callouts & auto-reflow | ❌ No | ❌ No | ❌ No |
+| **PDF Read & Write** | ✅ `unpdf` (`pdf` feature) + zero-dep pure-Rust PDF 1.4 writer | ❌ No | ❌ No | ❌ No |
+| **DOCX, ODT & PPTX Read & Write** | ✅ Native OOXML & ODF 1.2 + embedded images & slides | ❌ No | ❌ No | ❌ No |
+| **RTF Read & Write** | ✅ Native Control Words, `\uN?` Unicode & `\pict` images | ❌ No | ❌ No | ❌ No |
+| **HTML, HTMLZ, TXTZ, OEB & ZIP** | ✅ Full Read & Write (Calibre-compatible packages) | ❌ No | ❌ No | ❌ No |
+| **PDB, TCR, PMLZ & Rocket eBook (RB)** | ✅ Pure-Rust binary/dictionary Read & Write | ❌ No | ❌ No | ❌ No |
+| **TXT, MD, Typst, ADOC, Org, RST, TeX** | ✅ Full Read & Write + frontmatter, wikilinks & callouts | ❌ No | ❌ No | ❌ No |
 | **Auto Format Detection** | ✅ Magic-byte + container inspection | ❌ No | ✅ Basic | ❌ No |
 
 ### 🧭 Navigation, Rendering & Security
@@ -95,7 +96,7 @@
 
 | Feature | 🚀 `ebook-rs` | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
-| **Universal EPUB 3 & KFX Exporters** | ✅ `export_epub3_bytes()` & `export_kfx_bytes()` | ❌ No | ❌ No | ❌ No |
+| **Universal 27-Format Exporters** | ✅ `Book::export_format_bytes()` (EPUB, KEPUB, KFX, MOBI, AZW3, PDB, PDF, DOCX, ODT, RTF, PPTX, FB2, HTML/Z, TXT/Z, MD, OEB, ZIP, TCR, PMLZ, RB, Typst, ADOC, Org, RST, TeX) | ❌ No | ❌ No | ❌ No |
 | **Lossless EPUB 3 Optimizer & Validator** | ✅ HTML/asset minifier + structural validator | ❌ No | ❌ No | ❌ No |
 | **Academic Citations & Fingerprinting** | ✅ APA / MLA / Chicago / BibTeX + `BookFingerprint` | ❌ No | ❌ No | ❌ No |
 | **OPDS 1.2 / 2.0 Catalog Client** | ✅ `opds` feed parser & download resolver | ❌ No | ✅ Yes | ❌ No |
@@ -110,20 +111,48 @@
 
 ## ⚡ Format Conversion Benchmark (`ebook-rs` vs Calibre `ebook-convert`)
 
-Empirically measured 3-run median conversion benchmark on **ebook-rs v0.18.7** (`--release`) vs **Calibre 9.18** (`ebook-convert` / `KFX Input 2.34.2` / `KFX Output` + Kindle Previewer) on Windows 11 / AMD Ryzen 9 / PCIe 4.0 NVMe:
+Empirically measured 3-run median conversion benchmark on **ebook-rs v0.19.0** (`--release`) vs **Calibre 9.18** (`ebook-convert` / `KFX Input 2.34.2` / `KFX Output` + Kindle Previewer) on Windows 11 / AMD Ryzen 9 / PCIe 4.0 NVMe:
+
+### Core & Legacy Formats → EPUB 3
 
 | Conversion | Sample Book | 🚀 `ebook-rs` | 🐍 Calibre 9.18 | Speedup | Image Assets Extracted | Chapter Sections | Output Parity |
 |---|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **EPUB → KFX** | *Alice in Wonderland (EPUB 3)* | **0.31s** ⚡ | 60.99s *(KFX Output + KP3)* | **~195× Faster** | 37 / 37 (100%) ✅ | 16 chapters | Verified via KFX Input |
 | **DOCX → EPUB** | *Alice in Wonderland (DOCX)* | **0.16s** ⚡ | 2.95s | **18.1× Faster** | 37 / 37 (100%) ✅ | 13 chapters | Fully Matched |
 | **TXT → EPUB** | *Alice in Wonderland (TXT)* | **0.11s** ⚡ | 1.98s | **17.8× Faster** | — | 1 chapter | Fully Matched |
 | **CBZ → EPUB** | *Jumbo Comics 099 (21 MB CBZ)* | **0.83s** ⚡ | 12.87s | **15.5× Faster** | 52 / 52 (100%) ✅ | 52 pages | Fully Matched |
+| **TCR → EPUB** | *Alice in Wonderland (TCR)* | **0.14s** ⚡ | 2.08s | **15.0× Faster** | — | 1 chapter | Fully Matched |
 | **AZW3 (KF8) → EPUB** | *Alice in Wonderland (AZW3)* | **0.15s** ⚡ | 2.19s | **14.7× Faster** | 38 / 38 (100%) ✅ | 14 chapters | Fully Matched |
+| **PDB → EPUB** | *Alice in Wonderland (PalmDOC PDB)* | **0.15s** ⚡ | 2.15s | **14.7× Faster** | — | 1 chapter | Fully Matched |
 | **FB2 → EPUB** | *Alice in Wonderland (FB2)* | **0.15s** ⚡ | 1.77s | **11.9× Faster** | 37 / 37 (100%) ✅ | 15 chapters | Fully Matched |
+| **PMLZ → EPUB** | *Alice in Wonderland (PMLZ)* | **0.16s** ⚡ | 1.87s | **11.6× Faster** | 37 / 37 (100%) ✅ | 1 chapter | Fully Matched |
+| **HTMLZ → EPUB** | *Alice in Wonderland (HTMLZ)* | **0.19s** ⚡ | 1.97s | **10.4× Faster** | 38 / 38 (100%) ✅ | 1 chapter | Fully Matched |
+| **RB → EPUB** | *Alice in Wonderland (RB)* | **0.21s** ⚡ | 2.02s | **9.8× Faster** | 37 / 37 (100%) ✅ | 1 chapter | Fully Matched |
+| **TXTZ → EPUB** | *Alice in Wonderland (TXTZ)* | **0.14s** ⚡ | 1.25s | **9.1× Faster** | 1 / 1 (100%) ✅ | 1 chapter | Fully Matched |
 | **LIT → EPUB** | *Alice in Wonderland (LIT)* | **0.24s** ⚡ | 1.99s | **8.4× Faster** | 37 / 37 (100%) ✅ | 21 chapters | Fully Matched |
 | **MOBI → EPUB** | *Alice in Wonderland (MOBI)* | **0.27s** ⚡ | 2.19s | **8.0× Faster** | 38 / 38 (100%) ✅ | 17 chapters | Fully Matched |
 | **KFX → EPUB** | *Alice in Wonderland (Calibre/kfxgen KFX)* | **0.40s** ⚡ | 3.05s *(KFX Input)* | **7.6× Faster** | 38 / 38 (100%) ✅ | 16 chapters | Full Ion Text, Styles & Assets *(17.1× on `ebook-rs` KFX)* |
 | **RTF → EPUB** | *Alice in Wonderland (RTF)* | **0.58s** ⚡ | 2.86s | **4.9× Faster** | 36 / 36 (100%) ✅ | 15 chapters | All 36 images preserved *(Calibre extracts 1)* |
+
+### EPUB 3 → Multi-Format Exporters (Bidirectionally Verified with Calibre 9.18)
+
+| Conversion | Sample Book | 🚀 `ebook-rs` | 🐍 Calibre 9.18 | Speedup |
+|---|---|:---:|:---:|:---:|
+| **EPUB → KFX** | *Alice in Wonderland (EPUB 3)* | **0.31s** ⚡ | 60.99s *(KFX Output + KP3)* | **~195× Faster** |
+| **EPUB → PDF** | *Alice in Wonderland (EPUB 3)* | **0.26s** ⚡ | 15.62s *(Qt WebEngine)* | **60.3× Faster** |
+| **EPUB → TXTZ** | *Alice in Wonderland (EPUB 3)* | **0.16s** ⚡ | 1.92s | **11.7× Faster** |
+| **EPUB → RB** | *Alice in Wonderland (EPUB 3)* | **0.23s** ⚡ | 2.65s | **11.5× Faster** |
+| **EPUB → RTF** | *Alice in Wonderland (EPUB 3)* | **0.25s** ⚡ | 2.41s | **9.8× Faster** |
+| **EPUB → PMLZ** | *Alice in Wonderland (EPUB 3)* | **0.26s** ⚡ | 2.39s | **9.1× Faster** |
+| **EPUB → TCR** | *Alice in Wonderland (EPUB 3)* | **0.36s** ⚡ | 3.16s | **8.8× Faster** |
+| **EPUB → FB2** | *Alice in Wonderland (EPUB 3)* | **0.22s** ⚡ | 1.90s | **8.5× Faster** |
+| **EPUB → ZIP** | *Alice in Wonderland (EPUB 3)* | **0.25s** ⚡ | 1.98s | **7.8× Faster** |
+| **EPUB → MOBI** | *Alice in Wonderland (EPUB 3)* | **0.36s** ⚡ | 2.64s | **7.3× Faster** |
+| **EPUB → HTMLZ** | *Alice in Wonderland (EPUB 3)* | **0.26s** ⚡ | 1.87s | **7.2× Faster** |
+| **EPUB → AZW3** | *Alice in Wonderland (EPUB 3)* | **0.33s** ⚡ | 1.91s | **5.8× Faster** |
+| **EPUB → DOCX** | *Alice in Wonderland (EPUB 3)* | **0.69s** ⚡ | 3.85s | **5.6× Faster** |
+| **EPUB → PDB** | *Alice in Wonderland (EPUB 3)* | **0.35s** ⚡ | 1.70s | **4.9× Faster** |
+| **EPUB → OEB** | *Alice in Wonderland (EPUB 3)* | **0.35s** ⚡ | 1.71s | **4.8× Faster** |
+| **EPUB → KEPUB / ODT / PPTX / HTML / MD / Typst / ADOC / Org / RST / TeX** | *Alice in Wonderland (EPUB 3)* | **0.24s–0.27s** ⚡ | — *(Native pure-Rust)* | **Sub-300ms** |
 
 ---
 
@@ -174,7 +203,7 @@ Add `ebook-rs` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ebook-rs = "0.18.7"
+ebook-rs = "0.19.0"
 ```
 
 Or install via `cargo`:

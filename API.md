@@ -1,6 +1,6 @@
-# 📚 EBook-RS API Reference & Complete Documentation (v0.18.0)
+# 📚 EBook-RS API Reference & Complete Documentation (v0.19.0)
  
-`ebook-rs` (v0.18.0) is a multi-format pure Rust eBook engine supporting **EPUB 2**, **EPUB 3**, **Amazon KFX (Kindle Format 10)**, **MOBI**, **AZW3 (KF8)**, **FB2 (FictionBook 2)**, **LIT (Microsoft Reader)**, **CBZ (Comic Book ZIP)**, **PDF**, **ODT (OpenDocument Text)**, **DOCX (Microsoft Word)**, **RTF (Rich Text Format)**, **Plain Text (.txt)**, and **Markdown (.md)** formats with **Mozilla UniFFI Mobile SDK (Swift/Kotlin)**, **Lossless EPUB 3 Optimizer & Minifier**, **CJK Vertical Writing & RTL Reflow Pagination**, **Web Audio API Karaoke Synchronization**, **Lazy Archive Streaming for Giant Files (>500MB)**, **Markdown Frontmatter, Wikilinks & Callouts**, **Model Context Protocol (MCP 2024-11-05) Server**, **Okapi BM25 RAG Relevance Scoring**, **Zero-Allocation Full-Text Search**, **PDF Two-Column Reading-Order Reflow**, **Multi-Threaded Parallel ZIP Exporting**, **CBZ Comic Pre-fetching & Manga Spread Mode**, **Native PyO3 Python Wheel Bindings**, **100% Clean-Room Amazon KFX Subsystem**, **Native AI/RAG Document Chunking**, **C FFI ABI Bindings**, **WASM Web Component Renderer**, **RTL & Vertical CJK Modes**, **Hardened Sanitizer & Boundary Parsers**, **SpeechSynthesis TTS Word Synchronizer**, **Legacy Non-UTF-8 Charset Decoding**, **Automatic Language Detection**, **Zstd Compressed State Caching**, **Universal EPUB 3 Exporter**, **Zero-Copy mmap**, **Lightweight DOM AST Tree**, **Fuzzy XML Recovery**, **CFI**, and **Readium LCP/Locator** support.
+`ebook-rs` (v0.19.0) is a multi-format pure Rust eBook engine supporting **26+ input formats and 21+ output formats** (**EPUB 2/3**, **Kobo KEPUB**, **Amazon KFX**, **MOBI**, **AZW3**, **FB2**, **LIT**, **CBZ**, **PDF**, **DOCX**, **ODT**, **RTF**, **HTML**, **HTMLZ**, **TXT**, **TXTZ**, **Markdown**, **OEB**, **ZIP**, **TCR**, **PMLZ**, **RB**, **Typst**, **AsciiDoc**, **Org-mode**, **reStructuredText**) with **Mozilla UniFFI Mobile SDK (Swift/Kotlin)**, **Lossless EPUB 3 Optimizer & Minifier**, **CJK Vertical Writing & RTL Reflow Pagination**, **Web Audio API Karaoke Synchronization**, **Lazy Archive Streaming for Giant Files (>500MB)**, **Markdown Frontmatter, Wikilinks & Callouts**, **Model Context Protocol (MCP 2024-11-05) Server**, **Okapi BM25 RAG Relevance Scoring**, **Zero-Allocation Full-Text Search**, **PDF Two-Column Reading-Order Reflow**, **Multi-Threaded Parallel ZIP Exporting**, **CBZ Comic Pre-fetching & Manga Spread Mode**, **Native PyO3 Python Wheel Bindings**, **100% Clean-Room Amazon KFX Subsystem**, **Native AI/RAG Document Chunking**, **C FFI ABI Bindings**, **WASM Web Component Renderer**, **RTL & Vertical CJK Modes**, **Hardened Sanitizer & Boundary Parsers**, **SpeechSynthesis TTS Word Synchronizer**, **Legacy Non-UTF-8 Charset Decoding**, **Automatic Language Detection**, **Zstd Compressed State Caching**, **Universal 21-Format Exporter**, **Zero-Copy mmap**, **Lightweight DOM AST Tree**, **Fuzzy XML Recovery**, **CFI**, and **Readium LCP/Locator** support.
 
 ---
 
@@ -42,6 +42,8 @@
 34. [Markdown Frontmatter, Obsidian Wikilinks & Callouts](#34-markdown-frontmatter-obsidian-wikilinks--callouts)
 35. [Microsoft Word (.docx) Parser (`DocxBook`)](#35-microsoft-word-docx-parser-docxbook)
 36. [Rich Text Format (.rtf) Parser (`RtfBook`)](#36-rich-text-format-rtf-parser-rtfbook)
+37. [Universal 21-Format Pure-Rust Exporter (`Book::export_format_bytes`, `ebook_rs::formats`)](#37-universal-21-format-pure-rust-exporter-bookexport_format_bytes-ebook_rsformats)
+38. [MCP Server Multi-Format Conversion & Inline Text Export (`convert_ebook`, `export_ebook_text`)](#38-mcp-server-multi-format-conversion--inline-text-export-convert_ebook-export_ebook_text)
 
 ---
 
@@ -926,3 +928,60 @@ let book = Book::from_bytes(&rtf_bytes)?;
 // 3. Perform zero-allocation SIMD search across RTF chapters
 let results = book.search("protagonist");
 ```
+
+---
+
+## 37. Universal 21-Format Pure-Rust Exporter (`Book::export_format_bytes`, `ebook_rs::formats`)
+
+Starting in **v0.19.0**, any loaded `Book` can be exported in pure Rust (zero external binaries) to **21+ formats** via typed methods or dynamic format dispatch:
+
+```rust
+use ebook_rs::Book;
+
+let book = Book::from_file("sample.epub")?;
+
+// Dynamic dispatch by extension/name:
+for fmt in Book::supported_output_formats() {
+    let bytes = book.export_format_bytes(fmt)?;
+    println!("{fmt}: {} bytes", bytes.len());
+}
+
+// Or typed format exporters:
+let kepub = book.export_kepub_bytes()?;     // Kobo EPUB 3 with koboSpan instrumentation
+let fb2   = book.export_fb2_bytes()?;       // FictionBook 2.0 XML + base64 <binary> images
+let html  = book.export_html_bytes()?;      // Standalone HTML5 with inlined data: images
+let htmlz = book.export_htmlz_bytes()?;     // Calibre HTMLZ archive
+let txt   = book.export_txt_bytes()?;       // UTF-8 Plain Text
+let txtz  = book.export_txtz_bytes()?;      // Calibre TXTZ archive
+let md    = book.export_markdown_bytes()?;  // Markdown + YAML frontmatter + GFM tables
+let zip   = book.export_zip_bytes()?;       // Calibre-compatible HTML/CSS/Images ZIP
+let tcr   = book.export_tcr_bytes()?;       // Psion TCR (!!8-Bit!!) 256-entry dictionary
+let docx  = book.export_docx_bytes()?;      // OOXML WordprocessingML + <w:drawing> images
+let odt   = book.export_odt_bytes()?;       // OpenDocument Text 1.2 + Pictures/*
+let rtf   = book.export_rtf_bytes()?;       // RTF 1.x + \uN? Unicode + \pict images
+let pmlz  = book.export_pmlz_bytes()?;      // Palm Markup Language ZIP
+let rb    = book.export_rb_bytes()?;        // Rocket eBook (NUVO + chunked zlib HTML)
+let typ   = book.export_typst_bytes()?;     // Typst (.typ / .typst)
+let adoc  = book.export_adoc_bytes()?;      // AsciiDoc (.adoc)
+let org   = book.export_org_bytes()?;       // Emacs Org-mode (.org)
+let rst   = book.export_rst_bytes()?;       // reStructuredText (.rst)
+let mobi  = book.export_mobi_bytes()?;      // Mobipocket (.mobi) + PalmDOC LZ77 + EXTH + images
+let azw3  = book.export_azw3_bytes()?;      // Amazon Kindle (.azw3) + EXTH + images
+let pdb   = book.export_pdb_bytes()?;       // PalmDOC (.pdb) LZ77
+let pdf   = book.export_pdf_bytes()?;       // Pure-Rust paginated PDF 1.4
+let tex   = book.export_tex_bytes()?;       // LaTeX (.tex)
+let pptx  = book.export_pptx_bytes()?;      // PowerPoint OOXML (.pptx) slides
+book.export_oeb_dir("out.oeb")?;            // Unzipped Open eBook directory (content.opf + assets)
+```
+
+Python (`PyO3`) bindings also expose `book.export_format_bytes("docx")` (and any other supported format).
+
+---
+
+## 38. MCP Server Multi-Format Conversion & Inline Text Export (`convert_ebook`, `export_ebook_text`)
+
+The built-in MCP server (`src/mcp.rs`, protocol `2024-11-05`) exposes full multi-format conversion and inline text/markup rendering for AI agents:
+
+- **`convert_ebook`**: Converts any supported input eBook or OEB directory to `.epub`, `.kepub`, `.kepub.epub`, `.kfx`, `.fb2`, `.html`, `.htmlz`, `.txt`, `.txtz`, `.md`, `.oeb`, `.zip`, `.tcr`, `.docx`, `.odt`, `.rtf`, `.pmlz`, `.rb`, `.typ`, `.typst`, `.adoc`, `.org`, `.rst`, or RAG `.json` (strictly confined to `--sandbox-root`).
+- **`export_ebook_text`**: Renders any supported eBook directly to inline UTF-8 `md`, `txt`, `html`, `fb2`, `typst`, `adoc`, `org`, or `rst` without writing a file (supports optional `max_chars`, default `100_000`).
+- **`ebook://info` resource**: Reports `version`, `supported_input_formats`, `supported_output_formats`, and `features`.

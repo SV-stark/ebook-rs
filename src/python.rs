@@ -188,6 +188,14 @@ impl PyBook {
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
+    /// Export this book to any supported output format by name/extension
+    /// (epub, kepub, kfx, fb2, html, htmlz, txt, txtz, md, oeb, zip, tcr, docx, odt, rtf, pmlz, rb, typst, adoc, org, rst).
+    pub fn export_format_bytes(&self, py: Python<'_>, format: &str) -> PyResult<Vec<u8>> {
+        let fmt = format.to_string();
+        py.detach(|| self.inner.export_format_bytes(&fmt))
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
+
     /// Enable 2-Page Manga Spread mode (Right-to-Left reading progression).
     pub fn enable_manga_mode(&mut self) {
         crate::cbz::CbzBook::enable_manga_mode(&mut self.inner);

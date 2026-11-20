@@ -32,6 +32,17 @@ impl Book {
     pub fn to_webpub_manifest(&self) -> Result<WebPubManifest, EbookError>;
     pub fn export_zstd_cache(&self) -> Result<Vec<u8>, EbookError>;
     pub fn from_zstd_cache(cache: &[u8]) -> Result<Self, EbookError>;
+
+    // Unified 27-Format Pure-Rust Exporter API (v0.19.0)
+    pub fn supported_output_formats() -> &'static [&'static str];
+    pub fn export_format_bytes(&self, format: &str) -> Result<Vec<u8>, EbookError>;
+    // Plus typed helpers: export_kepub_bytes, export_mobi_bytes, export_azw3_bytes,
+    // export_fb2_bytes, export_pdf_bytes, export_docx_bytes, export_odt_bytes,
+    // export_rtf_bytes, export_pptx_bytes, export_html_string, export_htmlz_bytes,
+    // export_txt_string, export_txtz_bytes, export_markdown_string, export_oeb_zip_bytes,
+    // export_oeb_dir, export_zip_bytes, export_pdb_bytes, export_pmlz_bytes,
+    // export_rb_bytes, export_tcr_bytes, export_typst_string, export_adoc_string,
+    // export_org_string, export_rst_string, export_tex_string.
 }
 ```
 

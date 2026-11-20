@@ -154,9 +154,16 @@ impl Clone for Book {
 }
 
 impl Book {
-    /// Load an EPUB, MOBI, AZW3, FB2, LIT, CBZ, PDF, ODT, DOCX, RTF, TXT, or MD book from a file path.
+    /// Load an EPUB, KEPUB, MOBI, AZW3, KFX, FB2, LIT, CBZ, PDF, ODT, DOCX, RTF, HTML, HTMLZ, TXTZ, OEB, ZIP, TCR, TXT, or MD book from a file or OEB directory path.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, EbookError> {
         let p = path.as_ref();
+        if p.is_dir()
+            || p.extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("opf"))
+        {
+            return crate::formats::parse_oeb_path(p);
+        }
         let bytes = std::fs::read(p).map_err(|e| {
             EbookError::Io(format!("Failed to read ebook file {}: {}", p.display(), e))
         })?;
@@ -164,6 +171,17 @@ impl Book {
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("Comic Book");
+        if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
+            let ext_l = ext.to_ascii_lowercase();
+            match ext_l.as_str() {
+                "typ" | "typst" => return crate::formats::parse_typst(&bytes, filename),
+                "adoc" | "asciidoc" => return crate::formats::parse_adoc(&bytes, filename),
+                "org" => return crate::formats::parse_org(&bytes, filename),
+                "rst" => return crate::formats::parse_rst(&bytes, filename),
+                "tex" | "latex" => return crate::formats::parse_tex(&bytes, filename),
+                _ => {}
+            }
+        }
         Self::from_bytes_with_title(&bytes, filename)
     }
 
@@ -204,12 +222,28 @@ impl Book {
                 if let Ok(docx) = crate::docx::DocxBook::parse(bytes, title_fallback) {
                     return Ok(docx);
                 }
+            } else if archive.contains("ppt/presentation.xml") {
+                if let Ok(pptx) = crate::formats::parse_pptx(&archive, title_fallback) {
+                    return Ok(pptx);
+                }
             } else if (archive.contains("content.xml") || archive.contains("meta.xml"))
                 && let Ok(odt) = crate::odt::OdtBook::parse(bytes, title_fallback)
             {
                 return Ok(odt);
             }
+            if let Ok(pmlz_book) = crate::formats::parse_pmlz_archive(&archive, title_fallback) {
+                return Ok(pmlz_book);
+            }
+            if let Ok(zip_book) = crate::formats::parse_zip_ebook(&archive, title_fallback) {
+                return Ok(zip_book);
+            }
             return crate::cbz::CbzBook::from_archive(archive, title_fallback);
+        }
+        if crate::formats::is_rb_bytes(bytes) {
+            return crate::formats::parse_rb(bytes, title_fallback);
+        }
+        if crate::formats::is_tcr_bytes(bytes) {
+            return crate::formats::parse_tcr(bytes, title_fallback);
         }
         if bytes.starts_with(b"{\\rtf") || bytes.starts_with(b"{\\rtf1") {
             return crate::rtf::RtfBook::parse(bytes, title_fallback);
@@ -220,13 +254,34 @@ impl Book {
         if is_mobi_bytes(bytes) {
             return crate::mobi::MobiBook::parse(bytes);
         }
+        if crate::formats::is_pdb_bytes(bytes) {
+            return crate::formats::parse_pdb(bytes, title_fallback);
+        }
         if bytes.starts_with(b"ITOLITLS") {
             return crate::lit::LitBook::parse(bytes);
         }
         if let Ok(fb2) = crate::fb2::Fb2Book::parse(bytes) {
             return Ok(fb2);
         }
+        if crate::formats::is_standalone_html(bytes) {
+            return crate::formats::parse_html(bytes, title_fallback);
+        }
         if let Ok(text) = std::str::from_utf8(bytes) {
+            if crate::formats::is_typst_input(text, title_fallback) {
+                return crate::formats::parse_typst(bytes, title_fallback);
+            }
+            if crate::formats::is_org_input(text, title_fallback) {
+                return crate::formats::parse_org(bytes, title_fallback);
+            }
+            if crate::formats::is_adoc_input(text, title_fallback) {
+                return crate::formats::parse_adoc(bytes, title_fallback);
+            }
+            if crate::formats::is_rst_input(text, title_fallback) {
+                return crate::formats::parse_rst(bytes, title_fallback);
+            }
+            if crate::formats::is_tex_input(text, title_fallback) {
+                return crate::formats::parse_tex(bytes, title_fallback);
+            }
             let is_md = text.contains("# ")
                 || text.contains("## ")
                 || text.starts_with("---\n")
@@ -1528,6 +1583,183 @@ impl Book {
     /// ```
     pub fn export_kfx_bytes(&self) -> Result<Vec<u8>, EbookError> {
         crate::UniversalKfxExporter::export(self).map_err(EbookError::Custom)
+    }
+
+    /// Export loaded eBook as a Kobo-instrumented EPUB 3 (`.kepub` / `.kepub.epub`) byte buffer.
+    pub fn export_kepub_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_kepub_bytes(self)
+    }
+
+    /// Export loaded eBook as clean UTF-8 plain text (`.txt`).
+    pub fn export_txt_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_txt_bytes(self)
+    }
+
+    /// Export loaded eBook as structured Markdown (`.md`) with YAML frontmatter.
+    pub fn export_markdown_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_markdown_bytes(self)
+    }
+
+    /// Export loaded eBook as valid FictionBook 2.0 (`.fb2`) XML with base64 `<binary>` images.
+    pub fn export_fb2_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_fb2_bytes(self)
+    }
+
+    /// Export loaded eBook as a self-contained single-file HTML5 document (`.html`).
+    pub fn export_html_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_html_bytes(self)
+    }
+
+    /// Export loaded eBook as a Calibre-compatible HTMLZ archive (`.htmlz`).
+    pub fn export_htmlz_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_htmlz_bytes(self)
+    }
+
+    /// Export loaded eBook as a Calibre-compatible TXTZ archive (`.txtz`).
+    pub fn export_txtz_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_txtz_bytes(self)
+    }
+
+    /// Export loaded eBook as an unzipped Open eBook (OEB) directory (`content.opf`, chapters, assets).
+    pub fn export_oeb_dir<P: AsRef<Path>>(&self, dir_path: P) -> Result<(), EbookError> {
+        crate::formats::export_oeb_dir(self, dir_path)
+    }
+
+    /// Export loaded eBook as an in-memory Open eBook (OEB) ZIP package.
+    pub fn export_oeb_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_oeb_bytes(self)
+    }
+
+    /// Export loaded eBook as a generic HTML/CSS/Images `.zip` archive (Calibre ZIP compatible).
+    pub fn export_zip_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_zip_bytes(self)
+    }
+
+    /// Export loaded eBook as a Psion TCR (`!!8-Bit!!`) compressed `.tcr` file.
+    pub fn export_tcr_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_tcr_bytes(self)
+    }
+
+    /// Export loaded eBook as a Microsoft Word OOXML (`.docx`) document.
+    pub fn export_docx_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_docx_bytes(self)
+    }
+
+    /// Export loaded eBook as an OpenDocument Text (`.odt`) document.
+    pub fn export_odt_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_odt_bytes(self)
+    }
+
+    /// Export loaded eBook as a Rich Text Format (`.rtf`) document.
+    pub fn export_rtf_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_rtf_bytes(self)
+    }
+
+    /// Export loaded eBook as a Palm Markup Language ZIP (`.pmlz`) archive.
+    pub fn export_pmlz_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_pmlz_bytes(self)
+    }
+
+    /// Export loaded eBook as a Rocket eBook (`.rb`) binary container.
+    pub fn export_rb_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_rb_bytes(self)
+    }
+
+    /// Export loaded eBook as Typst (`.typ` / `.typst`) markup.
+    pub fn export_typst_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_typst_bytes(self)
+    }
+
+    /// Export loaded eBook as AsciiDoc (`.adoc`) markup.
+    pub fn export_adoc_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_adoc_bytes(self)
+    }
+
+    /// Export loaded eBook as Emacs Org-mode (`.org`) markup.
+    pub fn export_org_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_org_bytes(self)
+    }
+
+    /// Export loaded eBook as reStructuredText (`.rst`) markup.
+    pub fn export_rst_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_rst_bytes(self)
+    }
+
+    /// Export loaded eBook as Mobipocket (`.mobi`) binary eBook.
+    pub fn export_mobi_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_mobi_bytes(self)
+    }
+
+    /// Export loaded eBook as Amazon Kindle KF8 (`.azw3`) binary eBook.
+    pub fn export_azw3_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_azw3_bytes(self)
+    }
+
+    /// Export loaded eBook as PalmDOC (`.pdb`) binary eBook.
+    pub fn export_pdb_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_pdb_bytes(self)
+    }
+
+    /// Export loaded eBook as a paginated pure-Rust PDF 1.4 (`.pdf`) document.
+    pub fn export_pdf_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_pdf_bytes(self)
+    }
+
+    /// Export loaded eBook as LaTeX (`.tex`) markup.
+    pub fn export_tex_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_tex_bytes(self)
+    }
+
+    /// Export loaded eBook as a Microsoft PowerPoint OOXML (`.pptx`) presentation.
+    pub fn export_pptx_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_pptx_bytes(self)
+    }
+
+    /// Return the list of supported output format identifiers accepted by [`Book::export_format_bytes`].
+    pub fn supported_output_formats() -> &'static [&'static str] {
+        &[
+            "epub", "kepub", "kfx", "mobi", "azw3", "pdb", "pdf", "fb2", "html", "htmlz", "txt",
+            "txtz", "md", "oeb", "zip", "tcr", "docx", "odt", "rtf", "pmlz", "rb", "typ", "typst",
+            "adoc", "org", "rst", "tex", "pptx",
+        ]
+    }
+
+    /// Export loaded eBook to any supported output format by extension or format name.
+    pub fn export_format_bytes(&self, format: &str) -> Result<Vec<u8>, EbookError> {
+        let fmt = format.trim().trim_start_matches('.').to_ascii_lowercase();
+        match fmt.as_str() {
+            "kepub" | "kepub.epub" => self.export_kepub_bytes(),
+            "epub" | "epub3" => self.export_epub3_bytes(),
+            "kfx" => self.export_kfx_bytes(),
+            "mobi" => self.export_mobi_bytes(),
+            "azw3" => self.export_azw3_bytes(),
+            "pdb" => self.export_pdb_bytes(),
+            "pdf" => self.export_pdf_bytes(),
+            "fb2" => self.export_fb2_bytes(),
+            "html" | "htm" | "xhtml" => self.export_html_bytes(),
+            "htmlz" => self.export_htmlz_bytes(),
+            "txt" => self.export_txt_bytes(),
+            "txtz" => self.export_txtz_bytes(),
+            "md" | "markdown" => self.export_markdown_bytes(),
+            "oeb" => self.export_oeb_bytes(),
+            "zip" => self.export_zip_bytes(),
+            "tcr" => self.export_tcr_bytes(),
+            "docx" => self.export_docx_bytes(),
+            "odt" => self.export_odt_bytes(),
+            "rtf" => self.export_rtf_bytes(),
+            "pmlz" => self.export_pmlz_bytes(),
+            "rb" => self.export_rb_bytes(),
+            "typ" | "typst" => self.export_typst_bytes(),
+            "adoc" | "asciidoc" => self.export_adoc_bytes(),
+            "org" => self.export_org_bytes(),
+            "rst" => self.export_rst_bytes(),
+            "tex" | "latex" => self.export_tex_bytes(),
+            "pptx" => self.export_pptx_bytes(),
+            _ => Err(EbookError::InvalidFormat(format!(
+                "Unsupported output format '{format}'. Supported: {}",
+                Self::supported_output_formats().join(", ")
+            ))),
+        }
     }
 
     /// Export loaded eBook as a minified, asset-deduplicated, and CSS-purged EPUB 3 archive.

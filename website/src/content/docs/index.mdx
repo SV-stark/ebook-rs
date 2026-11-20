@@ -3,7 +3,7 @@ title: ebook-rs Documentation
 description: Pure Rust multi-format eBook engine with AI RAG chunking, MCP server, SIMD search, and Python/WASM bindings.
 template: splash
 hero:
-  tagline: Pure Rust multi-format eBook engine (EPUB, MOBI, AZW3, KFX, FB2, LIT, CBZ, PDF, DOCX, RTF) featuring Readium CFI/LCP, AI RAG BM25 chunking, zero-alloc SIMD search, Python/WASM bindings, and native Model Context Protocol (MCP) server.
+  tagline: Pure Rust multi-format eBook engine (30 input & 27 output formats including EPUB, KFX, MOBI, AZW3, FB2, KEPUB, LIT, CBZ, PDF, DOCX, ODT, RTF, PPTX, LaTeX, Typst, AsciiDoc, Org, reST, PDB, PMLZ, RB, TCR, HTMLZ, TXTZ, OEB, ZIP) featuring Readium CFI/LCP, AI RAG BM25 chunking, zero-alloc SIMD search, Python/WASM bindings, and native Model Context Protocol (MCP) server.
   image:
     file: ../../assets/logo.svg
   actions:
@@ -22,14 +22,14 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 ## 🚀 Key Highlights
 
 <CardGrid stagger>
-  <Card title="⚡ 10-20× Faster than Calibre" icon="rocket">
-    Empirical conversion benchmarks show **19.4× faster DOCX**, **9.4× faster AZW3**, and **10.4× faster KFX** parsing with zero memory leaks.
+  <Card title="⚡ Up to 195× Faster than Calibre" icon="rocket">
+    Empirical v0.19.0 3-run median benchmarks show **~195× faster KFX export**, **60.3× faster PDF export**, **18.1× faster DOCX**, **15.0× faster TCR**, and **14.7× faster AZW3 &amp; PDB**.
   </Card>
   <Card title="🤖 AI RAG & MCP Server" icon="seti:graphql">
-    Built-in **Model Context Protocol (MCP 2024-11-05)** stdio & HTTP servers with Okapi BM25 relevance ranking and CFI citations for Claude, Cursor, and Antigravity.
+    Built-in **Model Context Protocol (MCP 2024-11-05)** stdio &amp; HTTP servers with Okapi BM25 relevance ranking, CFI citations, 27-format `convert_ebook`, and inline `export_ebook_text`.
   </Card>
-  <Card title="📂 12+ Universal Formats" icon="open-book">
-    Native support for EPUB 2/3 (FXL), MOBI, AZW3 (KF8), KFX (Clean-Room), FB2, LIT, CBZ, PDF (Reflow), DOCX, RTF, and Markdown.
+  <Card title="📂 30 Input & 27 Output Formats" icon="open-book">
+    Pure-Rust bidirectional codecs for EPUB 2/3, KFX, MOBI, AZW3, FB2, KEPUB, DOCX, ODT, RTF, PDF, PPTX, LaTeX, Typst, AsciiDoc, Org, reST, PDB, PMLZ, RB, TCR, HTMLZ, TXTZ, OEB, ZIP, HTML, TXT, and Markdown.
   </Card>
   <Card title="🌐 Polyglot SDKs" icon="laptop">
     Seamless bindings for **Rust**, **Python** (`pip install ebook-rs`), **WebAssembly / TypeScript** (`npm i @sv-stark/ebook-rs`), and **UniFFI** (Swift/Kotlin).
@@ -40,17 +40,20 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 
 ## ⚡ Format Conversion Benchmark
 
-Empirically measured conversion benchmark converting sample eBook corpora to **EPUB 3** on AMD Ryzen 9 / PCIe 4.0 NVMe:
+Empirically measured **v0.19.0 (`--release`, 3-run median)** conversion benchmarks vs Calibre 9.18 on *Alice in Wonderland* (Windows 11 / AMD Ryzen 9 / PCIe 4.0 NVMe):
 
-| Input Format | Sample Book | 🚀 `ebook-rs` (v0.18.6) | 🐍 Calibre `ebook-convert` | Speedup | Image Assets Extracted | Chapter Sections | Output Parity |
-|---|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **MOBI → EPUB** | *Alice in Wonderland (MOBI)* | **0.34s** ⚡ | 2.23s | **6.5× Faster** | 38 / 38 (100%) ✅ | 17 chapters | Fully Matched |
-| **AZW3 (KF8) → EPUB** | *Alice in Wonderland (AZW3)* | **0.22s** ⚡ | 2.03s | **9.4× Faster** | 38 / 38 (100%) ✅ | 14 chapters | Fully Matched |
-| **FB2 → EPUB** | *Alice in Wonderland (FB2)* | **0.18s** ⚡ | 1.66s | **9.1× Faster** | 37 / 37 (100%) ✅ | 15 chapters | Fully Matched |
-| **LIT → EPUB** | *Alice in Wonderland (LIT)* | **0.32s** ⚡ | 1.94s | **6.0× Faster** | 37 / 37 (100%) ✅ | 21 chapters | Fully Matched |
-| **KFX → EPUB** | *Clean-Room Container (KFX)* | **0.29s** ⚡ | 3.84s *(Plugin Req.)* | **10.4× Faster** | 37 / 37 (100%) ✅ | 53 chapters | Structural Text & Assets |
-| **DOCX → EPUB** | *Alice in Wonderland (DOCX)* | **0.15s** ⚡ | 2.85s | **19.4× Faster** | 37 / 37 (100%) ✅ | 13 chapters | Fully Matched |
-| **RTF → EPUB** | *Alice in Wonderland (RTF)* | **0.85s** ⚡ | 2.34s | **2.8× Faster** | 36 / 36 (100%) ✅ | 15 chapters | Fully Matched |
+| Conversion | 🚀 `ebook-rs` (v0.19.0) | 🐍 Calibre 9.18 | Speedup | Notes |
+|---|:---:|:---:|:---:|---|
+| **EPUB → KFX** | **0.31s** ⚡ | 60.99s *(KFX Output)* | **~195× Faster** | Clean-room Ion 1.0 `CONT` v2 |
+| **EPUB → PDF** | **0.26s** ⚡ | 15.62s | **60.3× Faster** | Zero-dependency PDF 1.4 writer |
+| **DOCX → EPUB** | **0.16s** ⚡ | 2.95s | **18.1× Faster** | 37 / 37 images preserved |
+| **TXT → EPUB** | **0.11s** ⚡ | 1.98s | **17.8× Faster** | Auto-chapter & paragraph reflow |
+| **CBZ → EPUB (21 MB)** | **0.83s** ⚡ | 12.87s | **15.5× Faster** | Natural-sorted comic spread archive |
+| **TCR → EPUB** | **0.14s** ⚡ | 2.08s | **15.0× Faster** | Psion `!!8-Bit!!` dictionary codec |
+| **AZW3 / PDB → EPUB** | **0.15s** ⚡ | 2.15s–2.19s | **14.7× Faster** | Native KF8 & PalmDOC/zTXT |
+| **EPUB → TXTZ / RB** | **0.16s–0.23s** ⚡ | 1.92s–2.65s | **11.5–11.7× Faster** | Full Calibre CLI round-trip verified |
+
+See the full 30+ format benchmark table in [Conversion Benchmarks](/ebook-rs/benchmarks/conversion/).
 
 ---
 
@@ -59,7 +62,7 @@ Empirically measured conversion benchmark converting sample eBook corpora to **E
 ```toml
 # Cargo.toml
 [dependencies]
-ebook-rs = "0.18.6"
+ebook-rs = "0.19.0"
 ```
 
 ```bash
