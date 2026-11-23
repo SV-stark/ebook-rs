@@ -5,6 +5,7 @@ pub mod office_and_markup;
 pub mod pdf_tex_pptx;
 pub mod web_and_archives;
 
+pub use crate::lit::export_lit_bytes;
 pub use kindle_and_palm::{
     export_azw3_bytes, export_mobi_bytes, export_pdb_bytes, is_pdb_bytes, parse_pdb,
 };

@@ -157,9 +157,23 @@ impl MobiBook {
         let mut author = String::new();
         let mut publisher = None;
         let mut language = "en".to_string();
+        let mut text_encoding: u32 = 0;
+        let mut extra_flags: u32 = 0;
+        let mut fdst_rec_index: Option<usize> = None;
 
         if rec0.len() >= 40 && &rec0[16..20] == b"MOBI" {
             let header_len = u32::from_be_bytes([rec0[20], rec0[21], rec0[22], rec0[23]]) as usize;
+            text_encoding = u32::from_be_bytes([rec0[28], rec0[29], rec0[30], rec0[31]]);
+            let mobi_version = u32::from_be_bytes([rec0[36], rec0[37], rec0[38], rec0[39]]);
+            if mobi_version >= 8 && header_len >= 184 && rec0.len() >= 200 {
+                let idx = u32::from_be_bytes([rec0[192], rec0[193], rec0[194], rec0[195]]) as usize;
+                if idx > 0 && idx < num_records {
+                    fdst_rec_index = Some(idx);
+                }
+            }
+            if header_len >= 228 && rec0.len() >= 244 {
+                extra_flags = u32::from_be_bytes([rec0[240], rec0[241], rec0[242], rec0[243]]);
+            }
 
             // `header_len` is an attacker-controlled `u32` widened to `usize`. On 32-bit targets
             // (wasm32, i686 — both supported here) `16 + header_len + 12` overflows, and the
@@ -295,24 +309,57 @@ impl MobiBook {
             }
 
             let chunk = &bytes[start..end];
+            let trim = if extra_flags != 0 {
+                trailing_data_size(chunk, extra_flags)
+            } else {
+                0
+            };
+            let payload = &chunk[..chunk.len().saturating_sub(trim)];
             match compression {
-                1 => raw_html_bytes.extend_from_slice(chunk),
-                2 => raw_html_bytes.extend_from_slice(&decompress_palmdoc(chunk)),
+                1 => raw_html_bytes.extend_from_slice(payload),
+                2 => raw_html_bytes.extend_from_slice(&decompress_palmdoc(payload)),
                 17480 => {
                     return Err(EbookError::InvalidFormat(
                         "MOBI HUFF/CDIC compression is unsupported. Please convert using Calibre or KindleUnpack.".to_string(),
                     ));
                 }
-                _ => raw_html_bytes.extend_from_slice(chunk),
+                _ => raw_html_bytes.extend_from_slice(payload),
             }
         }
 
-        let full_html_raw = match std::str::from_utf8(&raw_html_bytes) {
-            Ok(s) => s.to_string(),
-            Err(_) => {
-                let (cow, _, _) = encoding_rs::WINDOWS_1252.decode(&raw_html_bytes);
-                cow.into_owned()
+        if let Some(fdst_idx) = fdst_rec_index {
+            let fstart = record_offsets[fdst_idx];
+            let fend = if fdst_idx + 1 < record_offsets.len() {
+                record_offsets[fdst_idx + 1]
+            } else {
+                bytes.len()
+            };
+            if fstart < fend && fend <= bytes.len() {
+                if let Some((flow0_start, flow0_end)) =
+                    fdst_flow0_range(&bytes[fstart..fend], raw_html_bytes.len())
+                {
+                    raw_html_bytes.truncate(flow0_end);
+                    if flow0_start > 0 {
+                        raw_html_bytes.drain(..flow0_start);
+                    }
+                }
             }
+        }
+
+        let full_html_raw = match text_encoding {
+            65001 => String::from_utf8(raw_html_bytes)
+                .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned()),
+            1252 => encoding_rs::WINDOWS_1252
+                .decode(&raw_html_bytes)
+                .0
+                .into_owned(),
+            _ => match std::str::from_utf8(&raw_html_bytes) {
+                Ok(s) => s.to_string(),
+                Err(_) => encoding_rs::WINDOWS_1252
+                    .decode(&raw_html_bytes)
+                    .0
+                    .into_owned(),
+            },
         };
         let mut full_html = full_html_raw;
         if full_html.trim().is_empty() || extract_plain_text(&full_html).trim().is_empty() {
@@ -707,5 +754,92 @@ fn detect_image_mime(bytes: &[u8]) -> Option<&'static str> {
         Some("image/bmp")
     } else {
         None
+    }
+}
+
+/// Parse a KF8 `FDST` flow table record and return `(start, end)` byte bounds for Flow 0
+/// (the HTML content flow), excluding trailing CSS/SVG flows.
+fn fdst_flow0_range(fdst: &[u8], total_len: usize) -> Option<(usize, usize)> {
+    if fdst.len() < 20 || &fdst[0..4] != b"FDST" {
+        return None;
+    }
+    let num_flows = u32::from_be_bytes([fdst[8], fdst[9], fdst[10], fdst[11]]) as usize;
+    if num_flows == 0 {
+        return None;
+    }
+    let start = u32::from_be_bytes([fdst[12], fdst[13], fdst[14], fdst[15]]) as usize;
+    let end = u32::from_be_bytes([fdst[16], fdst[17], fdst[18], fdst[19]]) as usize;
+    if start < end && end <= total_len {
+        Some((start, end))
+    } else {
+        None
+    }
+}
+
+/// Compute the byte length of trailing extra data appended to a MOBI text record
+/// according to the `extra_flags` bitfield at Record 0 offset 240..244.
+fn trailing_data_size(data: &[u8], extra_flags: u32) -> usize {
+    let mut num = 0usize;
+    let mut flags = extra_flags >> 1;
+    while flags != 0 {
+        if (flags & 1) != 0 {
+            let mut pos = match data.len().checked_sub(1 + num) {
+                Some(p) => p,
+                None => return data.len(),
+            };
+            let mut size = 0usize;
+            let mut shift = 0u32;
+            let mut varint_bytes = 0usize;
+            loop {
+                let b = data[pos];
+                varint_bytes += 1;
+                size |= ((b & 0x7F) as usize) << shift;
+                shift += 7;
+                if (b & 0x80) != 0 || pos == 0 || shift >= 28 {
+                    break;
+                }
+                pos -= 1;
+            }
+            num = num.saturating_add(size.max(varint_bytes));
+            if num >= data.len() {
+                return data.len();
+            }
+        }
+        flags >>= 1;
+    }
+    if (extra_flags & 1) != 0 {
+        if let Some(pos) = data.len().checked_sub(1 + num) {
+            let overlap = ((data[pos] & 0x03) as usize) + 1;
+            num = num.saturating_add(overlap).min(data.len());
+        }
+    }
+    num
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{fdst_flow0_range, trailing_data_size};
+
+    #[test]
+    fn test_trailing_data_size_flags() {
+        // Bit 0 only: last byte 0x02 -> (2 & 3) + 1 = 3 bytes
+        assert_eq!(trailing_data_size(&[b'a', b'b', 0xAA, 0xBB, 0x02], 0x01), 3);
+        // Bit 1 + Bit 0: varint 0x84 (size 4) at end, preceded by overlap 0x01 (2 bytes)
+        let rec = [b'x', 0xCC, 0x01, 0x11, 0x22, 0x33, 0x84];
+        assert_eq!(trailing_data_size(&rec, 0x03), 6);
+    }
+
+    #[test]
+    fn test_fdst_flow0_range() {
+        let mut fdst = Vec::new();
+        fdst.extend_from_slice(b"FDST");
+        fdst.extend_from_slice(&12u32.to_be_bytes());
+        fdst.extend_from_slice(&2u32.to_be_bytes());
+        fdst.extend_from_slice(&0u32.to_be_bytes());
+        fdst.extend_from_slice(&1200u32.to_be_bytes());
+        fdst.extend_from_slice(&1200u32.to_be_bytes());
+        fdst.extend_from_slice(&1500u32.to_be_bytes());
+        assert_eq!(fdst_flow0_range(&fdst, 1500), Some((0, 1200)));
+        assert_eq!(fdst_flow0_range(&fdst, 1000), None);
     }
 }

@@ -260,6 +260,7 @@ impl UniversalEpub3Exporter {
             book.archive
                 .hydrate_into(&mut archive_files)
                 .map_err(|e| e.to_string())?;
+            let hydrated_sections = book.get_all_sections_hydrated();
 
             let mut asset_idx = 0;
             let mut seen_manifest_hrefs = std::collections::HashSet::new();
@@ -268,15 +269,26 @@ impl UniversalEpub3Exporter {
                 seen_manifest_hrefs.insert(format!("sec_{idx}.xhtml"));
             }
             let mut url_map: ahash::AHashMap<String, String> = ahash::AHashMap::new();
+            let mut spine_source_paths: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
             for (idx, sec) in book.spine().iter().enumerate() {
                 if !sec.href.is_empty() {
                     let norm = crate::archive::normalize_path(&sec.href).to_ascii_lowercase();
-                    url_map.insert(norm, format!("sec_{idx}.xhtml"));
+                    url_map.insert(norm.clone(), format!("sec_{idx}.xhtml"));
+                    spine_source_paths.insert(norm);
+                }
+            }
+            for (idx, sec) in hydrated_sections.iter().enumerate() {
+                if !sec.full_path.is_empty() {
+                    let norm = crate::archive::normalize_path(&sec.full_path).to_ascii_lowercase();
+                    url_map.insert(norm.clone(), format!("sec_{idx}.xhtml"));
+                    spine_source_paths.insert(norm);
                 }
             }
             for path in archive_files.keys() {
                 let path_str = path.as_str();
-                if is_skipped_archive_asset(path_str) {
+                let norm_orig = crate::archive::normalize_path(path_str).to_ascii_lowercase();
+                if is_skipped_archive_asset(path_str) || spine_source_paths.contains(&norm_orig) {
                     continue;
                 }
                 let rel_href = if path_str.to_ascii_lowercase().starts_with("oebps/") {
@@ -287,7 +299,6 @@ impl UniversalEpub3Exporter {
                 if !seen_manifest_hrefs.insert(rel_href.to_lowercase()) {
                     continue;
                 }
-                let norm_orig = crate::archive::normalize_path(path_str).to_ascii_lowercase();
                 url_map.insert(norm_orig, rel_href.to_string());
                 let mime = EpubArchive::get_mime_type(path);
                 let _ = writeln!(
@@ -323,13 +334,6 @@ impl UniversalEpub3Exporter {
             let mut entries = Vec::new();
 
             // Collect section HTML documents
-            let hydrated_sections = book.get_all_sections_hydrated();
-            for (idx, sec) in hydrated_sections.iter().enumerate() {
-                if !sec.full_path.is_empty() {
-                    let norm = crate::archive::normalize_path(&sec.full_path).to_ascii_lowercase();
-                    url_map.insert(norm, format!("sec_{idx}.xhtml"));
-                }
-            }
             for (idx, sec) in hydrated_sections.iter().enumerate() {
                 let html_body = if !sec.raw_html.is_empty() {
                     &sec.raw_html
@@ -338,26 +342,7 @@ impl UniversalEpub3Exporter {
                 };
                 let trimmed = html_body.trim();
                 let doc_xhtml = if trimmed.contains("<html") || trimmed.contains("<body") {
-                    // The document already has its own DOCTYPE. Prepending one anyway produced
-                    // two `<!DOCTYPE html>` declarations, which is not well-formed XML.
-                    let has_doctype =
-                        trimmed.len() >= 9 && trimmed[..9].eq_ignore_ascii_case("<!doctype");
-                    match (has_doctype, trimmed.starts_with("<?xml")) {
-                        (true, true) => trimmed.to_string(),
-                        (true, false) => {
-                            format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n{}", trimmed)
-                        }
-                        (false, true) => format!(
-                            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html>\n{}",
-                            trimmed
-                                .trim_start_matches("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
-                                .trim_start()
-                        ),
-                        (false, false) => format!(
-                            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html>\n{}",
-                            trimmed
-                        ),
-                    }
+                    ensure_xhtml_preamble(trimmed)
                 } else {
                     format!(
                         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html>\n<html xmlns=\"http://www.w3.org/1999/xhtml\">\n<head><title>Section {}</title></head>\n<body>{}</body>\n</html>",
@@ -383,7 +368,8 @@ impl UniversalEpub3Exporter {
             }
             for (path, bytes) in &archive_files {
                 let path_low = path.to_lowercase();
-                if is_skipped_archive_asset(&path_low) {
+                let norm_orig = crate::archive::normalize_path(path).to_ascii_lowercase();
+                if is_skipped_archive_asset(&path_low) || spine_source_paths.contains(&norm_orig) {
                     continue;
                 }
                 let zip_path = if path_low.starts_with("oebps/") {
@@ -412,6 +398,25 @@ impl UniversalEpub3Exporter {
         }
 
         Ok(zip_buf)
+    }
+}
+
+/// Ensure an XHTML document has exactly one UTF-8 XML declaration and one DOCTYPE.
+fn ensure_xhtml_preamble(trimmed: &str) -> String {
+    let after_xml = if trimmed.starts_with("<?xml") {
+        if let Some(end) = trimmed.find("?>") {
+            trimmed[end + 2..].trim_start()
+        } else {
+            trimmed
+        }
+    } else {
+        trimmed
+    };
+    let has_doctype = after_xml.len() >= 9 && after_xml[..9].eq_ignore_ascii_case("<!doctype");
+    if has_doctype {
+        format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n{after_xml}")
+    } else {
+        format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html>\n{after_xml}")
     }
 }
 

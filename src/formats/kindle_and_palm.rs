@@ -273,9 +273,9 @@ fn export_kindle_pdb(book: &Book, is_kf8: bool) -> Result<Vec<u8>, EbookError> {
     let html_bytes = full_html.as_bytes();
     let text_len = html_bytes.len() as u32;
 
-    // Split HTML into 4096-byte records and compress each with PalmDOC LZ77
+    // Split HTML into <= 4096-byte records on UTF-8 char boundaries and compress each with PalmDOC LZ77
     let mut text_records: Vec<Vec<u8>> = Vec::new();
-    for chunk in html_bytes.chunks(4096) {
+    for chunk in split_utf8_chunks(html_bytes, 4096) {
         text_records.push(palmdoc_lz77_compress(chunk));
     }
     if text_records.is_empty() {
@@ -290,7 +290,7 @@ fn export_kindle_pdb(book: &Book, is_kf8: bool) -> Result<Vec<u8>, EbookError> {
     //   optional FDST (for KF8), FLIS, FCIS, EOF
     let first_image_idx = 1 + text_rec_count;
     let has_images = !img_records.is_empty();
-    let last_content_rec = first_image_idx + img_records.len() - 1;
+    let last_content_rec = (first_image_idx + img_records.len()).saturating_sub(1);
 
     let mut trailing_records: Vec<Vec<u8>> = Vec::new();
     let mut fdst_rec_num: u32 = 0xFFFF_FFFF;
@@ -567,7 +567,7 @@ pub fn export_pdb_bytes(book: &Book) -> Result<Vec<u8>, EbookError> {
     let txt_bytes = crate::formats::export_txt_bytes(book)?;
     let text_len = txt_bytes.len() as u32;
     let mut text_recs: Vec<Vec<u8>> = Vec::new();
-    for chunk in txt_bytes.chunks(4096) {
+    for chunk in split_utf8_chunks(&txt_bytes, 4096) {
         text_recs.push(palmdoc_lz77_compress(chunk));
     }
     if text_recs.is_empty() {
@@ -595,6 +595,30 @@ pub fn export_pdb_bytes(book: &Book) -> Result<Vec<u8>, EbookError> {
 // ============================================================================
 // Helpers
 // ============================================================================
+
+/// Split a byte slice into chunks of at most `max_bytes`, backing up at UTF-8
+/// continuation bytes (`0x80..=0xBF`) so multi-byte characters are never split
+/// across PalmDOC/MOBI records.
+fn split_utf8_chunks(bytes: &[u8], max_bytes: usize) -> Vec<&[u8]> {
+    let mut chunks = Vec::new();
+    let mut start = 0usize;
+    let limit = max_bytes.max(4);
+    while start < bytes.len() {
+        let mut end = (start + limit).min(bytes.len());
+        if end < bytes.len() {
+            let mut back = end;
+            while back > start && (bytes[back] & 0xC0) == 0x80 {
+                back -= 1;
+            }
+            if back > start {
+                end = back;
+            }
+        }
+        chunks.push(&bytes[start..end]);
+        start = end;
+    }
+    chunks
+}
 
 fn extract_body_inner_html(html: &str) -> Option<String> {
     let lower = html.to_ascii_lowercase();

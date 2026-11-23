@@ -1119,20 +1119,21 @@ fn dom_to_fb2<F>(
                             out.push_str("</table>\n");
                         }
                     }
+                    "html" | "body" | "section" | "article" | "main" | "header" | "footer"
+                    | "nav" | "aside" => {
+                        dom_to_fb2(
+                            children,
+                            book,
+                            sec_dir,
+                            binaries,
+                            bin_by_path,
+                            register_image,
+                            out,
+                        );
+                    }
                     _ => {
-                        // Container elements (div, section, body, etc.)
-                        let has_block_child = children.iter().any(|c| {
-                            matches!(
-                                c,
-                                DomNode::Element { tag_name: ct, .. }
-                                if matches!(
-                                    ct.to_ascii_lowercase().as_str(),
-                                    "p" | "div" | "section" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
-                                        | "ul" | "ol" | "table" | "blockquote" | "body" | "article"
-                                )
-                            )
-                        });
-                        if has_block_child {
+                        // Container elements (div, etc.)
+                        if has_fb2_block_descendant(children) {
                             dom_to_fb2(
                                 children,
                                 book,
@@ -1174,6 +1175,41 @@ fn dom_to_fb2<F>(
     }
 }
 
+fn has_fb2_block_descendant(nodes: &[DomNode]) -> bool {
+    nodes.iter().any(|node| {
+        if let DomNode::Element {
+            tag_name, children, ..
+        } = node
+        {
+            let tag = tag_name.to_ascii_lowercase();
+            if matches!(
+                tag.as_str(),
+                "p" | "div"
+                    | "section"
+                    | "h1"
+                    | "h2"
+                    | "h3"
+                    | "h4"
+                    | "h5"
+                    | "h6"
+                    | "ul"
+                    | "ol"
+                    | "li"
+                    | "table"
+                    | "blockquote"
+                    | "body"
+                    | "article"
+                    | "img"
+                    | "image"
+            ) {
+                return true;
+            }
+            return has_fb2_block_descendant(children);
+        }
+        false
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn render_fb2_inline<F>(
     nodes: &[DomNode],
@@ -1205,6 +1241,12 @@ fn render_fb2_inline<F>(
                 children,
             } => {
                 let tag = tag_name.to_ascii_lowercase();
+                if matches!(
+                    tag.as_str(),
+                    "head" | "script" | "style" | "noscript" | "title"
+                ) {
+                    continue;
+                }
                 match tag.as_str() {
                     "strong" | "b" => {
                         out.push_str("<strong>");

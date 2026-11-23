@@ -5,6 +5,26 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.1] - 2026-11-24
+
+### Added
+
+- **Microsoft Reader `.lit` Input & Output (`src/lit.rs`, `src/formats/mod.rs`, `src/book.rs`)**:
+  - Added `Book::export_lit_bytes` / `export_lit_bytes` and registered `"lit"` in `Book::supported_output_formats()` and `Book::export_format_bytes()`, writing valid `ITOLITLS` containers (`ITOL`/`CAOL`/`ITSF` headers, `IFCM`/`AOLL` directory chunks, `::DataSpace` `NameList`/`ControlData`/`ResetTable`, `/manifest`, `/meta`, and 32 KiB LZX Type 3 blocks with LIT binary XML/HTML encoding).
+  - Replaced the raw byte-scraping `.lit` stub in `LitBook::parse` with full `ITOLITLS`/`IFCM` directory parsing, a pure-Rust Microsoft LZX decompressor (`lzx_decompress` supporting `ControlData` windows, `ResetTable` bounds, 16-bit frame alignment, and `reset_interval` resets), `/manifest` + `/meta` extraction, and LIT binary HTML detokenization.
+
+### Fixed
+
+- **MOBI Input & Output (`src/mobi.rs`, `src/formats/kindle_and_palm.rs`)**:
+  - Stripped `extra_flags` trailing record data (`trailing_data_size`) before PalmDOC decompression and respected Record 0 `text_encoding` (`65001` UTF-8 vs `1252` Windows-1252) to eliminate mojibake on Calibre-generated MOBI files.
+  - Added `split_utf8_chunks` so MOBI/PDB writers split 4096-byte records on UTF-8 character boundaries, and guarded `last_content_rec` with `saturating_sub(1)`.
+- **KF8 / AZW3 Input (`src/mobi.rs`)**:
+  - Parsed the KF8 `FDST` flow table (`fdst_flow0_range`) when `mobi_version >= 8` and sliced `raw_html_bytes` to Flow 0 bounds so trailing CSS/SVG flows no longer leak into extracted book text.
+- **EPUB 3 Output (`src/validator.rs`)**:
+  - Fixed `UniversalEpub3Exporter::export` emitting duplicate `<?xml ...?>` / `<!DOCTYPE html>` preambles (`ensure_xhtml_preamble`) and copying original spine `.xhtml`/`.html` files alongside `sec_*.xhtml` (`spine_source_paths`).
+- **FictionBook 2.0 (`.fb2`) Output (`src/formats/web_and_archives.rs`)**:
+  - Updated `dom_to_fb2` to recurse into `<html>`, `<body>`, and nested block-containing wrappers (`has_fb2_block_descendant`) instead of collapsing entire sections into a single `<p>`, and skipped `<head>`/`<style>`/`<script>`/`<title>` in `render_fb2_inline`.
+
 ## [0.19.0] - 2026-11-20
 
 ### Added

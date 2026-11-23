@@ -1700,6 +1700,11 @@ impl Book {
         crate::formats::export_pdb_bytes(self)
     }
 
+    /// Export loaded eBook as a Microsoft Reader (`.lit`) binary eBook.
+    pub fn export_lit_bytes(&self) -> Result<Vec<u8>, EbookError> {
+        crate::formats::export_lit_bytes(self)
+    }
+
     /// Export loaded eBook as a paginated pure-Rust PDF 1.4 (`.pdf`) document.
     pub fn export_pdf_bytes(&self) -> Result<Vec<u8>, EbookError> {
         crate::formats::export_pdf_bytes(self)
@@ -1718,9 +1723,9 @@ impl Book {
     /// Return the list of supported output format identifiers accepted by [`Book::export_format_bytes`].
     pub fn supported_output_formats() -> &'static [&'static str] {
         &[
-            "epub", "kepub", "kfx", "mobi", "azw3", "pdb", "pdf", "fb2", "html", "htmlz", "txt",
-            "txtz", "md", "oeb", "zip", "tcr", "docx", "odt", "rtf", "pmlz", "rb", "typ", "typst",
-            "adoc", "org", "rst", "tex", "pptx",
+            "epub", "kepub", "kfx", "mobi", "azw3", "pdb", "lit", "pdf", "fb2", "html", "htmlz",
+            "txt", "txtz", "md", "oeb", "zip", "tcr", "docx", "odt", "rtf", "pmlz", "rb", "typ",
+            "typst", "adoc", "org", "rst", "tex", "pptx",
         ]
     }
 
@@ -1734,6 +1739,7 @@ impl Book {
             "mobi" => self.export_mobi_bytes(),
             "azw3" => self.export_azw3_bytes(),
             "pdb" => self.export_pdb_bytes(),
+            "lit" => self.export_lit_bytes(),
             "pdf" => self.export_pdf_bytes(),
             "fb2" => self.export_fb2_bytes(),
             "html" | "htm" | "xhtml" => self.export_html_bytes(),
