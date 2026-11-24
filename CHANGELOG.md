@@ -5,6 +5,22 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.4] - 2026-11-24
+
+### Added
+
+- **Pre-built Release Binaries & `cargo-binstall` Support (`Cargo.toml`, `dist-workspace.toml`, `.github/workflows/release.yml`)**:
+  - Added `[package.metadata.binstall]` and `cargo-dist` configuration (`lto = "fat"`, `codegen-units = 1`, `all-features = true`) to build and publish cross-platform CLI binaries to GitHub Releases.
+- **Combined Downloads Badge (`.github/workflows/downloads-badge.yml`, `README.md`)**:
+  - Added a scheduled workflow aggregating Crates.io, PyPI, and GitHub Releases / `binstall` download counts into a live Shields.io endpoint badge.
+- **UniFFI Bindings (`src/uniffi_api.rs`)**:
+  - Added `UniBook::get_section_html_inlined`, `UniBook::export_format_bytes`, and `UniBook::supported_output_formats`.
+
+### Fixed
+
+- **CI & Dependency Audit (`src/lit.rs`, `src/mobi.rs`, `src/section.rs`, `Cargo.lock`)**:
+  - Resolved Clippy lints across `lit`, `mobi`, and `section` modules and bumped `url` to `2.5.9` (`RUSTSEC-2026-0592`).
+
 ## [0.19.3] - 2026-11-24
 
 ### Added

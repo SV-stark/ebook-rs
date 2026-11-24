@@ -1,6 +1,6 @@
 [package]
 name = "ebook-rs"
-version = "0.19.3"
+version = "0.19.4"
 edition = "2024"
 rust-version = "1.88"
 authors = ["SV-Stark"]
@@ -18,6 +18,14 @@ name = "ebook-rs-wasm"
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.{ archive-format }"
+bin-dir = "{ name }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "txz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"
 
 [lib]
 name = "ebook_rs"
@@ -94,6 +102,12 @@ codegen-units = 1
 strip = true
 rpath = false
 overflow-checks = true
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "warn"

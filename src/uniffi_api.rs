@@ -158,6 +158,36 @@ impl UniBook {
         serde_json::to_string(&map).map_err(|e| format!("Failed to serialize page map: {}", e))
     }
 
+    /// Get processed HTML content for a specific section with stylesheet rules inlined.
+    pub fn get_section_html_inlined(&self, index: u32) -> Result<String, String> {
+        let book = self.inner.read();
+        let sec = book
+            .get_section(index as usize)
+            .map_err(|e| e.to_string())?;
+        Ok(crate::section::process_section_resources_with_strategy(
+            &sec.raw_html,
+            &sec.full_path,
+            &book.archive,
+            &crate::layout::AssetDeliveryStrategy::InlinedStyle,
+        ))
+    }
+
+    /// Export loaded eBook to any supported output format by name/extension
+    /// (e.g. `epub`, `kepub`, `kfx`, `mobi`, `azw3`, `pdb`, `lit`, `pdf`, `fb2`, `html`, `txt`, `md`, `docx`, `odt`, `rtf`).
+    #[allow(clippy::needless_pass_by_value)] // UniFFI scaffolding requires owned String
+    pub fn export_format_bytes(&self, format: String) -> Result<Vec<u8>, String> {
+        let book = self.inner.read();
+        book.export_format_bytes(&format).map_err(|e| e.to_string())
+    }
+
+    /// Return the list of supported output format identifiers for `export_format_bytes`.
+    pub fn supported_output_formats(&self) -> Vec<String> {
+        Book::supported_output_formats()
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect()
+    }
+
     /// Export loaded eBook as a universal standard EPUB 3 ZIP archive buffer.
     pub fn export_epub3(&self) -> Result<Vec<u8>, String> {
         let book = self.inner.read();
