@@ -66,7 +66,22 @@ jobs:
                   break
               page += 1
 
-          total = crates_downloads + gh_downloads
+          # 3. PyPI (pip install) downloads via pypistats.org (last 180 days)
+          pypi_downloads = 0
+          try:
+              pypi_req = urllib.request.Request(
+                  "https://pypistats.org/api/packages/ebook-rs/overall",
+                  headers={"User-Agent": f"{repo}-downloads-badge/1.0"},
+              )
+              with urllib.request.urlopen(pypi_req, timeout=20) as resp:
+                  pypi_data = json.load(resp)
+                  for entry in pypi_data.get("data", []):
+                      if entry.get("category") == "with_mirrors":
+                          pypi_downloads += int(entry.get("downloads", 0))
+          except Exception as exc:
+              print(f"Warning: failed to fetch PyPI stats: {exc}")
+
+          total = crates_downloads + gh_downloads + pypi_downloads
 
           def fmt_count(n: int) -> str:
               if n >= 1_000_000:
@@ -86,7 +101,7 @@ jobs:
               json.dump(badge, f, indent=2)
               f.write("\n")
 
-          print(f"crates.io={crates_downloads}, github_releases={gh_downloads}, total={total} ({badge['message']})")
+          print(f"crates.io={crates_downloads}, github_releases={gh_downloads}, pypi={pypi_downloads}, total={total} ({badge['message']})")
           PY
 
       - name: Publish downloads.json to badges branch
