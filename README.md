@@ -5,7 +5,7 @@
 **High-Performance Pure-Rust Multi-Format eBook Parsing & Reader Engine**
 
 [![Crates.io Version](https://img.shields.io/crates/v/ebook-rs.svg?style=flat-square&color=orange)](https://crates.io/crates/ebook-rs)
-[![Crates.io Downloads](https://img.shields.io/crates/d/ebook-rs.svg?style=flat-square&color=blue)](https://crates.io/crates/ebook-rs)
+[![Total Downloads (Crates.io + GitHub Releases / binstall)](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FSV-stark%2Febook-rs%2Fbadges%2Fdownloads.json&style=flat-square)](https://crates.io/crates/ebook-rs)
 [![PyPI Version](https://img.shields.io/pypi/v/ebook-rs.svg?style=flat-square&logo=python&label=pypi)](https://pypi.org/project/ebook-rs/)
 [![Docs.rs](https://img.shields.io/docsrs/ebook-rs?style=flat-square&logo=docs.rs)](https://docs.rs/ebook-rs)
 [![Documentation](https://img.shields.io/badge/docs-sv--stark.github.io%2Febook--rs-0284c7?style=flat-square&logo=gitbook&logoColor=white)](https://sv-stark.github.io/ebook-rs/)
