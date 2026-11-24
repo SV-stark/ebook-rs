@@ -841,22 +841,22 @@ fn parse_lit_meta(data: &[u8]) -> (Option<String>, Vec<String>, Option<String>) 
     let mut creators = Vec::new();
     if let Some(pos) = data.windows(4).position(|w| w == b"aut\x00") {
         let start = pos + 4;
-        if let Some(rel_end) = data[start..].iter().position(|&b| b == 0) {
-            if let Ok(a) = std::str::from_utf8(&data[start..start + rel_end]) {
-                let a = a.trim();
-                if !a.is_empty() {
-                    creators.push(a.to_string());
-                }
+        if let Some(rel_end) = data[start..].iter().position(|&b| b == 0)
+            && let Ok(a) = std::str::from_utf8(&data[start..start + rel_end])
+        {
+            let a = a.trim();
+            if !a.is_empty() {
+                creators.push(a.to_string());
             }
         }
     } else if let Some(pos) = data.windows(11).position(|w| w == b"dc:creator\x00") {
         let start = pos + 11;
-        if let Some(rel_end) = data[start..].iter().position(|&b| b == 0) {
-            if let Ok(a) = std::str::from_utf8(&data[start..start + rel_end]) {
-                let a = a.trim();
-                if !a.is_empty() {
-                    creators.push(a.to_string());
-                }
+        if let Some(rel_end) = data[start..].iter().position(|&b| b == 0)
+            && let Ok(a) = std::str::from_utf8(&data[start..start + rel_end])
+        {
+            let a = a.trim();
+            if !a.is_empty() {
+                creators.push(a.to_string());
             }
         }
     }
@@ -918,7 +918,7 @@ fn decode_lit_content_stream(raw: &[u8]) -> String {
         }
 
         // Skip U+FFFF marker
-        if i + 3 <= raw.len() && &raw[i..i + 3] == [0xEF, 0xBF, 0xBF] {
+        if i + 3 <= raw.len() && raw[i..i + 3] == [0xEF, 0xBF, 0xBF] {
             i += 3;
             continue;
         }
@@ -937,6 +937,7 @@ fn decode_lit_content_stream(raw: &[u8]) -> String {
                 }
                 Err(e) => {
                     if e.valid_up_to() > 0 {
+                        // SAFETY: std::str::from_utf8 guarantees `raw[i..i + e.valid_up_to()]` is valid UTF-8.
                         let s =
                             unsafe { std::str::from_utf8_unchecked(&raw[i..i + e.valid_up_to()]) };
                         let c = s.chars().next().unwrap();
@@ -1457,7 +1458,7 @@ pub fn export_lit_bytes(book: &Book) -> Result<Vec<u8>, EbookError> {
         let chunk = &sec1_plain[pos..chunk_end];
         let block_len = chunk.len() as u32;
         reset_offsets.push(lzx_stream.len() as u64);
-        let (w0, w1) = if frame_idx % 4 == 0 {
+        let (w0, w1) = if frame_idx.is_multiple_of(4) {
             // 1-bit e8_flag(0) + 3-bit type(3) + 24-bit block_len + 4-bit pad(0)
             (
                 ((3u32 << 12) | ((block_len >> 12) & 0x0FFF)) as u16,

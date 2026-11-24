@@ -334,14 +334,14 @@ impl MobiBook {
             } else {
                 bytes.len()
             };
-            if fstart < fend && fend <= bytes.len() {
-                if let Some((flow0_start, flow0_end)) =
+            if fstart < fend
+                && fend <= bytes.len()
+                && let Some((flow0_start, flow0_end)) =
                     fdst_flow0_range(&bytes[fstart..fend], raw_html_bytes.len())
-                {
-                    raw_html_bytes.truncate(flow0_end);
-                    if flow0_start > 0 {
-                        raw_html_bytes.drain(..flow0_start);
-                    }
+            {
+                raw_html_bytes.truncate(flow0_end);
+                if flow0_start > 0 {
+                    raw_html_bytes.drain(..flow0_start);
                 }
             }
         }
@@ -807,11 +807,11 @@ fn trailing_data_size(data: &[u8], extra_flags: u32) -> usize {
         }
         flags >>= 1;
     }
-    if (extra_flags & 1) != 0 {
-        if let Some(pos) = data.len().checked_sub(1 + num) {
-            let overlap = ((data[pos] & 0x03) as usize) + 1;
-            num = num.saturating_add(overlap).min(data.len());
-        }
+    if (extra_flags & 1) != 0
+        && let Some(pos) = data.len().checked_sub(1 + num)
+    {
+        let overlap = ((data[pos] & 0x03) as usize) + 1;
+        num = num.saturating_add(overlap).min(data.len());
     }
     num
 }
