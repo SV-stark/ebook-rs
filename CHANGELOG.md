@@ -5,6 +5,14 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.3] - 2026-11-24
+
+### Added
+
+- **Inline CSS Rule Application (`src/section.rs`, `src/lib.rs`)**:
+  - Added `inline_stylesheet_rules` (exported as `ebook_rs::inline_stylesheet_rules`) to parse `<style>` blocks (`tag`, `.class`, `tag.class`, `#id` selectors) and merge matching CSS declarations into element `style="..."` attributes while preserving existing inline style precedence.
+  - Integrated `inline_stylesheet_rules` into `AssetDeliveryStrategy::InlinedStyle` in `process_section_resources_with_strategy` so renderers that strip `<head>`/`<style>` still retain element-level inline styles.
+
 ## [0.19.1] - 2026-11-24
 
 ### Added

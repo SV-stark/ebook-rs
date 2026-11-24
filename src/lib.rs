@@ -97,7 +97,7 @@ pub use rag::{RagChunk, RagChunkConfig, RagChunker};
 pub use rtf::RtfBook;
 pub use sample_builder::generate_sample_epub;
 pub use search::{SearchEngine, SearchResult};
-pub use section::{Section, TtsWordToken};
+pub use section::{Section, TtsWordToken, inline_stylesheet_rules};
 pub use stream_zip::{ZipEntryLocation, ZipHeaderReader};
 pub use treesitter::{ExtractedCodeBlock, SyntaxHighlightEngine, SyntaxNodeInfo, TreeSitterEngine};
 pub use txt::TxtBook;

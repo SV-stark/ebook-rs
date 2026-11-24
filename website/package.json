@@ -1,6 +1,6 @@
 {
   "name": "ebook-rs-docs",
-  "version": "0.19.1",
+  "version": "0.19.3",
   "type": "module",
   "scripts": {
     "dev": "astro dev",

@@ -538,6 +538,7 @@ pub fn process_section_resources_with_strategy(
         } else {
             out = format!("{}{}", style_block, cleaned);
         }
+        out = inline_stylesheet_rules(&out);
     }
 
     // Strip <title>...</title> from the delivered HTML: the title belongs in <head> and
@@ -1453,4 +1454,234 @@ mod security_regression_tests {
         assert_eq!(scheme_prefix_bytes("no colon here"), 2);
         assert_eq!(scheme_prefix_bytes("<a href="), 0);
     }
+
+    #[test]
+    fn inline_stylesheet_rules_applies_chapter_header_css() {
+        let html = r#"<html><head><style>
+            /* comment */
+            .chapter-header { border-top: 1.5px solid #222; border-bottom: 1.5px solid #222; }
+            .chapter-num { text-align: right; letter-spacing: 0.12em; }
+            h1.chapter-title { font-size: 1.55em; text-align: left; }
+        </style></head><body>
+            <div class="chapter-header"><p class="chapter-num">CHAPTER 1</p></div>
+            <h1 class="chapter-title" style="color: #111">Title</h1>
+        </body></html>"#;
+        let out = super::inline_stylesheet_rules(html);
+        assert!(out.contains(r#"<div class="chapter-header" style="border-top: 1.5px solid #222; border-bottom: 1.5px solid #222">"#), "{out}");
+        assert!(
+            out.contains(
+                r#"<p class="chapter-num" style="text-align: right; letter-spacing: 0.12em">"#
+            ),
+            "{out}"
+        );
+        assert!(
+            out.contains("font-size: 1.55em; text-align: left; color: #111"),
+            "{out}"
+        );
+    }
+}
+
+/// Parse `<style>...</style>` rules and inline matching `style="..."` declarations onto HTML
+/// elements (`tag`, `.class`, `tag.class`, `#id`), preserving existing inline `style` precedence.
+pub fn inline_stylesheet_rules(html: &str) -> String {
+    let mut css_buf = String::new();
+    let mut scan = html;
+    while let Some(s_start) = find_ignore_case(scan, "<style") {
+        let after_open = &scan[s_start..];
+        let Some(gt) = after_open.find('>') else {
+            break;
+        };
+        let content_start = gt + 1;
+        let Some(s_end) = find_ignore_case(&after_open[content_start..], "</style>") else {
+            break;
+        };
+        css_buf.push_str(&after_open[content_start..content_start + s_end]);
+        css_buf.push('\n');
+        scan = &after_open[content_start + s_end + 8..];
+    }
+    if css_buf.trim().is_empty() {
+        return html.to_string();
+    }
+
+    // Strip /* ... */ comments
+    let mut clean_css = String::with_capacity(css_buf.len());
+    let mut cscan = css_buf.as_str();
+    while let Some(cs) = cscan.find("/*") {
+        clean_css.push_str(&cscan[..cs]);
+        if let Some(ce) = cscan[cs + 2..].find("*/") {
+            cscan = &cscan[cs + 2 + ce + 2..];
+        } else {
+            cscan = "";
+            break;
+        }
+    }
+    clean_css.push_str(cscan);
+
+    // Parse selector -> declarations
+    let mut rules: Vec<(String, String)> = Vec::new();
+    let mut rest = clean_css.as_str();
+    while let Some(ob) = rest.find('{') {
+        let sel_raw = rest[..ob].trim();
+        let after = &rest[ob + 1..];
+        let Some(cb) = after.find('}') else {
+            break;
+        };
+        let decl_raw = after[..cb].trim();
+        rest = &after[cb + 1..];
+        if sel_raw.is_empty() || sel_raw.starts_with('@') || decl_raw.is_empty() {
+            continue;
+        }
+        // Normalize declarations to `prop: val; ...`
+        let decls: Vec<String> = decl_raw
+            .split(';')
+            .filter_map(|d| {
+                let (p, v) = d.split_once(':')?;
+                let p = p.trim();
+                let v = v.trim();
+                if p.is_empty() || v.is_empty() {
+                    None
+                } else {
+                    Some(format!("{p}: {v}"))
+                }
+            })
+            .collect();
+        if decls.is_empty() {
+            continue;
+        }
+        let decl_str = decls.join("; ");
+        for sel in sel_raw.split(',') {
+            let s = sel.trim();
+            if !s.is_empty() && !s.contains(' ') && !s.contains('>') && !s.contains('+') {
+                rules.push((s.to_ascii_lowercase(), decl_str.clone()));
+            }
+        }
+    }
+    if rules.is_empty() {
+        return html.to_string();
+    }
+
+    let mut out = String::with_capacity(html.len() + 256);
+    let mut pos = 0usize;
+    let bytes = html.as_bytes();
+    while pos < bytes.len() {
+        if bytes[pos] != b'<' {
+            let next_lt = html[pos..]
+                .find('<')
+                .map(|n| pos + n)
+                .unwrap_or(bytes.len());
+            out.push_str(&html[pos..next_lt]);
+            pos = next_lt;
+            continue;
+        }
+        let Some(rel_end) = html[pos..].find('>') else {
+            out.push_str(&html[pos..]);
+            break;
+        };
+        let tag = &html[pos..pos + rel_end + 1];
+        pos += rel_end + 1;
+
+        if tag.starts_with("</") || tag.starts_with("<!") || tag.starts_with("<?") {
+            out.push_str(tag);
+            continue;
+        }
+        let inner = &tag[1..tag.len() - 1];
+        let self_closing = inner.ends_with('/');
+        let inner_trimmed = inner.trim_end_matches('/').trim();
+        let tag_name = inner_trimmed
+            .split(|c: char| c.is_ascii_whitespace())
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if tag_name.is_empty()
+            || matches!(
+                tag_name.as_str(),
+                "html" | "head" | "meta" | "link" | "style" | "script"
+            )
+        {
+            out.push_str(tag);
+            continue;
+        }
+
+        let classes_str = extract_attr_value_ci(inner_trimmed, "class").unwrap_or_default();
+        let id_str = extract_attr_value_ci(inner_trimmed, "id").unwrap_or_default();
+        let classes: Vec<String> = classes_str
+            .split_whitespace()
+            .map(|c| c.to_ascii_lowercase())
+            .collect();
+        let id_low = id_str.to_ascii_lowercase();
+
+        let mut matched_css = Vec::new();
+        for (sel, decl) in &rules {
+            let is_match = if let Some(cid) = sel.strip_prefix('#') {
+                !id_low.is_empty() && id_low == cid
+            } else if let Some(cls) = sel.strip_prefix('.') {
+                classes.iter().any(|c| c == cls)
+            } else if let Some((t, cls)) = sel.split_once('.') {
+                t == tag_name && classes.iter().any(|c| c == cls)
+            } else {
+                sel == &tag_name
+            };
+            if is_match {
+                matched_css.push(decl.as_str());
+            }
+        }
+
+        if matched_css.is_empty() {
+            out.push_str(tag);
+            continue;
+        }
+
+        let existing_style = extract_attr_value_ci(inner_trimmed, "style");
+        let combined = if let Some(existing) = existing_style
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            format!(
+                "{}; {}",
+                matched_css.join("; "),
+                existing.trim_end_matches(';')
+            )
+        } else {
+            matched_css.join("; ")
+        };
+
+        let escaped = combined.replace('"', "'");
+        if existing_style.is_some() {
+            // Replace existing style="..." attribute
+            if let Some(re_style) =
+                regex::Regex::new(r#"(?i)\sstyle\s*=\s*(?:"[^"]*"|'[^']*')"#).ok()
+            {
+                let replaced = re_style.replace(inner_trimmed, "");
+                out.push('<');
+                out.push_str(replaced.trim_end());
+                out.push_str(&format!(" style=\"{escaped}\""));
+                if self_closing {
+                    out.push('/');
+                }
+                out.push('>');
+                continue;
+            }
+        }
+        out.push('<');
+        out.push_str(inner_trimmed);
+        out.push_str(&format!(" style=\"{escaped}\""));
+        if self_closing {
+            out.push('/');
+        }
+        out.push('>');
+    }
+    out
+}
+
+fn extract_attr_value_ci(tag_inner: &str, attr: &str) -> Option<String> {
+    let re = regex::Regex::new(&format!(
+        r#"(?i)\b{}\s*=\s*(?:"([^"]*)"|'([^']*)')"#,
+        regex::escape(attr)
+    ))
+    .ok()?;
+    let caps = re.captures(tag_inner)?;
+    caps.get(1)
+        .or_else(|| caps.get(2))
+        .map(|m| m.as_str().to_string())
 }
