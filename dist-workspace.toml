@@ -13,5 +13,5 @@ installers = []
 targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
 # Where to host releases
 hosting = "github"
-# Build with all Cargo features enabled
-all-features = true
+# Build with all engine/CLI features enabled (excluding python/wasm binding targets)
+features = ["server", "opds", "parallel", "mmap", "serde", "zstd", "mcp", "pdf", "async", "mimalloc", "uniffi"]
