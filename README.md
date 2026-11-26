@@ -14,7 +14,7 @@
 [![Rust Edition](https://img.shields.io/badge/rust-2024%20%7C%201.88%2B-informational?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/crates/l/ebook-rs.svg?style=flat-square&color=green)](LICENSE)
 
-*Pure Rust multi-format eBook engine supporting **30 input & 27 output formats** (**EPUB 2/3, KEPUB, KFX, MOBI, AZW3, PDB, FB2, LIT, CBZ, PDF, DOCX, ODT, RTF, PPTX, HTML, HTMLZ, TXT, TXTZ, MD, OEB, ZIP, TCR, PMLZ, RB, Typst, AsciiDoc, Org, RST, LaTeX**) featuring Mozilla UniFFI mobile bindings, Readium CFI locators & LCP DRM, SpeechSynthesis TTS word sync, CJK vertical & RTL pagination, PDF two-column reflow, lossless EPUB3 optimizer, AI RAG BM25 chunking, zero-copy search, Zstd caching, Python/WASM bindings, and a native MCP server.*
+*Pure Rust multi-format eBook engine supporting **30 input & 28 output formats** (**EPUB 2/3, KEPUB, KFX, MOBI, AZW3, PDB, FB2, LIT, CBZ, PDF, DOCX, ODT, RTF, PPTX, HTML, HTMLZ, TXT, TXTZ, MD, OEB, ZIP, TCR, PMLZ, RB, Typst, AsciiDoc, Org, RST, LaTeX**) featuring Mozilla UniFFI mobile bindings, Readium CFI locators & LCP DRM, SpeechSynthesis TTS word sync, CJK vertical & RTL pagination, PDF two-column reflow, lossless EPUB3 optimizer, AI RAG BM25 chunking, SIMD full-text & regex search, pure-Rust compressed state caching, Python/WASM bindings, and a native MCP server.*
 
 </div>
 
@@ -96,12 +96,12 @@
 
 | Feature | 🚀 `ebook-rs` | 📦 `epub.js` | 📖 `foliate-js` | 🦀 `rbook` |
 |---|:---:|:---:|:---:|:---:|
-| **Universal 27-Format Exporters** | ✅ `Book::export_format_bytes()` (EPUB, KEPUB, KFX, MOBI, AZW3, PDB, PDF, DOCX, ODT, RTF, PPTX, FB2, HTML/Z, TXT/Z, MD, OEB, ZIP, TCR, PMLZ, RB, Typst, ADOC, Org, RST, TeX) | ❌ No | ❌ No | ❌ No |
+| **Universal 28-Format Exporters** | ✅ `Book::export_format_bytes()` (EPUB, KEPUB, KFX, MOBI, AZW3, PDB, LIT, PDF, DOCX, ODT, RTF, PPTX, FB2, HTML/Z, TXT/Z, MD, OEB, ZIP, TCR, PMLZ, RB, Typst, ADOC, Org, RST, TeX) | ❌ No | ❌ No | ❌ No |
 | **Lossless EPUB 3 Optimizer & Validator** | ✅ HTML/asset minifier + structural validator | ❌ No | ❌ No | ❌ No |
 | **Academic Citations & Fingerprinting** | ✅ APA / MLA / Chicago / BibTeX + `BookFingerprint` | ❌ No | ❌ No | ❌ No |
 | **OPDS 1.2 / 2.0 Catalog Client** | ✅ `opds` feed parser & download resolver | ❌ No | ✅ Yes | ❌ No |
 | **Lazy Hydration & Streaming ZIP** | ✅ On-demand sections + HTTP Range ZIP | ✅ Partial | ✅ Partial | ✅ Partial |
-| **Zstd Compressed State Caching** | ✅ Instant `export_zstd_cache()` | ❌ No | ❌ No | ❌ No |
+| **Compressed State Caching** | ✅ Pure-Rust `export_cache()` (`zlib-rs`) | ❌ No | ❌ No | ❌ No |
 | **Mobile, Python & C Bindings** | ✅ Mozilla UniFFI (Swift/Kotlin) + PyO3 + C ABI | ❌ No | ❌ No | ❌ No |
 | **WASM SDK & Web Component** | ✅ `WasmBook` + `<ebook-reader>` | ✅ JS native | ✅ JS native | ❌ No |
 | **W3C Web Annotation (JSON-LD)** | ✅ Full CRUD + `to_w3c_json` | ❌ No | ✅ Yes | ❌ No |
@@ -237,7 +237,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let section = book.get_section(0)?;
     println!("Chapter 1 Plain Text:\n{}", section.plain_text);
 
-    // 3. Perform zero-allocation SIMD full-text search
+    // 3. Perform SIMD full-text search (scans pre-lowercased section text)
     let results = book.search("Rabbit");
     for hit in results.iter().take(3) {
         println!("[Section {}] CFI: {}\nSnippet: {}\n", hit.spine_index, hit.cfi, hit.snippet);
@@ -366,7 +366,7 @@ For detailed function signatures, struct documentation, and module guides, refer
 ```
 
 - **`src/book.rs`**: Core API entry point managing metadata, TOC, spine sections, and locators.
-- **`src/search.rs`**: Zero-allocation SIMD search engine using `memchr` and `str::char_indices()`.
+- **`src/search.rs`**: SIMD full-text & regex search engine scanning pre-lowercased section text with `memchr` and `str::char_indices()`.
 - **`src/rag.rs`**: Okapi BM25 relevance scoring and AI document chunking engine.
 - **`src/mcp.rs`**: Model Context Protocol (MCP 2024-11-05) JSON-RPC stdio & HTTP server.
 - **`src/section.rs`**: Lazy on-demand section hydration and Base64 asset inlining.

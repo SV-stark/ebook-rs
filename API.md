@@ -1,13 +1,15 @@
-# 📚 EBook-RS API Reference & Complete Documentation (v0.19.0)
+# 📚 EBook-RS API Reference & Complete Documentation (v0.19.4)
  
-`ebook-rs` (v0.19.0) is a multi-format pure Rust eBook engine supporting **26+ input formats and 21+ output formats** (**EPUB 2/3**, **Kobo KEPUB**, **Amazon KFX**, **MOBI**, **AZW3**, **FB2**, **LIT**, **CBZ**, **PDF**, **DOCX**, **ODT**, **RTF**, **HTML**, **HTMLZ**, **TXT**, **TXTZ**, **Markdown**, **OEB**, **ZIP**, **TCR**, **PMLZ**, **RB**, **Typst**, **AsciiDoc**, **Org-mode**, **reStructuredText**) with **Mozilla UniFFI Mobile SDK (Swift/Kotlin)**, **Lossless EPUB 3 Optimizer & Minifier**, **CJK Vertical Writing & RTL Reflow Pagination**, **Web Audio API Karaoke Synchronization**, **Lazy Archive Streaming for Giant Files (>500MB)**, **Markdown Frontmatter, Wikilinks & Callouts**, **Model Context Protocol (MCP 2024-11-05) Server**, **Okapi BM25 RAG Relevance Scoring**, **Zero-Allocation Full-Text Search**, **PDF Two-Column Reading-Order Reflow**, **Multi-Threaded Parallel ZIP Exporting**, **CBZ Comic Pre-fetching & Manga Spread Mode**, **Native PyO3 Python Wheel Bindings**, **100% Clean-Room Amazon KFX Subsystem**, **Native AI/RAG Document Chunking**, **C FFI ABI Bindings**, **WASM Web Component Renderer**, **RTL & Vertical CJK Modes**, **Hardened Sanitizer & Boundary Parsers**, **SpeechSynthesis TTS Word Synchronizer**, **Legacy Non-UTF-8 Charset Decoding**, **Automatic Language Detection**, **Zstd Compressed State Caching**, **Universal 21-Format Exporter**, **Zero-Copy mmap**, **Lightweight DOM AST Tree**, **Fuzzy XML Recovery**, **CFI**, and **Readium LCP/Locator** support.
+`ebook-rs` (v0.19.4) is a multi-format pure Rust eBook engine supporting **30 input formats and 28+ output formats** (**EPUB 2/3**, **Kobo KEPUB**, **Amazon KFX**, **MOBI**, **AZW3**, **PDB**, **FB2**, **LIT**, **CBZ**, **PDF**, **DOCX**, **ODT**, **RTF**, **PPTX**, **HTML**, **HTMLZ**, **TXT**, **TXTZ**, **Markdown**, **OEB**, **ZIP**, **TCR**, **PMLZ**, **RB**, **Typst**, **AsciiDoc**, **Org-mode**, **reStructuredText**, **LaTeX**) with **Mozilla UniFFI Mobile SDK (Swift/Kotlin)**, **Lossless EPUB 3 Optimizer & Minifier**, **CJK Vertical Writing & RTL Reflow Pagination**, **Web Audio API Karaoke Synchronization**, **Lazy Archive Streaming for Giant Files (>500MB)**, **Markdown Frontmatter, Wikilinks & Callouts**, **Model Context Protocol (MCP 2024-11-05) Server**, **Okapi BM25 RAG Relevance Scoring**, **Zero-Allocation Full-Text Search**, **PDF Two-Column Reading-Order Reflow**, **Multi-Threaded Parallel ZIP Exporting**, **CBZ Comic Pre-fetching & Manga Spread Mode**, **Native PyO3 Python Wheel Bindings**, **100% Clean-Room Amazon KFX Subsystem**, **Native AI/RAG Document Chunking**, **C FFI ABI Bindings**, **WASM Web Component Renderer**, **Embedded HTTP Reader Server & CLI**, **OPDS & Readium WebPub**, **Annotations & Reading Analytics**, **Font Deobfuscation**, **SpeechSynthesis TTS Word Synchronizer**, **Legacy Non-UTF-8 Charset Decoding**, **Automatic Language Detection**, **Pure-Rust Compressed State Caching (`flate2`/`zlib-rs`)**, **Universal 28-Format Exporter**, **Zero-Copy mmap**, **Lightweight DOM AST Tree**, **Fuzzy XML Recovery**, **CFI**, and **Readium LCP/Locator** support.
 
 ---
 
 ## 📋 Table of Contents
 1. [Multi-Format Book Core API (`ebook_rs::Book`)](#1-multi-format-book-core-api-ebook_rsbook)
+   - 1b. [Locations & Reading Progress (`locations_from_sections`)](#1b-locations--reading-progress-locations_from_sections)
+   - 1c. [Universal Exporters (`export_epub3_bytes`, `export_kfx_bytes`)](#1c-universal-exporters-export_epub3_bytes-export_kfx_bytes)
 2. [Supported Formats Matrix](#2-supported-formats-matrix)
-3. [Format-Specific Parsers (`MobiBook`, `Fb2Book`, `LitBook`, `CbzBook`, `OdtBook`, `DocxBook`, `RtfBook`, `TxtBook`, `PdfBook`)](#3-format-specific-parsers)
+3. [Format-Specific Parsers (`MobiBook`, `KfxBook`, `Fb2Book`, `LitBook`, `CbzBook`, `OdtBook`, `DocxBook`, `RtfBook`, `TxtBook`, `PdfBook`)](#3-format-specific-parsers)
 4. [EPUB 3 Accessibility Metadata (`AccessibilityMetadata`)](#4-epub-3-accessibility-metadata-accessibilitymetadata)
 5. [EPUB 3 Media Overlays (SMIL Audio Sync) (`MediaOverlayPackage`)](#5-epub-3-media-overlays-smil-audio-sync-mediaoverlaypackage)
 6. [Readium LCP DRM (`ebook_rs::lcp`)](#6-readium-lcp-drm-ebook_rslcp)
@@ -28,7 +30,7 @@
 20b. [HTML Character Reference Decoding (`decode_html_entities`)](#20b-html-character-reference-decoding-decode_html_entities)
 21. [Legacy Non-UTF-8 Charset Decoding (`decode_bytes_with_encoding`)](#21-legacy-non-utf-8-charset-decoding-decode_bytes_with_encoding)
 22. [Automatic Language Detection (`book.detect_language()`)](#22-automatic-language-detection-bookdetect_language)
-23. [Zstd Compressed State Caching (`export_zstd_cache`, `from_zstd_cache`)](#23-zstd-compressed-state-caching-export_zstd_cache-from_zstd_cache)
+23. [Compressed State Caching (`export_cache`, `from_cache`)](#23-compressed-state-caching-export_cache-from_cache)
 24. [Performance Accelerators (`compact_str`, `ahash`, `simdutf8`, `zlib-rs`, `memchr`, `parking_lot`)](#24-performance-accelerators-compact_str-ahash-simdutf8-zlib-rs-memchr-parking_lot)
 25. [Multi-Threaded Parallel ZIP Exporter (`UniversalEpub3Exporter`)](#25-multi-threaded-parallel-zip-exporter-universalepub3exporter)
 26. [CBZ Comic Pre-fetching & 2-Page Manga Spread Mode (`CbzBook`)](#26-cbz-comic-pre-fetching--2-page-manga-spread-mode-cbzbook)
@@ -42,8 +44,17 @@
 34. [Markdown Frontmatter, Obsidian Wikilinks & Callouts](#34-markdown-frontmatter-obsidian-wikilinks--callouts)
 35. [Microsoft Word (.docx) Parser (`DocxBook`)](#35-microsoft-word-docx-parser-docxbook)
 36. [Rich Text Format (.rtf) Parser (`RtfBook`)](#36-rich-text-format-rtf-parser-rtfbook)
-37. [Universal 21-Format Pure-Rust Exporter (`Book::export_format_bytes`, `ebook_rs::formats`)](#37-universal-21-format-pure-rust-exporter-bookexport_format_bytes-ebook_rsformats)
-38. [MCP Server Multi-Format Conversion & Inline Text Export (`convert_ebook`, `export_ebook_text`)](#38-mcp-server-multi-format-conversion--inline-text-export-convert_ebook-export_ebook_text)
+37. [Universal 28-Format Pure-Rust Exporter (`Book::export_format_bytes`, `ebook_rs::formats`)](#37-universal-28-format-pure-rust-exporter-bookexport_format_bytes-ebook_rsformats)
+38. [MCP Server (`convert_ebook`, `export_ebook_text`, & Tools/Prompts)](#38-mcp-server-convert_ebook-export_ebook_text--toolsprompts)
+39. [AI / RAG Document Chunking & Okapi BM25 Ranking (`RagChunker`, `RagChunkConfig`)](#39-ai--rag-document-chunking--okapi-bm25-ranking-ragchunker-ragchunkconfig)
+40. [Clean-Room Amazon KFX Codec (`KfxBook`, `UniversalKfxExporter`)](#40-clean-room-amazon-kfx-codec-kfxbook-universalkfxexporter)
+41. [Annotations & Highlights (`AnnotationManager`, `Annotation`)](#41-annotations--highlights-annotationmanager-annotation)
+42. [Reading Analytics & Footnotes (`ReadingAnalytics`, `Footnote`)](#42-reading-analytics--footnotes-readinganalytics-footnote)
+43. [Readium WebPub & OPDS Feeds (`WebpubManifest`, `OpdsFeed`)](#43-readium-webpub--opds-feeds-webpubmanifest-opdsfeed)
+44. [Font Deobfuscation & HTTP Range Streaming (`FontDeobfuscator`, `ZipHeaderReader`)](#44-font-deobfuscation--http-range-streaming-fontdeobfuscator-zipheaderreader)
+45. [Rendition Layout & Before-Display Hooks (`RenditionLayout`, `register_before_display_hook`)](#45-rendition-layout--before-display-hooks-renditionlayout-register_before_display_hook)
+46. [Embedded HTTP Reader Server & CLI (`ReaderServer`, `ebook-rs`)](#46-embedded-http-reader-server--cli-readerserver-ebook-rs)
+47. [WebAssembly & C FFI ABI Bindings (`WasmBook`, `ebook_rs::ffi`)](#47-webassembly--c-ffi-abi-bindings-wasmbook-ebook_rsffi)
 
 ---
 
@@ -51,17 +62,22 @@
 
 `Book` is the unified entry point struct for opening, inspecting, searching, and rendering eBooks across all formats.
 
-### Opening eBooks (EPUB, MOBI, AZW3, FB2, LIT, CBZ, DOCX, RTF)
+### Opening eBooks (All 30 Supported Input Formats)
 
 ```rust
 use ebook_rs::Book;
 
-// Auto-detects and loads EPUB, MOBI, AZW3, FB2, LIT, CBZ, DOCX, or RTF from file path
-let mut book = Book::from_file("sample.docx")?;
+// Auto-detects and loads any supported format from a file path (or OEB directory / .opf)
+let book = Book::from_file("sample.docx")?;
 
 // Load from in-memory byte slice (e.g. HTTP download or WASM Uint8Array)
 let bytes: Vec<u8> = std::fs::read("sample.rtf")?;
-let mut book = Book::from_bytes(&bytes)?;
+let book = Book::from_bytes(&bytes)?;
+let book = Book::from_bytes_with_title(&bytes, "Custom Title")?;
+
+// Load from any Read + Seek stream (up to 2 GiB safety limit)
+let file = std::fs::File::open("sample.epub")?;
+let book = Book::from_reader(file)?;
 ```
 
 ### Render Cache (`book.render_cache`, `RenderCacheKey`)
@@ -123,9 +139,12 @@ let css: String = book.get_merged_stylesheet(); // all <link rel="stylesheet"> C
 ```rust
 // Supply a passphrase at load time for LCP-protected books
 let book = Book::from_bytes_with_passphrase(&bytes, "title", "user_passphrase")?;
-// or, for an already-opened archive:
+// or with optional passphrase:
+let book = Book::from_bytes_with_title_and_passphrase(&bytes, "title", Some("user_passphrase"))?;
+// or, for an already-opened archive (eager or lazy):
 let book = Book::from_archive_with_passphrase(archive, Some("user_passphrase"))?;
-// passphrase and parsed license are retained on book.lcp_passphrase / book.lcp_license
+let book = Book::from_archive_lazy_with_passphrase(archive, "title", Some("user_passphrase"))?;
+// passphrase and parsed license are retained via book.lcp_passphrase() / book.lcp_license()
 ```
 
 ---
@@ -176,28 +195,44 @@ fn export(book: &Book) -> Result<(), Box<dyn std::error::Error>> {
 
 `export_kfx_bytes` produces a clean-room `CONT`-magic container; it is not a byte-for-byte
 reproduction of Amazon's KF10 obfuscation, which is undocumented. For a minified,
-asset-deduplicated, CSS-purged EPUB use `export_optimized_epub3_bytes`. `export_zstd_cache` /
-`from_zstd_cache` round-trip the parsed state as a Zstd-compressed buffer.
+asset-deduplicated, CSS-purged EPUB use `export_optimized_epub3_bytes`. `export_cache` /
+`from_cache` round-trip the parsed state as a pure-Rust gzip (`flate2`/`zlib-rs`) buffer.
 
 ---
 
 ## 2. Supported Formats Matrix
 
-| Extension | Format Name | Auto-Detected Header Magic | Inlining & Media |
+| Extension | Format Name | Auto-Detected Header Magic / Probing | Inlining & Media |
 |---|---|---|---|
-| `.epub` | EPUB 2 & EPUB 3 | `PK\x03\x04` | Full Base64 Data URIs / Resource Stream |
-| `.kepub` | Kobo EPUB | `PK\x03\x04` | Parsed as EPUB (see note) |
+| `.epub` | EPUB 2 & EPUB 3 | `PK\x03\x04` (`META-INF/container.xml`) | Full Base64 Data URIs / Resource Stream |
+| `.kepub` | Kobo EPUB | `PK\x03\x04` (`META-INF/container.xml`) | Parsed as EPUB (see note) |
+| `.kfx` | Amazon KFX (KF10) | `CONT` Header | Clean-Room Ion v2 Codec, Fonts, Bidi/RTL, Cover |
 | `.mobi` | Mobipocket / PalmDOC | `BOOKMOBI` / `TEXtRECD` at PDB offset 60 | PalmDOC LZ77 Decompressor |
 | `.azw3` | Kindle Format 8 (KF8) | `BOOKMOBI` PDB Header | HTML5 / CSS3 Extracted |
+| `.pdb` | PalmDOC | `TEXtRECD` / PDB Header | PalmDOC LZ77 Text Extraction |
 | `.fb2` | FictionBook 2 XML | `<FictionBook>` XML | Embedded Base64 Images |
 | `.lit` | Microsoft Reader | `ITOLITLS` Header | Multi-section HTML Conversion |
-| `.cbz` | Comic Book ZIP | `PK\x03\x04` Archive | Sequential Image Page HTML Reader |
-| `.pdf` | PDF Document | `%PDF-` Signature | Plain Text / Markdown Page Extraction |
-| `.odt` | OpenDocument Text | `PK\x03\x04` (`content.xml`) | Heading & Paragraph Section Extraction |
+| `.cbz` | Comic Book ZIP | `PK\x03\x04` Archive (Fallback) | Sequential Image Page HTML Reader |
+| `.pdf` | PDF Document | `%PDF-` Signature | Plain Text / Markdown Page Extraction (`pdf` feature) |
+| `.odt` | OpenDocument Text | `PK\x03\x04` (`content.xml` / `meta.xml`) | Heading & Paragraph Section Extraction |
 | `.docx` | Microsoft Word (Office Open XML) | `PK\x03\x04` (`word/document.xml`) | Heading, Table, Style & Media Image Ingestion |
+| `.pptx` | PowerPoint (Office Open XML) | `PK\x03\x04` (`ppt/presentation.xml`) | Slide & Text Extraction |
 | `.rtf` | Rich Text Format | `{\rtf` Header | Control Words, Nested Groups & Embedded Pictures |
+| `.html` / `.htm` | Standalone HTML | HTML Tag Probing | Sectioned HTML Ingestion |
+| `.htmlz` | Calibre HTMLZ | `PK\x03\x04` ZIP (`index.html` / OPF) | HTML + CSS + Images |
+| `.zip` | Calibre HTML/Images ZIP | `PK\x03\x04` ZIP | HTML + CSS + Images |
+| `.oeb` | Open eBook Directory | Directory or `.opf` Path | `content.opf` + Referenced Assets |
+| `.tcr` | Psion TCR | `!!8-Bit!!` Header | 256-Entry Dictionary Decompression |
+| `.pmlz` | Palm Markup Language ZIP | `PK\x03\x04` ZIP (`.pml`) | PML Markup + Images |
+| `.rb` | Rocket eBook | `NUVO` Header | Chunked Zlib HTML |
 | `.txt` | Plain Text | UTF-8 Text | Paragraph HTML Formatting |
-| `.md` | Markdown Document | UTF-8 (`# Heading`) | Heading-based Sectioning & TOC |
+| `.txtz` | Calibre TXTZ | `PK\x03\x04` ZIP | Compressed Text + Metadata |
+| `.md` | Markdown Document | UTF-8 (`# Heading`, `---`, `+++`) | Frontmatter, Wikilinks, Callouts & Heading TOC |
+| `.typ` / `.typst` | Typst | `.typ`/`.typst` or Typst Syntax | Markup Sectioning |
+| `.adoc` | AsciiDoc | `.adoc`/`.asciidoc` or AsciiDoc Syntax | Markup Sectioning |
+| `.org` | Emacs Org-mode | `.org` or Org Syntax | Markup Sectioning |
+| `.rst` | reStructuredText | `.rst` or RST Syntax | Markup Sectioning |
+| `.tex` | LaTeX | `.tex`/`.latex` or LaTeX Syntax | Markup Sectioning |
 
 Detection is by **magic bytes / container probing**, not by file extension — the extension column
 is informational only. ZIP-based formats are disambiguated by probing for `META-INF/container.xml`
@@ -214,6 +249,7 @@ transformed. If your KEPUB depends on KoboSpan markup for layout, convert it to 
 In addition to `Book::from_file()`, format-specific parsers are available:
 - `ebook_rs::CbzBook::parse(bytes, title_fallback)` — Parses CBZ comic archives.
 - `ebook_rs::MobiBook::parse(bytes)` — Parses MOBI / AZW3 PalmDOC PDB containers.
+- `ebook_rs::KfxBook::parse(bytes)` — Parses Amazon KFX (`CONT`) containers into a `Book`.
 - `ebook_rs::Fb2Book::parse(bytes)` — Parses FictionBook 2 XML documents.
 - `ebook_rs::LitBook::parse(bytes)` — Parses Microsoft Reader LIT files.
 - `ebook_rs::OdtBook::parse(bytes, title_fallback)` — Parses OpenDocument Text (.odt) archives.
@@ -221,6 +257,7 @@ In addition to `Book::from_file()`, format-specific parsers are available:
 - `ebook_rs::RtfBook::parse(bytes, title_fallback)` — Parses Rich Text Format (.rtf) documents.
 - `ebook_rs::TxtBook::parse(bytes, title_fallback, is_markdown)` — Parses Plain Text (.txt) or Markdown (.md) documents.
 - `ebook_rs::PdfBook::parse(bytes, title_fallback)` — Parses pre-OCR PDF documents (`pdf` feature).
+- `ebook_rs::formats::*` — Direct parsers for `parse_pdb`, `parse_pptx`, `parse_html`, `parse_oeb_path`, `parse_tcr`, `parse_zip_ebook`, `parse_pmlz_archive`, `parse_rb`, `parse_typst`, `parse_adoc`, `parse_org`, `parse_rst`, and `parse_tex`.
 
 ---
 
@@ -251,7 +288,7 @@ if a11y.is_accessible {
 
 ```rust
 // Access parsed SMIL packages
-for (smil_path, pkg) in &book.media_overlays {
+for (smil_path, pkg) in book.media_overlays() {
     // Reverse lookup: Find text node active for a given audio timestamp (in seconds)
     if let Some(text_ref) = pkg.find_text_ref_by_timestamp("audio/ch1.mp3", 8.5) {
         println!("Active element ID: {:?}", text_ref.element_id);
@@ -294,10 +331,10 @@ let decrypted = LcpDecryptor::decrypt_bytes(&encrypted_bytes, "user_passphrase",
 ```
 
 Passphrase-aware loading is also available on `Book` (see §1): `Book::from_bytes_with_passphrase`,
-`Book::from_archive_with_passphrase`, and `Book::from_bytes_with_title_and_passphrase`. The passphrase
-and parsed license are retained on `book.lcp_passphrase` / `book.lcp_license` for per-resource
-decryption. The `META-INF/license.lcpl` path is now resolved correctly (previously the bare
-`license.lcpl` check could never match).
+`Book::from_archive_with_passphrase`, `Book::from_archive_lazy_with_passphrase`, and
+`Book::from_bytes_with_title_and_passphrase`. The passphrase and parsed license are retained via
+`book.lcp_passphrase()` / `book.lcp_license()` for per-resource decryption. The
+`META-INF/license.lcpl` path is resolved automatically.
 
 ---
 
@@ -659,27 +696,29 @@ if let Some(lang) = book.detect_language() {
 
 ---
 
-## 23. Zstd Compressed State Caching (`export_zstd_cache`, `from_zstd_cache`)
+## 23. Compressed State Caching (`export_cache`, `from_cache`)
 
-Compress and restore parsed book states in sub-milliseconds for high-throughput server caching and WebAssembly state persistence:
+Compress and restore parsed book states in pure Rust (`flate2` + `zlib-rs`) for high-throughput server caching and WebAssembly state persistence:
 
 ```rust
 use ebook_rs::Book;
 
 let book = Book::from_file("sample.epub")?;
 
-// Export sub-millisecond compressed state cache
-let zstd_cache: Vec<u8> = book.export_zstd_cache()?;
+// Export pure-Rust compressed state cache
+let cache_bytes: Vec<u8> = book.export_cache()?;
 
 // Instantly restore parsed Book from cache
-let restored_book = Book::from_zstd_cache(&zstd_cache)?;
+let restored_book = Book::from_cache(&cache_bytes)?;
 ```
+
+> **Deprecated (`zstd` feature):** `export_zstd_cache` and `from_zstd_cache` are deprecated and no longer enabled by default (since `zstd` links C `libzstd`). Opt in via `--features zstd` only if you need legacy `.zst` cache compatibility.
 
 ---
 
 ## 24. Performance Accelerators (`compact_str`, `ahash`, `simdutf8`, `zlib-rs`, `memchr`, `parking_lot`)
 
-`ebook-rs` v0.10.5 integrates 6 SIMD and stack-optimization performance crates:
+`ebook-rs` integrates 6 SIMD and stack-optimization performance crates:
 - **`compact_str`**: Small String Optimization (`CompactString`) storing strings <= 24 bytes directly on the stack to eliminate heap allocations.
 - **`ahash`**: `AHashMap` & `AHashSet` for 3x-5x faster hash lookups in OPF manifest, DOM attributes, and annotations.
 - **`simdutf8`**: SIMD-accelerated UTF-8 validation (`simdutf8::basic::from_utf8`) for 10x-20x faster HTML/XML byte-stream decoding.
@@ -931,9 +970,9 @@ let results = book.search("protagonist");
 
 ---
 
-## 37. Universal 21-Format Pure-Rust Exporter (`Book::export_format_bytes`, `ebook_rs::formats`)
+## 37. Universal 28-Format Pure-Rust Exporter (`Book::export_format_bytes`, `ebook_rs::formats`)
 
-Starting in **v0.19.0**, any loaded `Book` can be exported in pure Rust (zero external binaries) to **21+ formats** via typed methods or dynamic format dispatch:
+Any loaded `Book` can be exported in pure Rust (zero external binaries) to **28+ formats** (29 format identifiers in `Book::supported_output_formats()`) via typed methods or dynamic format dispatch:
 
 ```rust
 use ebook_rs::Book;
@@ -947,41 +986,212 @@ for fmt in Book::supported_output_formats() {
 }
 
 // Or typed format exporters:
-let kepub = book.export_kepub_bytes()?;     // Kobo EPUB 3 with koboSpan instrumentation
-let fb2   = book.export_fb2_bytes()?;       // FictionBook 2.0 XML + base64 <binary> images
-let html  = book.export_html_bytes()?;      // Standalone HTML5 with inlined data: images
-let htmlz = book.export_htmlz_bytes()?;     // Calibre HTMLZ archive
-let txt   = book.export_txt_bytes()?;       // UTF-8 Plain Text
-let txtz  = book.export_txtz_bytes()?;      // Calibre TXTZ archive
-let md    = book.export_markdown_bytes()?;  // Markdown + YAML frontmatter + GFM tables
-let zip   = book.export_zip_bytes()?;       // Calibre-compatible HTML/CSS/Images ZIP
-let tcr   = book.export_tcr_bytes()?;       // Psion TCR (!!8-Bit!!) 256-entry dictionary
-let docx  = book.export_docx_bytes()?;      // OOXML WordprocessingML + <w:drawing> images
-let odt   = book.export_odt_bytes()?;       // OpenDocument Text 1.2 + Pictures/*
-let rtf   = book.export_rtf_bytes()?;       // RTF 1.x + \uN? Unicode + \pict images
-let pmlz  = book.export_pmlz_bytes()?;      // Palm Markup Language ZIP
-let rb    = book.export_rb_bytes()?;        // Rocket eBook (NUVO + chunked zlib HTML)
-let typ   = book.export_typst_bytes()?;     // Typst (.typ / .typst)
-let adoc  = book.export_adoc_bytes()?;      // AsciiDoc (.adoc)
-let org   = book.export_org_bytes()?;       // Emacs Org-mode (.org)
-let rst   = book.export_rst_bytes()?;       // reStructuredText (.rst)
-let mobi  = book.export_mobi_bytes()?;      // Mobipocket (.mobi) + PalmDOC LZ77 + EXTH + images
-let azw3  = book.export_azw3_bytes()?;      // Amazon Kindle (.azw3) + EXTH + images
-let pdb   = book.export_pdb_bytes()?;       // PalmDOC (.pdb) LZ77
-let pdf   = book.export_pdf_bytes()?;       // Pure-Rust paginated PDF 1.4
-let tex   = book.export_tex_bytes()?;       // LaTeX (.tex)
-let pptx  = book.export_pptx_bytes()?;      // PowerPoint OOXML (.pptx) slides
-book.export_oeb_dir("out.oeb")?;            // Unzipped Open eBook directory (content.opf + assets)
+let epub  = book.export_epub3_bytes()?;    // EPUB 3 ZIP archive
+let kepub = book.export_kepub_bytes()?;    // Kobo EPUB 3 with koboSpan instrumentation
+let kfx   = book.export_kfx_bytes()?;      // Clean-room Amazon KFX (KF10)
+let mobi  = book.export_mobi_bytes()?;     // Mobipocket (.mobi) + PalmDOC LZ77 + EXTH + images
+let azw3  = book.export_azw3_bytes()?;     // Amazon Kindle (.azw3) + EXTH + images
+let pdb   = book.export_pdb_bytes()?;      // PalmDOC (.pdb) LZ77
+let lit   = book.export_lit_bytes()?;      // Microsoft Reader (.lit)
+let pdf   = book.export_pdf_bytes()?;      // Pure-Rust paginated PDF 1.4
+let fb2   = book.export_fb2_bytes()?;      // FictionBook 2.0 XML + base64 <binary> images
+let html  = book.export_html_bytes()?;     // Standalone HTML5 with inlined data: images
+let htmlz = book.export_htmlz_bytes()?;    // Calibre HTMLZ archive
+let txt   = book.export_txt_bytes()?;      // UTF-8 Plain Text
+let txtz  = book.export_txtz_bytes()?;     // Calibre TXTZ archive
+let md    = book.export_markdown_bytes()?; // Markdown + YAML frontmatter + GFM tables
+let oeb   = book.export_oeb_bytes()?;      // Zipped Open eBook package
+let zip   = book.export_zip_bytes()?;      // Calibre-compatible HTML/CSS/Images ZIP
+let tcr   = book.export_tcr_bytes()?;      // Psion TCR (!!8-Bit!!) 256-entry dictionary
+let docx  = book.export_docx_bytes()?;     // OOXML WordprocessingML + <w:drawing> images
+let odt   = book.export_odt_bytes()?;      // OpenDocument Text 1.2 + Pictures/*
+let rtf   = book.export_rtf_bytes()?;      // RTF 1.x + \uN? Unicode + \pict images
+let pptx  = book.export_pptx_bytes()?;     // PowerPoint OOXML (.pptx) slides
+let pmlz  = book.export_pmlz_bytes()?;     // Palm Markup Language ZIP
+let rb    = book.export_rb_bytes()?;       // Rocket eBook (NUVO + chunked zlib HTML)
+let typ   = book.export_typst_bytes()?;    // Typst (.typ / .typst)
+let adoc  = book.export_adoc_bytes()?;     // AsciiDoc (.adoc)
+let org   = book.export_org_bytes()?;      // Emacs Org-mode (.org)
+let rst   = book.export_rst_bytes()?;      // reStructuredText (.rst)
+let tex   = book.export_tex_bytes()?;      // LaTeX (.tex)
+book.export_oeb_dir("out.oeb")?;           // Unzipped Open eBook directory (content.opf + assets)
 ```
 
-Python (`PyO3`) bindings also expose `book.export_format_bytes("docx")` (and any other supported format).
+Python (`PyO3`) and `UniBook` (UniFFI) bindings also expose `export_format_bytes("docx")` (and any other supported format).
 
 ---
 
-## 38. MCP Server Multi-Format Conversion & Inline Text Export (`convert_ebook`, `export_ebook_text`)
+## 38. MCP Server (`convert_ebook`, `export_ebook_text`, & Tools/Prompts)
 
-The built-in MCP server (`src/mcp.rs`, protocol `2024-11-05`) exposes full multi-format conversion and inline text/markup rendering for AI agents:
+The built-in Model Context Protocol server (`src/mcp.rs`, protocol `2024-11-05`, feature `mcp`) exposes tools, resources, and prompts for AI agents (with filesystem tools strictly confined to `--sandbox-root`):
 
-- **`convert_ebook`**: Converts any supported input eBook or OEB directory to `.epub`, `.kepub`, `.kepub.epub`, `.kfx`, `.fb2`, `.html`, `.htmlz`, `.txt`, `.txtz`, `.md`, `.oeb`, `.zip`, `.tcr`, `.docx`, `.odt`, `.rtf`, `.pmlz`, `.rb`, `.typ`, `.typst`, `.adoc`, `.org`, `.rst`, or RAG `.json` (strictly confined to `--sandbox-root`).
-- **`export_ebook_text`**: Renders any supported eBook directly to inline UTF-8 `md`, `txt`, `html`, `fb2`, `typst`, `adoc`, `org`, or `rst` without writing a file (supports optional `max_chars`, default `100_000`).
-- **`ebook://info` resource**: Reports `version`, `supported_input_formats`, `supported_output_formats`, and `features`.
+- **Tools**:
+  - `get_metadata`, `get_toc`, `read_section`, `search_book`, `chunk_book_for_rag` (with optional Okapi `query_rank` BM25 scoring), `validate_epub`.
+  - `convert_ebook`: Converts any supported input eBook or OEB directory to `.epub`, `.kepub`, `.kepub.epub`, `.kfx`, `.mobi`, `.azw3`, `.pdb`, `.pdf`, `.fb2`, `.html`, `.htmlz`, `.txt`, `.txtz`, `.md`, `.oeb`, `.zip`, `.tcr`, `.docx`, `.odt`, `.rtf`, `.pptx`, `.pmlz`, `.rb`, `.typ`, `.typst`, `.adoc`, `.org`, `.rst`, `.tex`, or RAG `.json`.
+  - `export_ebook_text`: Renders any supported eBook directly to inline UTF-8 `md`, `txt`, `html`, `fb2`, `typst`, `adoc`, `org`, `rst`, or `tex` without writing a file (supports optional `max_chars`, default `100_000`).
+- **Resources**: `ebook://info` (reports `version`, `supported_input_formats`, `supported_output_formats`, and `features`), `ebook://{path}/metadata`, `ebook://{path}/toc`.
+- **Prompts**: `summarize_book`, `extract_entities`, `generate_study_guide`.
+
+---
+
+## 39. AI / RAG Document Chunking & Okapi BM25 Ranking (`RagChunker`, `RagChunkConfig`)
+
+Split books into semantic chunks with heading-hierarchy trails, EPUB CFI citation anchors, token estimates, and Okapi BM25 relevance ranking:
+
+```rust
+use ebook_rs::{Book, RagChunkConfig, RagChunker};
+
+let book = Book::from_file("sample.epub")?;
+let config = RagChunkConfig {
+    max_tokens: 512,
+    overlap_tokens: 64,
+    preserve_headings: true,
+    include_cfi: true,
+    min_chunk_size: 50,
+}
+.sanitized();
+
+let chunks = book.to_rag_chunks(&config);
+let top_hits = RagChunker::rank_chunks_bm25(&chunks, "quantum mechanics", 5);
+for hit in top_hits {
+    println!("[score={:.3}] {} ({})", hit.score, hit.chunk.chapter_title, hit.chunk.cfi);
+}
+```
+
+---
+
+## 40. Clean-Room Amazon KFX Codec (`KfxBook`, `UniversalKfxExporter`)
+
+Pure-Rust Amazon KFX (`CONT` container + Ion v2 binary codec) reader and exporter supporting fonts, `font-family`, bidi/RTL, tables, links, TOC, and cover images:
+
+```rust
+use ebook_rs::{Book, KfxBook, UniversalKfxExporter, KFX_MAGIC_CONT};
+
+let kfx_bytes = std::fs::read("sample.kfx")?;
+if KfxBook::is_kfx(&kfx_bytes) {
+    let book = KfxBook::parse(&kfx_bytes)?;
+    println!("Loaded KFX: {}", book.metadata().title);
+}
+
+let epub = Book::from_file("sample.epub")?;
+let exported_kfx: Vec<u8> = UniversalKfxExporter::export(&epub)?;
+```
+
+---
+
+## 41. Annotations & Highlights (`AnnotationManager`, `Annotation`)
+
+Manage highlights, bookmarks, and notes keyed by EPUB CFI with W3C Web Annotation JSON export:
+
+```rust
+use ebook_rs::Book;
+
+let mut book = Book::from_file("sample.epub")?;
+let hl = book.annotations_mut().create_highlight(
+    "epubcfi(/6/4!/4/2/1:10)",
+    "highlighted passage",
+    Some("#ffeb3b"),
+    Some("Key quote"),
+);
+let bm = book.annotations_mut().create_bookmark("epubcfi(/6/6!/4/2/1:0)", Some("Resume here"));
+
+let w3c_json = book.annotations().to_w3c_json()?;
+```
+
+---
+
+## 42. Reading Analytics & Footnotes (`ReadingAnalytics`, `Footnote`)
+
+Compute word counts, estimated reading time, difficulty score, top keywords, and extract structured HTML footnotes:
+
+```rust
+use ebook_rs::ReadingAnalytics;
+use ebook_rs::footnote::parse_footnotes_from_html;
+
+let stats = ReadingAnalytics::analyze_text(&section.plain_text);
+println!("Words: {}, Est. minutes: {:.1}, Difficulty: {:.1}", stats.word_count, stats.reading_time_minutes, stats.difficulty_score);
+
+let footnotes = parse_footnotes_from_html(&section.raw_html);
+```
+
+---
+
+## 43. Readium WebPub & OPDS Feeds (`WebpubManifest`, `OpdsFeed`)
+
+Export books as Readium WebPub Manifests and parse OPDS 1.x Atom XML or OPDS 2.0 JSON catalogs (`opds` feature):
+
+```rust
+use ebook_rs::{Book, OpdsFeed};
+
+let book = Book::from_file("sample.epub")?;
+let manifest = book.to_webpub_manifest();
+let manifest_json = book.to_webpub_json()?;
+
+let feed = OpdsFeed::parse_atom_xml(atom_xml)?;
+for entry in &feed.entries {
+    if let Some(link) = entry.download_link(Some("application/epub+zip")) {
+        println!("{} -> {}", entry.title, link.href);
+    }
+}
+```
+
+---
+
+## 44. Font Deobfuscation & HTTP Range Streaming (`FontDeobfuscator`, `ZipHeaderReader`)
+
+Deobfuscate IDPF and Adobe obfuscated fonts via `META-INF/encryption.xml`, and inspect remote ZIP central directories over HTTP Range requests:
+
+```rust
+use ebook_rs::{FontDeobfuscator, ZipHeaderReader};
+
+let deobf = FontDeobfuscator::parse_encryption_xml(encryption_xml);
+if deobf.is_encrypted("OEBPS/fonts/custom.woff2") {
+    deobf.deobfuscate("OEBPS/fonts/custom.woff2", &mut font_bytes, "urn:uuid:...");
+}
+
+let entries = ZipHeaderReader::parse_central_directory(&tail_bytes)?;
+```
+
+---
+
+## 45. Rendition Layout & Before-Display Hooks (`RenditionLayout`, `register_before_display_hook`)
+
+Configure viewport, theme, custom fonts, script stripping, asset delivery strategy, and HTML transformation hooks (automatically invalidating `render_cache`):
+
+```rust
+use ebook_rs::{Book, RenditionLayout};
+
+let mut book = Book::from_file("sample.epub")?;
+let mut layout = RenditionLayout::default();
+layout.set_custom_font("Literata", "https://example.com/literata.woff2");
+book.set_layout(layout);
+
+book.register_before_display_hook(|html, _href| {
+    html.push_str("<!-- injected -->");
+});
+```
+
+---
+
+## 46. Embedded HTTP Reader Server & CLI (`ReaderServer`, `ebook-rs`)
+
+With the `server` feature enabled, `ReaderServer` serves a built-in web reader, REST/Readium endpoints, and HTTP `/api/mcp` JSON-RPC with optional bearer-token auth and MCP filesystem sandboxing:
+
+```rust
+use ebook_rs::{Book, ReaderServer};
+
+let book = Book::from_file("sample.epub")?;
+ReaderServer::new(book, 8080)
+    .try_with_auth_token("secret-token")?
+    .with_sandbox_root("./books")
+    .listen()?;
+```
+
+The `ebook-rs` CLI binary exposes: `serve`, `convert`, `parse`, `search`, `locations`, `rag`, `sample`, and `mcp`.
+
+---
+
+## 47. WebAssembly & C FFI ABI Bindings (`WasmBook`, `ebook_rs::ffi`)
+
+- **WASM (`wasm` feature)**: `ebook_rs::WasmBook` exposes `new`, `get_metadata_json`, `get_toc_json`, `get_spine_json`, `get_section_html`, `get_tts_words_json`, `get_tts_annotated_html`, `search_json`, `cfi_to_spine_index`, `get_resource_bytes`, `get_section_analytics_json`, `paginate_section_json`, `resolve_cfi_dom_json`, `set_custom_font`, `to_rag_chunks_json`, `get_webpub_manifest_json`, `export_epub_bytes`, `enable_manga_mode`, and `WasmBook::get_custom_element_js()`.
+- **C FFI (`ebook_rs::ffi`)**: Exposes `ebook_rs_book_from_bytes`, `ebook_rs_book_free`, `ebook_rs_get_metadata_json`, `ebook_rs_get_toc_json`, `ebook_rs_get_section_html`, `ebook_rs_search_json`, `ebook_rs_to_rag_chunks_json`, and `ebook_rs_string_free`.

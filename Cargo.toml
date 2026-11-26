@@ -46,7 +46,7 @@ path = "src/main.rs"
 required-features = ["server"]
 
 [features]
-default = ["server", "opds", "parallel", "mmap", "serde", "zstd", "mcp"]
+default = ["server", "opds", "parallel", "mmap", "serde", "mcp"]
 mcp = []
 server = ["dep:tiny_http", "dep:url"]
 wasm = ["dep:wasm-bindgen", "dep:getrandom"]

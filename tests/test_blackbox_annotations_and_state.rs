@@ -32,6 +32,26 @@ fn test_blackbox_annotations_crud() {
 }
 
 #[test]
+fn test_blackbox_state_caching() {
+    let md = "# Cache Test\nSection 1 text.\n\n# Chapter 2\nSection 2 text.";
+    let book = TxtBook::parse(md.as_bytes(), "Cache Test", true).unwrap();
+
+    let compressed_cache = book.export_cache().expect("Cache compression error");
+    assert!(!compressed_cache.is_empty());
+
+    let restored =
+        ebook_rs::Book::from_cache(&compressed_cache).expect("Cache decompression error");
+    assert!(!restored.metadata().title.is_empty());
+    assert_eq!(restored.sections().len(), 2);
+    assert_eq!(
+        restored.sections()[0].plain_text,
+        book.sections()[0].plain_text
+    );
+}
+
+#[cfg(feature = "zstd")]
+#[allow(deprecated)]
+#[test]
 fn test_blackbox_zstd_state_caching() {
     let md = "# Cache Test\nSection 1 text.\n\n# Chapter 2\nSection 2 text.";
     let book = TxtBook::parse(md.as_bytes(), "Cache Test", true).unwrap();

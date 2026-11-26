@@ -761,10 +761,8 @@ impl Book {
         None
     }
 
-    /// Compresses and serializes the parsed `Book` state into a `zstd`-compressed byte buffer (`Vec<u8>`).
-    /// This enables sub-millisecond instant caching and restoration of parsed books.
-    #[cfg(feature = "zstd")]
-    pub fn export_zstd_cache(&self) -> Result<Vec<u8>, EbookError> {
+    /// Build a hydrated, JSON-serialized [`BookCacheState`] snapshot.
+    fn to_cache_json(&self) -> Result<Vec<u8>, EbookError> {
         // Serialize a *hydrated* snapshot. In lazy mode `archive.files()` holds only the eagerly
         // loaded XML metadata and `sections` are never hydrated, so exporting as-is produced a
         // cache describing a book with no body content and no assets: the restored book had
@@ -793,31 +791,25 @@ impl Book {
             annotations: self.annotations.clone(),
             media_overlays: self.media_overlays.clone(),
         };
-        let json_bytes = serde_json::to_vec(&cache).map_err(|e| {
+        serde_json::to_vec(&cache).map_err(|e| {
             EbookError::Custom(format!("Failed to serialize Book state to JSON: {}", e))
-        })?;
-        zstd::encode_all(&json_bytes[..], 3)
-            .map_err(|e| EbookError::Io(format!("Zstd compression failed: {}", e)))
+        })
     }
 
-    /// Deserializes and restores a `Book` state from a `zstd`-compressed byte buffer (`&[u8]`).
-    #[cfg(feature = "zstd")]
-    pub fn from_zstd_cache(zstd_bytes: &[u8]) -> Result<Self, EbookError> {
-        // `zstd::decode_all` grows its output without any bound, so a few hundred KB of
-        // compressed zeros would expand to tens of GB. Decompress incrementally against an
-        // explicit ceiling instead, matching the hand-rolled limits used for ZIP entries.
+    /// Restore a [`Book`] from a bounded streaming JSON reader over [`BookCacheState`].
+    fn from_cache_reader<R: std::io::Read>(reader: R) -> Result<Self, EbookError> {
+        // Decompress incrementally against an explicit ceiling so a tiny compressed payload of
+        // zeros cannot expand to tens of GB, matching the hand-rolled limits used for ZIP entries.
         const MAX_CACHE_DECODED_SIZE: usize = 512 * 1024 * 1024;
         use std::io::Read as _;
         let mut json_bytes = Vec::new();
-        let decoder = zstd::Decoder::new(zstd_bytes)
-            .map_err(|e| EbookError::Io(format!("Zstd decompression failed: {}", e)))?;
-        let mut limited = decoder.take(MAX_CACHE_DECODED_SIZE as u64 + 1);
+        let mut limited = reader.take(MAX_CACHE_DECODED_SIZE as u64 + 1);
         limited
             .read_to_end(&mut json_bytes)
-            .map_err(|e| EbookError::Io(format!("Zstd decompression failed: {}", e)))?;
+            .map_err(|e| EbookError::Io(format!("Cache decompression failed: {}", e)))?;
         if json_bytes.len() > MAX_CACHE_DECODED_SIZE {
             return Err(EbookError::InvalidFormat(format!(
-                "Zstd cache exceeds the {} byte decoded-size safety limit",
+                "State cache exceeds the {} byte decoded-size safety limit",
                 MAX_CACHE_DECODED_SIZE
             )));
         }
@@ -878,6 +870,52 @@ impl Book {
             render_cache: parking_lot::Mutex::new(RenderCache::default()),
             hydrated_cache: parking_lot::Mutex::new(HydratedSectionCache::default()),
         })
+    }
+
+    /// Compress and serialize the parsed `Book` state into a pure-Rust gzip (`flate2`/`zlib-rs`)
+    /// byte buffer (`Vec<u8>`) for fast caching and restoration.
+    pub fn export_cache(&self) -> Result<Vec<u8>, EbookError> {
+        use std::io::Write as _;
+        let json_bytes = self.to_cache_json()?;
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        encoder
+            .write_all(&json_bytes)
+            .map_err(|e| EbookError::Io(format!("Cache compression failed: {}", e)))?;
+        encoder
+            .finish()
+            .map_err(|e| EbookError::Io(format!("Cache compression failed: {}", e)))
+    }
+
+    /// Deserialize and restore a `Book` state from a gzip-compressed cache buffer produced by
+    /// [`Self::export_cache`].
+    pub fn from_cache(cache_bytes: &[u8]) -> Result<Self, EbookError> {
+        let decoder = flate2::read::GzDecoder::new(cache_bytes);
+        Self::from_cache_reader(decoder)
+    }
+
+    /// Compresses and serializes the parsed `Book` state into a `zstd`-compressed byte buffer (`Vec<u8>`).
+    /// This enables sub-millisecond instant caching and restoration of parsed books.
+    #[cfg(feature = "zstd")]
+    #[deprecated(
+        since = "0.19.4",
+        note = "Use `Book::export_cache` (pure-Rust flate2/zlib-rs) instead; `zstd` is no longer a default feature."
+    )]
+    pub fn export_zstd_cache(&self) -> Result<Vec<u8>, EbookError> {
+        let json_bytes = self.to_cache_json()?;
+        zstd::encode_all(&json_bytes[..], 3)
+            .map_err(|e| EbookError::Io(format!("Zstd compression failed: {}", e)))
+    }
+
+    /// Deserializes and restores a `Book` state from a `zstd`-compressed byte buffer (`&[u8]`).
+    #[cfg(feature = "zstd")]
+    #[deprecated(
+        since = "0.19.4",
+        note = "Use `Book::from_cache` (pure-Rust flate2/zlib-rs) instead; `zstd` is no longer a default feature."
+    )]
+    pub fn from_zstd_cache(zstd_bytes: &[u8]) -> Result<Self, EbookError> {
+        let decoder = zstd::Decoder::new(zstd_bytes)
+            .map_err(|e| EbookError::Io(format!("Zstd decompression failed: {}", e)))?;
+        Self::from_cache_reader(decoder)
     }
 
     /// Retrieve tokenized TTS words with character range offsets for SpeechSynthesis word synchronization.
