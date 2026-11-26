@@ -55,6 +55,7 @@
 45. [Rendition Layout & Before-Display Hooks (`RenditionLayout`, `register_before_display_hook`)](#45-rendition-layout--before-display-hooks-renditionlayout-register_before_display_hook)
 46. [Embedded HTTP Reader Server & CLI (`ReaderServer`, `ebook-rs`)](#46-embedded-http-reader-server--cli-readerserver-ebook-rs)
 47. [WebAssembly & C FFI ABI Bindings (`WasmBook`, `ebook_rs::ffi`)](#47-webassembly--c-ffi-abi-bindings-wasmbook-ebook_rsffi)
+48. [Sample EPUB Generator (`sample_builder::generate_sample_epub`)](#48-sample-epub-generator-sample_buildergenerate_sample_epub)
 
 ---
 
@@ -126,12 +127,83 @@ println!("selector: {}", dom.css_selector);
 println!("char_offset: {}", dom.char_offset);
 ```
 
-### Merged Book Stylesheet
-
-Renderers without data-URI / `<link>` support can fetch the book's CSS directly:
+### Sections, Resources, Cover & Page List
 
 ```rust
+use ebook_rs::Book;
+
+let book = Book::from_file("sample.epub")?;
+
+// Retrieve a spine section by relative href (strips optional `#fragment`)
+let section = book.get_section_by_href("chapter1.xhtml#intro")?;
+
+// Retrieve raw resource bytes and MIME type (strips optional `"resource/"` prefix)
+let (img_bytes, mime) = book.get_resource_bytes("images/cover.jpg")?;
+
+// Retrieve cover image bytes and MIME type (falls back to manifest `cover_id` / XHTML cover)
+if let Some((cover_bytes, cover_mime)) = book.cover_image() {
+    println!("Cover: {} ({} bytes)", cover_mime, cover_bytes.len());
+}
+
+// Access EPUB 3 Page List and Landmarks navigation items
+for page in book.page_list() {
+    println!("Page {} -> {}", page.label, page.href);
+}
+for landmark in book.landmarks() {
+    println!("Landmark {:?} -> {}", landmark.landmark_type, landmark.href);
+}
+```
+
+### Lazy Hydration, Raw Access, Cache Control & Mutable Accessors
+
+```rust
+// Raw section (without rendering/resource inlining) or on-demand lazy load
+let raw = book.get_section_raw(0);
+let lazy = book.load_section_lazy(0)?;
+
+// Hydrate lazy sections in-place or obtain hydrated clones without mutating `book`
+book.hydrate_all_sections();
+let hydrated_sections = book.get_all_sections_hydrated();
+
+// Manually clear render_cache and inspect the font deobfuscator
+book.invalidate_render_cache();
+let _deobf = book.font_deobfuscator();
+
+// Mutable accessors for in-place editing:
+// `archive_mut()`, `opf_mut()`, `sections_mut()`, `sections_vec_mut()`,
+// `locations_mut()`, `layout_mut()`, `toc_mut()`
+```
+
+### Async API (`ebook_rs::book::async_api`)
+
+```rust
+use std::sync::Arc;
+use ebook_rs::book::async_api::{from_file_async, from_bytes_async, load_section_lazy_async};
+
+let book = from_file_async("sample.epub").await?;
+let book_from_mem = from_bytes_async(bytes).await?;
+let section = load_section_lazy_async(Arc::new(book), 0).await?;
+```
+
+### Section HTML & Resource Helpers (`ebook_rs::section`)
+
+- `extract_plain_text(html)` — strip HTML tags and extract plain text.
+- `sanitize_html_scripts(html)` / `section.strip_script_content()` — strip `<script>`, `<iframe>`, `<object>`, `<embed>`, inline `on*=` handlers, and `javascript:` URIs.
+- `parse_viewport_meta(html)` — extract `(Option<f64>, Option<f64>)` from `<meta name="viewport">`.
+- `process_section_resources(html, section_path, archive)` — inline/rewrite referenced CSS and media resources.
+
+### Merged Book Stylesheet & CSS Inlining
+
+Renderers without data-URI / `<link>` support can fetch the book's CSS directly, or inline `<style>` rules onto HTML elements:
+
+```rust
+use ebook_rs::inline_stylesheet_rules;
+
 let css: String = book.get_merged_stylesheet(); // all <link rel="stylesheet"> CSS, url() inlined
+
+// Inline <style>...</style> rules onto matching elements (tag, .class, tag.class, #id),
+// preserving existing inline `style="..."` precedence
+let inlined_html = inline_stylesheet_rules(&section.raw_html);
 ```
 
 ### LCP Passphrase-Aware Loading
@@ -398,11 +470,20 @@ use ebook_rs::Book;
 
 let book = Book::from_file("sample.epub")?;
 
-// 1. Literal Search
+// 1. Literal Search (default cap: 500 results)
 let literal_results = book.search("quantum");
+
+// 1b. Bounded Literal Search (enforces cap during scanning; None => 500, clamped at 5000)
+let limited_results = book.search_limited("quantum", Some(25));
+// Also available directly on slices of sections:
+let engine_results = ebook_rs::SearchEngine::search_limited(book.sections(), "quantum", false, Some(25));
 
 // 2. Regular Expression Search (case-insensitive regex)
 let regex_results = book.search_regex("(?i)quantum|physics|particle")?;
+
+// 2b. Bounded Regular Expression Search
+let limited_regex = book.search_regex_limited("(?i)quantum|physics", Some(25))?;
+let engine_regex = ebook_rs::SearchEngine::search_regex_limited(book.sections(), "(?i)quantum", Some(25))?;
 
 for match_item in regex_results {
     println!("Spine Index: {}", match_item.spine_index);
@@ -573,6 +654,10 @@ for t in tokens {
 
 // 2. Get section HTML with <span id="tts-w-{index}"> annotations
 let tts_html = book.get_tts_section_html(0)?;
+
+// Or call directly on a `Section`:
+let sec_tokens = section.tokenize_tts_words();
+let sec_tts_html = section.to_tts_annotated_html();
 ```
 
 ---
@@ -1111,7 +1196,9 @@ use ebook_rs::footnote::parse_footnotes_from_html;
 let stats = ReadingAnalytics::analyze_text(&section.plain_text);
 println!("Words: {}, Est. minutes: {:.1}, Difficulty: {:.1}", stats.word_count, stats.reading_time_minutes, stats.difficulty_score);
 
-let footnotes = parse_footnotes_from_html(&section.raw_html);
+let footnotes = section.extract_footnotes();
+// Equivalent low-level helper on raw HTML:
+let footnotes_raw = parse_footnotes_from_html(&section.raw_html);
 ```
 
 ---
@@ -1128,6 +1215,7 @@ let manifest = book.to_webpub_manifest();
 let manifest_json = book.to_webpub_json()?;
 
 let feed = OpdsFeed::parse_atom_xml(atom_xml)?;
+let json_feed = OpdsFeed::parse_json(opds2_json)?;
 for entry in &feed.entries {
     if let Some(link) = entry.download_link(Some("application/epub+zip")) {
         println!("{} -> {}", entry.title, link.href);
@@ -1195,3 +1283,17 @@ The `ebook-rs` CLI binary exposes: `serve`, `convert`, `parse`, `search`, `locat
 
 - **WASM (`wasm` feature)**: `ebook_rs::WasmBook` exposes `new`, `get_metadata_json`, `get_toc_json`, `get_spine_json`, `get_section_html`, `get_tts_words_json`, `get_tts_annotated_html`, `search_json`, `cfi_to_spine_index`, `get_resource_bytes`, `get_section_analytics_json`, `paginate_section_json`, `resolve_cfi_dom_json`, `set_custom_font`, `to_rag_chunks_json`, `get_webpub_manifest_json`, `export_epub_bytes`, `enable_manga_mode`, and `WasmBook::get_custom_element_js()`.
 - **C FFI (`ebook_rs::ffi`)**: Exposes `ebook_rs_book_from_bytes`, `ebook_rs_book_free`, `ebook_rs_get_metadata_json`, `ebook_rs_get_toc_json`, `ebook_rs_get_section_html`, `ebook_rs_search_json`, `ebook_rs_to_rag_chunks_json`, and `ebook_rs_string_free`.
+
+---
+
+## 48. Sample EPUB Generator (`sample_builder::generate_sample_epub`)
+
+Generate a complete, valid in-memory EPUB 3 archive (with TOC, OPF, NCX, NAV, stylesheet, and chapters) for tests, demos, or CLI `sample` output:
+
+```rust
+use ebook_rs::{Book, sample_builder::generate_sample_epub};
+
+let epub_bytes: Vec<u8> = generate_sample_epub()?;
+let book = Book::from_bytes(&epub_bytes)?;
+println!("Generated sample book: {}", book.title());
+```

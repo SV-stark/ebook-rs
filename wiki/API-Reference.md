@@ -1,6 +1,6 @@
 # 📚 `ebook-rs` Complete API Reference & Parity Guide (v0.19.4)
 
-This document summarizes `ebook-rs` (**v0.19.4**) APIs across **Drop-in `epub.js` Replacements** and **`ebook-rs` Native Extensions** (see root [`API.md`](https://github.com/SV-stark/ebook-rs/blob/main/API.md) for all 47 sections).
+This document summarizes `ebook-rs` (**v0.19.4**) APIs across **Drop-in `epub.js` Replacements** and **`ebook-rs` Native Extensions** (see root [`API.md`](https://github.com/SV-stark/ebook-rs/blob/main/API.md) for all 48 sections).
 
 ---
 
@@ -16,7 +16,9 @@ This document summarizes `ebook-rs` (**v0.19.4**) APIs across **Drop-in `epub.js
 | `book.loaded.navigation.pageList` | `book.page_list()` | Returns `&[PageListItem]` printed page numbers. |
 | `book.locations.generate()` | `book.generate_locations(chunk_size)` / `book.locations_from_sections(chunk_size)` | Generates discrete location progress markers across chapters. |
 | `book.locations.percentageFromCfi()` | `book.locations().percentage_from_cfi(cfi)` / `percentage_from_location(loc)` | Converts CFIs or location indices to decimal progress (`0.0..=1.0`). |
-| `rendition.display(cfi)` | `book.get_section(idx)` / `book.resolve_cfi(cfi, &html)` | Retrieves rendered section HTML, offset, and DOM CSS selector. |
+| `rendition.display(cfi)` | `book.get_section(idx)` / `book.get_section_by_href(href)` / `book.resolve_cfi(cfi, &html)` | Retrieves rendered section HTML (by index, href, or CFI), offset, and DOM CSS selector. |
+| `book.coverUrl()` | `book.cover_image()` | Returns `Option<(Vec<u8>, &'static str)>` cover image bytes and MIME type. |
+| `book.archive.getBlob(url)` | `book.get_resource_bytes(path)` | Returns `(Vec<u8>, &'static str)` raw resource bytes and MIME type. |
 | `rendition.annotations.add()` | `book.annotations_mut().create_highlight(...)` / `create_bookmark(...)` / `add(...)` | Creates, updates, and exports W3C JSON annotations. |
 
 ---
@@ -51,7 +53,9 @@ Python (`PyO3`) and `UniBook` (UniFFI) bindings also expose `export_format_bytes
 
 ```rust
 let matches = book.search("Wonderland");
+let limited = book.search_limited("Wonderland", Some(25));
 let regex_matches = book.search_regex(r"Chapter\s+\d+")?;
+let limited_regex = book.search_regex_limited(r"Chapter\s+\d+", Some(25))?;
 ```
 
 ### 3. AI RAG Chunking & Okapi BM25 Ranking
@@ -66,14 +70,23 @@ let top = RagChunker::rank_chunks_bm25(&chunks, "Cheshire Cat", 5);
 ### 4. Pre-Display Transformation Hooks & Font Deobfuscation
 
 ```rust
-use ebook_rs::FontDeobfuscator;
+use ebook_rs::{FontDeobfuscator, inline_stylesheet_rules};
 
 book.register_before_display_hook(|html, _href| {
     *html = html.replace("old-class", "new-class");
 });
+book.invalidate_render_cache();
 
-let deobf = FontDeobfuscator::parse_encryption_xml(encryption_xml);
+let inlined = inline_stylesheet_rules(&section.raw_html);
+let footnotes = section.extract_footnotes();
+let tts_tokens = section.tokenize_tts_words();
+let tts_html = section.to_tts_annotated_html();
+
+let deobf = book.font_deobfuscator();
+let parsed_deobf = FontDeobfuscator::parse_encryption_xml(encryption_xml);
 ```
+
+Section HTML utilities in `ebook_rs::section`: `extract_plain_text`, `sanitize_html_scripts`, `Section::strip_script_content`, `parse_viewport_meta`, and `process_section_resources`.
 
 ### 5. Built-in MCP (`2024-11-05`) & HTTP Reader Servers
 - **MCP Server**: `ebook-rs mcp --sandbox-root ./books` exposes `get_metadata`, `get_toc`, `read_section`, `search_book`, `chunk_book_for_rag`, `convert_ebook` (all 28+ formats + RAG JSON), `export_ebook_text` (inline `md`/`txt`/`html`/`fb2`/`typst`/`adoc`/`org`/`rst`/`tex`), and `validate_epub`, plus `ebook://info` and prompt templates.
@@ -83,4 +96,6 @@ let deobf = FontDeobfuscator::parse_encryption_xml(encryption_xml);
 - **Lossless EPUB 3 Optimizer**: `EpubOptimizer::optimize(&mut book, &EpubOptimizerOptions::default())` and `book.export_optimized_epub3_bytes(&options)`.
 - **Pure-Rust State Cache**: `book.export_cache()` / `Book::from_cache(&bytes)` (`flate2`/`zlib-rs`; legacy `export_zstd_cache` / `from_zstd_cache` are deprecated under the opt-in `zstd` feature).
 - **EPUB 3 Media Overlays & LCP DRM**: `book.media_overlays()`, `MediaOverlayPackage`, `LcpLicense`, `LcpDecryptor`, and `Book::from_bytes_with_passphrase`.
+- **Lazy Hydration & Async I/O**: `book.get_section_raw(idx)`, `book.load_section_lazy(idx)`, `book.hydrate_all_sections()`, `book.get_all_sections_hydrated()`, and `ebook_rs::book::async_api::{from_file_async, from_bytes_async, load_section_lazy_async}`.
+- **OPDS Feeds & Sample Builder**: `OpdsFeed::parse_atom_xml`, `OpdsFeed::parse_json`, and `sample_builder::generate_sample_epub()`.
 - **Cross-Language Bindings**: `UniBook` (Mozilla UniFFI), `PyBook` (`python` feature), `WasmBook` (`wasm` feature), and C FFI (`ebook_rs::ffi`).
