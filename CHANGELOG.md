@@ -5,6 +5,31 @@ All notable changes to `ebook-rs` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] - 2026-11-27
+
+### Added
+
+- **Unified E-Reader Progress & Reading-Time Helpers (`src/locations.rs`, `src/book.rs`, `src/lib.rs`)**:
+  - Added `BookProgress`, `Book::book_progress`, and `Book::book_reading_time_minutes` to compute chapter/book progression, synthetic location numbers, optional print `page_label`, CFI anchors, and remaining chapter/book reading-time estimates.
+  - Added `Locations::progression_from_char_offset`, `Locations::progression_from_cfi`, `Locations::location_from_percentage`, `Locations::position_from_progression`, `Book::position_from_progression`, and `Book::locator_from_progression` for smooth character-weighted progress and `0.0..=1.0` scrubber reverse lookup.
+- **Cross-Language Progress & Locator Bindings (`src/wasm.rs`, `src/uniffi_api.rs`, `src/python.rs`, `src/ffi.rs`)**:
+  - Exposed `get_locations_json`/`locations_json`, `to_readium_locator_json`, `get_book_progress_json`/`book_progress_json`, and `locator_from_progression_json` on `WasmBook`, `UniBook`, and `PyBook`, along with `ebook_rs_get_locations_json`, `ebook_rs_to_readium_locator_json`, `ebook_rs_get_book_progress_json`, and `ebook_rs_locator_from_progression_json` in C FFI.
+- **Spec-Aligned Readium Search, Locator `fragments` & W3C Annotation `source` (`src/book.rs`, `src/locations.rs`, `src/annotations.rs`)**:
+  - Added `Book::to_readium_search_json` emitting grouped `application/vnd.readium.search+json` with real spine `href`s and plain-text `text.{before, highlight, after}`.
+  - Added `LocatorLocations.fragments` alongside `fragment` in `ReadiumLocator` output.
+  - Added `AnnotationManager::to_w3c_json_with_source` emitting W3C `SpecificResource` targets with a `source` IRI.
+
+### Changed
+
+- **Smooth Readium Locator Progression (`src/book.rs`)**:
+  - Updated `Book::to_readium_locator` to compute smooth character-weighted `total_progression` across the spine (falling back to section character counts when `generate_locations` has not been called).
+- **Readium LCP, WebPub, OPDS 2.0, W3C Timestamps & CFI Ordering (`src/lcp.rs`, `src/webpub.rs`, `src/opds.rs`, `src/annotations.rs`, `src/cfi.rs`)**:
+  - Added `LcpEncryption.content_key` sibling lookup (checked before `encryption.user_key.content_key`).
+  - Enhanced `Book::to_webpub_manifest` with recursive `toc` conversion, non-spine `resources` (with `rel: "cover"`), `identifier`/`description` metadata, and TOC-derived `readingOrder` titles.
+  - Extended `OpdsFeed::parse_json` to support `metadata.modified`, string/mixed-array `author`, `images`, `navigation`, and `groups`.
+  - Formatted generated annotation `created_at` timestamps as UTC ISO-8601 (`YYYY-MM-DDTHH:MM:SSZ`).
+  - Updated `Cfi::compare` to compare `path.steps` element-by-element before terminal offsets.
+
 ## [0.19.4] - 2026-11-24
 
 ### Added

@@ -166,80 +166,33 @@ impl OpdsFeed {
             .unwrap_or("urn:opds:json:feed")
             .to_string();
 
-        let updated = v["metadata"]["updated"].as_str().map(|s| s.to_string());
+        let updated = v["metadata"]["modified"]
+            .as_str()
+            .or_else(|| v["metadata"]["updated"].as_str())
+            .map(|s| s.to_string());
 
-        let mut feed_links = Vec::new();
-        if let Some(links_arr) = v["links"].as_array() {
-            for l in links_arr {
-                if let (Some(href), Some(type_val)) = (l["href"].as_str(), l["type"].as_str()) {
-                    feed_links.push(OpdsLink {
-                        rel: l["rel"].as_str().unwrap_or("").to_string(),
-                        href: href.to_string(),
-                        media_type: type_val.to_string(),
-                        title: l["title"].as_str().map(|s| s.to_string()),
-                    });
-                }
-            }
-        }
+        let mut feed_links = parse_opds2_links(v["links"].as_array(), "");
+        feed_links.extend(parse_opds2_links(v["navigation"].as_array(), "subsection"));
 
         let mut entries = Vec::new();
         if let Some(pub_arr) = v["publications"].as_array() {
             for pub_item in pub_arr {
-                let entry_title = pub_item["metadata"]["title"]
-                    .as_str()
-                    .unwrap_or("Untitled")
-                    .to_string();
+                entries.push(parse_opds2_publication(pub_item));
+            }
+        }
 
-                let entry_id = pub_item["metadata"]["identifier"]
-                    .as_str()
-                    .unwrap_or("")
-                    .to_string();
-
-                let mut authors = Vec::new();
-                if let Some(author_val) = pub_item["metadata"]["author"].as_array() {
-                    for a in author_val {
-                        if let Some(name) = a["name"].as_str() {
-                            authors.push(name.to_string());
-                        }
-                    }
-                } else if let Some(name) = pub_item["metadata"]["author"]["name"].as_str() {
-                    authors.push(name.to_string());
-                }
-
-                let summary = pub_item["metadata"]["description"]
-                    .as_str()
-                    .map(|s| s.to_string());
-
-                let mut entry_links = Vec::new();
-                if let Some(links_arr) = pub_item["links"].as_array() {
-                    for l in links_arr {
-                        if let (Some(href), Some(type_val)) =
-                            (l["href"].as_str(), l["type"].as_str())
-                        {
-                            entry_links.push(OpdsLink {
-                                rel: l["rel"].as_str().unwrap_or("acquisition").to_string(),
-                                href: href.to_string(),
-                                media_type: type_val.to_string(),
-                                title: l["title"].as_str().map(|s| s.to_string()),
-                            });
-                        }
+        if let Some(groups_arr) = v["groups"].as_array() {
+            for group in groups_arr {
+                feed_links.extend(parse_opds2_links(group["links"].as_array(), ""));
+                feed_links.extend(parse_opds2_links(
+                    group["navigation"].as_array(),
+                    "subsection",
+                ));
+                if let Some(pub_arr) = group["publications"].as_array() {
+                    for pub_item in pub_arr {
+                        entries.push(parse_opds2_publication(pub_item));
                     }
                 }
-
-                entries.push(OpdsEntry {
-                    id: entry_id,
-                    title: entry_title,
-                    authors,
-                    summary,
-                    content: None,
-                    published: pub_item["metadata"]["published"]
-                        .as_str()
-                        .map(|s| s.to_string()),
-                    updated: pub_item["metadata"]["modified"]
-                        .as_str()
-                        .map(|s| s.to_string()),
-                    links: entry_links,
-                });
             }
         }
 
@@ -251,6 +204,106 @@ impl OpdsFeed {
             links: feed_links,
             entries,
         })
+    }
+}
+
+fn parse_opds2_authors(val: &serde_json::Value) -> Vec<String> {
+    let mut authors = Vec::new();
+    match val {
+        serde_json::Value::String(name) => {
+            if !name.trim().is_empty() {
+                authors.push(name.clone());
+            }
+        }
+        serde_json::Value::Object(map) => {
+            if let Some(name) = map.get("name").and_then(|n| n.as_str()) {
+                authors.push(name.to_string());
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                match item {
+                    serde_json::Value::String(name) => {
+                        if !name.trim().is_empty() {
+                            authors.push(name.clone());
+                        }
+                    }
+                    serde_json::Value::Object(map) => {
+                        if let Some(name) = map.get("name").and_then(|n| n.as_str()) {
+                            authors.push(name.to_string());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
+    }
+    authors
+}
+
+fn parse_opds2_links(arr: Option<&Vec<serde_json::Value>>, default_rel: &str) -> Vec<OpdsLink> {
+    let mut links = Vec::new();
+    let Some(items) = arr else {
+        return links;
+    };
+    for l in items {
+        if let Some(href) = l["href"].as_str() {
+            let media_type = l["type"].as_str().unwrap_or("").to_string();
+            let rel = match l["rel"].as_str() {
+                Some(r) => r.to_string(),
+                None => l["rel"]
+                    .as_array()
+                    .and_then(|a| a.first())
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(default_rel)
+                    .to_string(),
+            };
+            links.push(OpdsLink {
+                rel,
+                href: href.to_string(),
+                media_type,
+                title: l["title"].as_str().map(|s| s.to_string()),
+            });
+        }
+    }
+    links
+}
+
+fn parse_opds2_publication(pub_item: &serde_json::Value) -> OpdsEntry {
+    let title = pub_item["metadata"]["title"]
+        .as_str()
+        .unwrap_or("Untitled")
+        .to_string();
+    let id = pub_item["metadata"]["identifier"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let authors = parse_opds2_authors(&pub_item["metadata"]["author"]);
+    let summary = pub_item["metadata"]["description"]
+        .as_str()
+        .map(|s| s.to_string());
+
+    let mut links = parse_opds2_links(pub_item["links"].as_array(), "acquisition");
+    links.extend(parse_opds2_links(
+        pub_item["images"].as_array(),
+        "http://opds-spec.org/image",
+    ));
+
+    OpdsEntry {
+        id,
+        title,
+        authors,
+        summary,
+        content: None,
+        published: pub_item["metadata"]["published"]
+            .as_str()
+            .map(|s| s.to_string()),
+        updated: pub_item["metadata"]["modified"]
+            .as_str()
+            .or_else(|| pub_item["metadata"]["updated"].as_str())
+            .map(|s| s.to_string()),
+        links,
     }
 }
 

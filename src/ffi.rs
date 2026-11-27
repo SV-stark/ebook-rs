@@ -215,6 +215,109 @@ pub unsafe extern "C" fn ebook_rs_to_rag_chunks_json(
     res.unwrap_or(ptr::null_mut())
 }
 
+/// Get character-chunk Locations index formatted as a C JSON string.
+/// Caller must free returned string using `ebook_rs_string_free`.
+///
+/// # Safety
+/// Handle must be a valid handle created by `ebook_rs_book_from_bytes`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ebook_rs_get_locations_json(handle: CBookHandle) -> *mut c_char {
+    let book = match get_live_book(handle) {
+        Some(b) => b,
+        None => return ptr::null_mut(),
+    };
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        match serde_json::to_string(book.locations()) {
+            Ok(json) => alloc_c_string(json),
+            Err(_) => ptr::null_mut(),
+        }
+    }));
+    res.unwrap_or(ptr::null_mut())
+}
+
+/// Generate a Readium-compliant unified Locator formatted as a C JSON string.
+/// Caller must free returned string using `ebook_rs_string_free`.
+///
+/// # Safety
+/// Handle must be a valid handle created by `ebook_rs_book_from_bytes`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ebook_rs_to_readium_locator_json(
+    handle: CBookHandle,
+    spine_index: usize,
+    char_offset: usize,
+) -> *mut c_char {
+    let book = match get_live_book(handle) {
+        Some(b) => b,
+        None => return ptr::null_mut(),
+    };
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        match book.to_readium_locator(spine_index, char_offset) {
+            Ok(locator) => match serde_json::to_string(&locator) {
+                Ok(json) => alloc_c_string(json),
+                Err(_) => ptr::null_mut(),
+            },
+            Err(_) => ptr::null_mut(),
+        }
+    }));
+    res.unwrap_or(ptr::null_mut())
+}
+
+/// Get unified e-reader progress snapshot formatted as a C JSON string.
+/// Pass `wpm = 0` to use the default 200 WPM reading speed.
+/// Caller must free returned string using `ebook_rs_string_free`.
+///
+/// # Safety
+/// Handle must be a valid handle created by `ebook_rs_book_from_bytes`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ebook_rs_get_book_progress_json(
+    handle: CBookHandle,
+    spine_index: usize,
+    char_offset: usize,
+    wpm: u32,
+) -> *mut c_char {
+    let book = match get_live_book(handle) {
+        Some(b) => b,
+        None => return ptr::null_mut(),
+    };
+    let wpm_opt = if wpm == 0 { None } else { Some(wpm) };
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        match book.book_progress(spine_index, char_offset, wpm_opt) {
+            Ok(progress) => match serde_json::to_string(&progress) {
+                Ok(json) => alloc_c_string(json),
+                Err(_) => ptr::null_mut(),
+            },
+            Err(_) => ptr::null_mut(),
+        }
+    }));
+    res.unwrap_or(ptr::null_mut())
+}
+
+/// Reverse-lookup a Readium Locator formatted as a C JSON string from a whole-book progression (0.0..=1.0).
+/// Caller must free returned string using `ebook_rs_string_free`.
+///
+/// # Safety
+/// Handle must be a valid handle created by `ebook_rs_book_from_bytes`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ebook_rs_locator_from_progression_json(
+    handle: CBookHandle,
+    total_progression: f64,
+) -> *mut c_char {
+    let book = match get_live_book(handle) {
+        Some(b) => b,
+        None => return ptr::null_mut(),
+    };
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        match book.locator_from_progression(total_progression) {
+            Ok(locator) => match serde_json::to_string(&locator) {
+                Ok(json) => alloc_c_string(json),
+                Err(_) => ptr::null_mut(),
+            },
+            Err(_) => ptr::null_mut(),
+        }
+    }));
+    res.unwrap_or(ptr::null_mut())
+}
+
 /// Free C string allocated by `ebook-rs` C FFI functions.
 /// Safely handles NULL and repeated calls (no-op on double-free).
 ///
@@ -260,6 +363,30 @@ mod tests {
             let rag_str = CStr::from_ptr(rag_json).to_str().unwrap();
             assert!(rag_str.contains("chunk-sec"));
             ebook_rs_string_free(rag_json);
+
+            let locs_json = ebook_rs_get_locations_json(handle);
+            assert!(!locs_json.is_null());
+            let locs_str = CStr::from_ptr(locs_json).to_str().unwrap();
+            assert!(locs_str.contains("total_locations"));
+            ebook_rs_string_free(locs_json);
+
+            let loc_json = ebook_rs_to_readium_locator_json(handle, 0, 0);
+            assert!(!loc_json.is_null());
+            let loc_str = CStr::from_ptr(loc_json).to_str().unwrap();
+            assert!(loc_str.contains("totalProgression"));
+            ebook_rs_string_free(loc_json);
+
+            let prog_json = ebook_rs_get_book_progress_json(handle, 0, 0, 0);
+            assert!(!prog_json.is_null());
+            let prog_str = CStr::from_ptr(prog_json).to_str().unwrap();
+            assert!(prog_str.contains("book_progression"));
+            ebook_rs_string_free(prog_json);
+
+            let rev_json = ebook_rs_locator_from_progression_json(handle, 0.5);
+            assert!(!rev_json.is_null());
+            let rev_str = CStr::from_ptr(rev_json).to_str().unwrap();
+            assert!(rev_str.contains("totalProgression"));
+            ebook_rs_string_free(rev_json);
 
             ebook_rs_book_free(handle);
         }

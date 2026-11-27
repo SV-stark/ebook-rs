@@ -31,6 +31,11 @@ fn test_blackbox_readium_search_json_export() {
     let json_str = SearchEngine::to_readium_search_json(&results, "Alice").unwrap();
     assert!(json_str.contains("Alice"));
     assert!(json_str.contains("locators") || json_str.contains("loc"));
+
+    let book_search_json = book.to_readium_search_json(&results, "Alice").unwrap();
+    assert!(book_search_json.contains("https://readium.org/webpub-manifest/context.jsonld"));
+    assert!(book_search_json.contains("\"groups\""));
+    assert!(book_search_json.contains("\"highlight\": \"Alice\""));
 }
 
 #[test]

@@ -151,6 +151,47 @@ impl WasmBook {
         crate::cbz::CbzBook::enable_manga_mode(&mut self.inner);
     }
 
+    /// Get character-chunk Locations index as JSON string.
+    pub fn get_locations_json(&self) -> Result<String, JsValue> {
+        serde_json::to_string(self.inner.locations()).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Generate a Readium-compliant unified Locator as JSON string for a spine index and character offset.
+    pub fn to_readium_locator_json(
+        &self,
+        spine_index: usize,
+        char_offset: usize,
+    ) -> Result<String, JsValue> {
+        let locator = self
+            .inner
+            .to_readium_locator(spine_index, char_offset)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        serde_json::to_string(&locator).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Get unified e-reader progress snapshot as JSON string.
+    pub fn get_book_progress_json(
+        &self,
+        spine_index: usize,
+        char_offset: usize,
+        wpm: Option<u32>,
+    ) -> Result<String, JsValue> {
+        let progress = self
+            .inner
+            .book_progress(spine_index, char_offset, wpm)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        serde_json::to_string(&progress).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Reverse-lookup a Readium Locator as JSON string from a whole-book progression (0.0..=1.0).
+    pub fn locator_from_progression_json(&self, total_progression: f64) -> Result<String, JsValue> {
+        let locator = self
+            .inner
+            .locator_from_progression(total_progression)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        serde_json::to_string(&locator).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
     /// Get standalone zero-dependency `<ebook-reader>` HTMLElement Web Component JS definition string.
     ///
     /// The `src` attribute is escaped before interpolation into an HTML template literal: the

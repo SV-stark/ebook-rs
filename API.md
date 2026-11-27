@@ -1,6 +1,6 @@
-# 📚 EBook-RS API Reference & Complete Documentation (v0.19.4)
+# 📚 EBook-RS API Reference & Complete Documentation (v0.20.0)
  
-`ebook-rs` (v0.19.4) is a multi-format pure Rust eBook engine supporting **30 input formats and 28+ output formats** (**EPUB 2/3**, **Kobo KEPUB**, **Amazon KFX**, **MOBI**, **AZW3**, **PDB**, **FB2**, **LIT**, **CBZ**, **PDF**, **DOCX**, **ODT**, **RTF**, **PPTX**, **HTML**, **HTMLZ**, **TXT**, **TXTZ**, **Markdown**, **OEB**, **ZIP**, **TCR**, **PMLZ**, **RB**, **Typst**, **AsciiDoc**, **Org-mode**, **reStructuredText**, **LaTeX**) with **Mozilla UniFFI Mobile SDK (Swift/Kotlin)**, **Lossless EPUB 3 Optimizer & Minifier**, **CJK Vertical Writing & RTL Reflow Pagination**, **Web Audio API Karaoke Synchronization**, **Lazy Archive Streaming for Giant Files (>500MB)**, **Markdown Frontmatter, Wikilinks & Callouts**, **Model Context Protocol (MCP 2024-11-05) Server**, **Okapi BM25 RAG Relevance Scoring**, **Zero-Allocation Full-Text Search**, **PDF Two-Column Reading-Order Reflow**, **Multi-Threaded Parallel ZIP Exporting**, **CBZ Comic Pre-fetching & Manga Spread Mode**, **Native PyO3 Python Wheel Bindings**, **100% Clean-Room Amazon KFX Subsystem**, **Native AI/RAG Document Chunking**, **C FFI ABI Bindings**, **WASM Web Component Renderer**, **Embedded HTTP Reader Server & CLI**, **OPDS & Readium WebPub**, **Annotations & Reading Analytics**, **Font Deobfuscation**, **SpeechSynthesis TTS Word Synchronizer**, **Legacy Non-UTF-8 Charset Decoding**, **Automatic Language Detection**, **Pure-Rust Compressed State Caching (`flate2`/`zlib-rs`)**, **Universal 28-Format Exporter**, **Zero-Copy mmap**, **Lightweight DOM AST Tree**, **Fuzzy XML Recovery**, **CFI**, and **Readium LCP/Locator** support.
+`ebook-rs` (v0.20.0) is a multi-format pure Rust eBook engine supporting **30 input formats and 28+ output formats** (**EPUB 2/3**, **Kobo KEPUB**, **Amazon KFX**, **MOBI**, **AZW3**, **PDB**, **FB2**, **LIT**, **CBZ**, **PDF**, **DOCX**, **ODT**, **RTF**, **PPTX**, **HTML**, **HTMLZ**, **TXT**, **TXTZ**, **Markdown**, **OEB**, **ZIP**, **TCR**, **PMLZ**, **RB**, **Typst**, **AsciiDoc**, **Org-mode**, **reStructuredText**, **LaTeX**) with **Mozilla UniFFI Mobile SDK (Swift/Kotlin)**, **Lossless EPUB 3 Optimizer & Minifier**, **CJK Vertical Writing & RTL Reflow Pagination**, **Web Audio API Karaoke Synchronization**, **Lazy Archive Streaming for Giant Files (>500MB)**, **Markdown Frontmatter, Wikilinks & Callouts**, **Model Context Protocol (MCP 2024-11-05) Server**, **Okapi BM25 RAG Relevance Scoring**, **Zero-Allocation Full-Text Search**, **PDF Two-Column Reading-Order Reflow**, **Multi-Threaded Parallel ZIP Exporting**, **CBZ Comic Pre-fetching & Manga Spread Mode**, **Native PyO3 Python Wheel Bindings**, **100% Clean-Room Amazon KFX Subsystem**, **Native AI/RAG Document Chunking**, **C FFI ABI Bindings**, **WASM Web Component Renderer**, **Embedded HTTP Reader Server & CLI**, **OPDS & Readium WebPub**, **Annotations & Reading Analytics**, **Font Deobfuscation**, **SpeechSynthesis TTS Word Synchronizer**, **Legacy Non-UTF-8 Charset Decoding**, **Automatic Language Detection**, **Pure-Rust Compressed State Caching (`flate2`/`zlib-rs`)**, **Universal 28-Format Exporter**, **Zero-Copy mmap**, **Lightweight DOM AST Tree**, **Fuzzy XML Recovery**, **CFI**, and **Readium LCP/Locator** support.
 
 ---
 
@@ -242,8 +242,23 @@ fn build(book: &Book) -> Locations {
 To regenerate and *store* the map on the book instead, use the mutating
 `Book::generate_locations(chunk_size)`.
 
+For e-reader UIs (chapter/book percentage, synthetic location, print `page_label`, CFI, and remaining reading time), use `Book::book_progress` and the reverse-seek helpers:
+
+```rust
+use ebook_rs::BookProgress;
+
+let progress: BookProgress = book.book_progress(0, 250, None)?; // default 200 WPM
+let total_minutes = book.book_reading_time_minutes(Some(250));
+
+// Scrubber / slider reverse lookup (0.0..=1.0 -> spine_index + char_offset or ReadiumLocator)
+let (spine_idx, char_off) = book.position_from_progression(0.5)?;
+let locator = book.locator_from_progression(0.5)?;
+```
+
 **Related:** `book.locations()` holds the map computed at load time; `Locations::new`,
-`add_spine_section`, and `finalize` are public for custom chunking strategies.
+`add_spine_section`, `finalize`, `progression_from_char_offset`, `progression_from_cfi`,
+`location_from_percentage`, and `position_from_progression` are public for custom chunking and
+smooth character-weighted progress/reverse-lookup strategies.
 
 ---
 
@@ -430,6 +445,12 @@ let locator: ReadiumLocator = book.to_readium_locator(3, 250)?;
 
 let json = serde_json::to_string_pretty(&locator)?;
 println!("{}", json);
+
+// `locations.totalProgression` is smoothly character-weighted across the spine
+// (even when `generate_locations` has not been called), and `locations.fragments`
+// mirrors any detected element ID anchor as a Readium plural string array.
+// Reverse-seek from a 0.0..=1.0 scrubber/slider value:
+let target_locator = book.locator_from_progression(0.5)?;
 ```
 
 ---
@@ -442,6 +463,10 @@ Format `SearchResult` from `book.search()` into the Readium standard `applicatio
 use ebook_rs::SearchEngine;
 
 let results = book.search("Alice");
+// Book-aware Readium Search JSON (`groups`, real spine `href`s, `text.{before, highlight, after}`):
+let grouped_json = book.to_readium_search_json(&results, "Alice")?;
+
+// Stateless helper (when only `&[SearchResult]` is available):
 let json = SearchEngine::to_readium_search_json(&results, "Alice")?;
 
 // Returns:
@@ -862,6 +887,12 @@ pages = book.prefetch_comic_pages(0, 3)
 
 # Export AI RAG Document Chunks as JSON
 chunks_json = book.to_rag_chunks_json()
+
+# Reading Progress, Locations & Readium Locator JSON helpers
+locations_json = book.locations_json()
+locator_json = book.to_readium_locator_json(0, 250)
+progress_json = book.book_progress_json(0, 250, wpm=220)
+seek_json = book.locator_from_progression_json(0.5)
 ```
 
 ---
@@ -895,6 +926,12 @@ let results = unibook.search("philosophy".to_string(), false);
 
 // Paginate section with CJK vertical writing mode
 let page_map_json = unibook.paginate_section(0, 16, 400, 600, true)?;
+
+// Reading Progress, Locations & Readium Locator JSON helpers
+let locations_json = unibook.get_locations_json()?;
+let locator_json = unibook.to_readium_locator_json(0, 250)?;
+let progress_json = unibook.get_book_progress_json(0, 250, Some(220))?;
+let seek_json = unibook.locator_from_progression_json(0.5)?;
 ```
 
 ---
@@ -1181,6 +1218,9 @@ let hl = book.annotations_mut().create_highlight(
 let bm = book.annotations_mut().create_bookmark("epubcfi(/6/6!/4/2/1:0)", Some("Resume here"));
 
 let w3c_json = book.annotations().to_w3c_json()?;
+// Or emit W3C `SpecificResource` targets with a publication/chapter `source` IRI:
+let w3c_sourced = book.annotations().to_w3c_json_with_source("urn:isbn:9780000000000")?;
+// Generated `created_at` timestamps use UTC ISO-8601 (`YYYY-MM-DDTHH:MM:SSZ`).
 ```
 
 ---
@@ -1211,10 +1251,13 @@ Export books as Readium WebPub Manifests and parse OPDS 1.x Atom XML or OPDS 2.0
 use ebook_rs::{Book, OpdsFeed};
 
 let book = Book::from_file("sample.epub")?;
+// Includes recursive TOC, non-spine `resources` (with `rel: "cover"`),
+// `identifier`/`description` metadata, and TOC-derived `readingOrder` titles:
 let manifest = book.to_webpub_manifest();
 let manifest_json = book.to_webpub_json()?;
 
 let feed = OpdsFeed::parse_atom_xml(atom_xml)?;
+// Supports OPDS 2.0 `metadata.modified`, string/array `author`, `images`, `navigation`, and `groups`:
 let json_feed = OpdsFeed::parse_json(opds2_json)?;
 for entry in &feed.entries {
     if let Some(link) = entry.download_link(Some("application/epub+zip")) {
@@ -1281,8 +1324,8 @@ The `ebook-rs` CLI binary exposes: `serve`, `convert`, `parse`, `search`, `locat
 
 ## 47. WebAssembly & C FFI ABI Bindings (`WasmBook`, `ebook_rs::ffi`)
 
-- **WASM (`wasm` feature)**: `ebook_rs::WasmBook` exposes `new`, `get_metadata_json`, `get_toc_json`, `get_spine_json`, `get_section_html`, `get_tts_words_json`, `get_tts_annotated_html`, `search_json`, `cfi_to_spine_index`, `get_resource_bytes`, `get_section_analytics_json`, `paginate_section_json`, `resolve_cfi_dom_json`, `set_custom_font`, `to_rag_chunks_json`, `get_webpub_manifest_json`, `export_epub_bytes`, `enable_manga_mode`, and `WasmBook::get_custom_element_js()`.
-- **C FFI (`ebook_rs::ffi`)**: Exposes `ebook_rs_book_from_bytes`, `ebook_rs_book_free`, `ebook_rs_get_metadata_json`, `ebook_rs_get_toc_json`, `ebook_rs_get_section_html`, `ebook_rs_search_json`, `ebook_rs_to_rag_chunks_json`, and `ebook_rs_string_free`.
+- **WASM (`wasm` feature)**: `ebook_rs::WasmBook` exposes `new`, `get_metadata_json`, `get_toc_json`, `get_spine_json`, `get_section_html`, `get_tts_words_json`, `get_tts_annotated_html`, `search_json`, `cfi_to_spine_index`, `get_resource_bytes`, `get_section_analytics_json`, `paginate_section_json`, `resolve_cfi_dom_json`, `set_custom_font`, `to_rag_chunks_json`, `get_webpub_manifest_json`, `export_epub_bytes`, `enable_manga_mode`, `get_locations_json`, `to_readium_locator_json`, `get_book_progress_json`, `locator_from_progression_json`, and `WasmBook::get_custom_element_js()`.
+- **C FFI (`ebook_rs::ffi`)**: Exposes `ebook_rs_book_from_bytes`, `ebook_rs_book_free`, `ebook_rs_get_metadata_json`, `ebook_rs_get_toc_json`, `ebook_rs_get_section_html`, `ebook_rs_search_json`, `ebook_rs_to_rag_chunks_json`, `ebook_rs_get_locations_json`, `ebook_rs_to_readium_locator_json`, `ebook_rs_get_book_progress_json`, `ebook_rs_locator_from_progression_json`, and `ebook_rs_string_free`.
 
 ---
 

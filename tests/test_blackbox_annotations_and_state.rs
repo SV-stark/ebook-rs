@@ -26,9 +26,18 @@ fn test_blackbox_annotations_crud() {
     let w3c_json = manager.to_w3c_json().unwrap();
     assert!(w3c_json.contains("\"@context\":\"http://www.w3.org/ns/anno.jsonld\""));
 
+    let w3c_with_src = manager
+        .to_w3c_json_with_source("urn:isbn:9780000000000")
+        .unwrap();
+    assert!(w3c_with_src.contains("\"type\":\"SpecificResource\""));
+    assert!(w3c_with_src.contains("\"source\":\"urn:isbn:9780000000000\""));
+
     // Delete
     assert!(manager.remove("ann-1"));
     assert_eq!(manager.list().len(), 0);
+
+    let created = manager.create_highlight("epubcfi(/6/2!/4/2:0)", "#00ff00", None, None);
+    assert!(created.created_at.ends_with('Z') && created.created_at.contains('T'));
 }
 
 #[test]

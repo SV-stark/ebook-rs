@@ -51,6 +51,8 @@ pub struct LcpRights {
 pub struct LcpEncryption {
     pub profile: String,
     pub user_key: Option<serde_json::Value>,
+    #[serde(default)]
+    pub content_key: Option<serde_json::Value>,
 }
 
 /// Readium LCP License Document parsed from META-INF/license.lcpl.
@@ -260,13 +262,16 @@ impl LcpDecryptor {
             }
         }
 
-        // Determine content encryption key (CEK): either decrypted from content_key or direct user_key
+        // Determine content encryption key (CEK): check official `encryption.content_key` first,
+        // then fall back to `encryption.user_key.content_key` or direct `user_key`.
         let mut final_aes_key = user_key_bytes;
         if let Some(ref encryption) = license.encryption
-            && let Some(content_key) = encryption
-                .user_key
-                .as_ref()
-                .and_then(|uk| uk.get("content_key"))
+            && let Some(content_key) = encryption.content_key.as_ref().or_else(|| {
+                encryption
+                    .user_key
+                    .as_ref()
+                    .and_then(|uk| uk.get("content_key"))
+            })
             && let Some(enc_val) = content_key.get("encrypted_value").and_then(|v| v.as_str())
         {
             // A `content_key` block that is present but cannot be decrypted into exactly

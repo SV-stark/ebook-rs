@@ -169,16 +169,29 @@ impl Cfi {
         }
     }
 
-    /// Compare two CFIs by spine index and character offset.
+    /// Compare two CFIs step-by-step along their path steps, then by terminal offset.
     pub fn compare(&self, other: &Self) -> std::cmp::Ordering {
-        let s1 = self.spine_index();
-        let s2 = other.spine_index();
-        if s1 != s2 {
-            return s1.cmp(&s2);
+        for (a, b) in self.path.steps.iter().zip(other.path.steps.iter()) {
+            let ord = a.index.cmp(&b.index);
+            if ord != std::cmp::Ordering::Equal {
+                return ord;
+            }
         }
-        let o1 = self.char_offset();
-        let o2 = other.char_offset();
-        o1.cmp(&o2)
+        let len_ord = self.path.steps.len().cmp(&other.path.steps.len());
+        if len_ord != std::cmp::Ordering::Equal {
+            return len_ord;
+        }
+        match (&self.path.offset, &other.path.offset) {
+            (None, None) => std::cmp::Ordering::Equal,
+            (None, Some(_)) => std::cmp::Ordering::Less,
+            (Some(_), None) => std::cmp::Ordering::Greater,
+            (Some(CfiOffset::Character(a)), Some(CfiOffset::Character(b))) => a.cmp(b),
+            (Some(CfiOffset::Temporal(a)), Some(CfiOffset::Temporal(b))) => a.total_cmp(b),
+            (Some(CfiOffset::Spatial(x1, y1)), Some(CfiOffset::Spatial(x2, y2))) => {
+                x1.total_cmp(x2).then_with(|| y1.total_cmp(y2))
+            }
+            (Some(a), Some(b)) => offset_kind_rank(a).cmp(&offset_kind_rank(b)),
+        }
     }
 
     /// Resolve IDPF element steps and assertion IDs into CSS DOM selectors and target element IDs (F1 Fix).
@@ -257,6 +270,14 @@ impl Cfi {
     /// Convert back to formatted `epubcfi(...)` string.
     pub fn to_cfi_string(&self) -> String {
         format!("epubcfi({})", format_path(&self.path))
+    }
+}
+
+fn offset_kind_rank(off: &CfiOffset) -> u8 {
+    match off {
+        CfiOffset::Character(_) => 0,
+        CfiOffset::Temporal(_) => 1,
+        CfiOffset::Spatial(_, _) => 2,
     }
 }
 

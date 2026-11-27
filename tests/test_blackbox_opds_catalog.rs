@@ -47,3 +47,64 @@ fn test_blackbox_opds_json_2_feed_parsing() {
     assert_eq!(feed.entries.len(), 1);
     assert_eq!(feed.entries[0].title, "OPDS JSON Book");
 }
+
+#[test]
+fn test_opds_2_extended_fields() {
+    let opds_json = r#"{
+        "metadata": {
+            "title": "Extended OPDS 2.0",
+            "modified": "2026-11-27T12:00:00Z"
+        },
+        "navigation": [
+            { "href": "/new", "type": "application/opds+json", "title": "New Releases" }
+        ],
+        "publications": [
+            {
+                "metadata": {
+                    "title": "Book A",
+                    "author": "Alice Author",
+                    "modified": "2026-11-26T00:00:00Z"
+                },
+                "links": [
+                    { "href": "/a.epub", "type": "application/epub+zip" }
+                ],
+                "images": [
+                    { "href": "/a.jpg", "type": "image/jpeg" }
+                ]
+            }
+        ],
+        "groups": [
+            {
+                "publications": [
+                    {
+                        "metadata": {
+                            "title": "Book B",
+                            "author": ["Bob Author", { "name": "Carol Author" }]
+                        },
+                        "links": [
+                            { "href": "/b.epub", "type": "application/epub+zip" }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }"#;
+
+    let feed = OpdsFeed::parse_json(opds_json).expect("Extended OPDS 2.0 JSON should parse");
+    assert_eq!(feed.updated.as_deref(), Some("2026-11-27T12:00:00Z"));
+    assert_eq!(feed.links.len(), 1);
+    assert_eq!(feed.links[0].rel, "subsection");
+    assert_eq!(feed.entries.len(), 2);
+    assert_eq!(feed.entries[0].authors, vec!["Alice Author"]);
+    assert_eq!(
+        feed.entries[0].updated.as_deref(),
+        Some("2026-11-26T00:00:00Z")
+    );
+    assert!(
+        feed.entries[0]
+            .links
+            .iter()
+            .any(|l| l.rel == "http://opds-spec.org/image" && l.href == "/a.jpg")
+    );
+    assert_eq!(feed.entries[1].authors, vec!["Bob Author", "Carol Author"]);
+}

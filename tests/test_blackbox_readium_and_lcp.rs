@@ -112,3 +112,45 @@ fn test_blackbox_font_deobfuscation() {
     assert_ne!(&font2_bytes[..1024], &orig2[..1024]);
     assert_eq!(&font2_bytes[1024..], &orig2[1024..]);
 }
+
+#[test]
+fn test_lcp_official_encryption_content_key_sibling_and_webpub_manifest_enhancements() {
+    use base64::Engine;
+    use ebook_rs::{Book, generate_sample_epub};
+
+    // 1. Test `encryption.content_key` sibling path (official LCP spec)
+    let passphrase = "secret-passphrase";
+    let invalid_b64 = base64::engine::general_purpose::STANDARD.encode(vec![0u8; 48]);
+    let json_license = format!(
+        r#"{{
+            "id": "lic-sibling",
+            "provider": "http://example.com/lcp",
+            "encryption": {{
+                "profile": "http://readium.org/lcp/basic-profile",
+                "user_key": {{ "algorithm": "http://www.w3.org/2001/04/xmlenc#sha256" }},
+                "content_key": {{ "encrypted_value": "{}" }}
+            }}
+        }}"#,
+        invalid_b64
+    );
+    let license = LcpLicense::parse(&json_license).unwrap();
+    assert!(license.encryption.as_ref().unwrap().content_key.is_some());
+    // Attempting decryption with wrong padding must return content_key decryption error, not succeed
+    let encrypted = vec![0u8; 32];
+    let err = LcpDecryptor::decrypt_bytes(&encrypted, passphrase, &license).unwrap_err();
+    assert!(err.contains("content key"));
+
+    // 2. Test WebPub Manifest: identifier, description, TOC-derived readingOrder titles, resources
+    let epub_bytes = generate_sample_epub().unwrap();
+    let book = Book::from_bytes(&epub_bytes).unwrap();
+    let manifest = book.to_webpub_manifest();
+    assert!(!manifest.resources.is_empty());
+    assert!(manifest.metadata.identifier.is_some());
+    assert!(!manifest.reading_order.is_empty());
+
+    // 3. Test ReadiumLocator `fragments` alongside `fragment`
+    let loc = book.to_readium_locator(0, 0).unwrap();
+    if let Some(ref frag) = loc.locations.fragment {
+        assert_eq!(loc.locations.fragments, vec![frag.clone()]);
+    }
+}

@@ -77,7 +77,7 @@ pub use layout::{
 };
 pub use lcp::{LcpDecryptor, LcpLicense, LcpRights, LcpUser};
 pub use lit::LitBook;
-pub use locations::{LocationEntry, Locations, LocatorLocations, ReadiumLocator};
+pub use locations::{BookProgress, LocationEntry, Locations, LocatorLocations, ReadiumLocator};
 pub use media_overlay::{
     MediaOverlayPackage, MediaOverlayParallel, MediaOverlaySequence, SmilAudioClip, SmilClock,
     SmilTextRef,

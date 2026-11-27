@@ -176,6 +176,49 @@ impl PyBook {
         serde_json::to_string(self.inner.toc()).map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
+    /// Export character-chunk Locations index as JSON.
+    pub fn locations_json(&self) -> PyResult<String> {
+        serde_json::to_string(self.inner.locations())
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// Generate a Readium-compliant unified Locator as JSON for a spine index and character offset.
+    pub fn to_readium_locator_json(
+        &self,
+        spine_index: usize,
+        char_offset: usize,
+    ) -> PyResult<String> {
+        let locator = self
+            .inner
+            .to_readium_locator(spine_index, char_offset)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        serde_json::to_string(&locator).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// Get unified e-reader progress snapshot as JSON.
+    #[pyo3(signature = (spine_index, char_offset, wpm=None))]
+    pub fn book_progress_json(
+        &self,
+        spine_index: usize,
+        char_offset: usize,
+        wpm: Option<u32>,
+    ) -> PyResult<String> {
+        let progress = self
+            .inner
+            .book_progress(spine_index, char_offset, wpm)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        serde_json::to_string(&progress).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// Reverse-lookup a Readium Locator as JSON from a whole-book progression (0.0..=1.0).
+    pub fn locator_from_progression_json(&self, total_progression: f64) -> PyResult<String> {
+        let locator = self
+            .inner
+            .locator_from_progression(total_progression)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        serde_json::to_string(&locator).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
+
     /// Export book as a W3C-valid EPUB 3 ZIP archive buffer.
     pub fn export_epub3_bytes(&self, py: Python<'_>) -> PyResult<Vec<u8>> {
         py.detach(|| UniversalEpub3Exporter::export(&self.inner))

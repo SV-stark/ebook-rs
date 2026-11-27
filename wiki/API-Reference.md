@@ -1,6 +1,6 @@
-# 📚 `ebook-rs` Complete API Reference & Parity Guide (v0.19.4)
+# 📚 `ebook-rs` Complete API Reference & Parity Guide (v0.20.0)
 
-This document summarizes `ebook-rs` (**v0.19.4**) APIs across **Drop-in `epub.js` Replacements** and **`ebook-rs` Native Extensions** (see root [`API.md`](https://github.com/SV-stark/ebook-rs/blob/main/API.md) for all 48 sections).
+This document summarizes `ebook-rs` (**v0.20.0**) APIs across **Drop-in `epub.js` Replacements** and **`ebook-rs` Native Extensions** (see root [`API.md`](https://github.com/SV-stark/ebook-rs/blob/main/API.md) for all 48 sections).
 
 ---
 
@@ -15,11 +15,12 @@ This document summarizes `ebook-rs` (**v0.19.4**) APIs across **Drop-in `epub.js
 | `book.loaded.navigation.landmarks` | `book.landmarks()` | Returns `&[Landmark]` (cover, titlepage, bodymatter). |
 | `book.loaded.navigation.pageList` | `book.page_list()` | Returns `&[PageListItem]` printed page numbers. |
 | `book.locations.generate()` | `book.generate_locations(chunk_size)` / `book.locations_from_sections(chunk_size)` | Generates discrete location progress markers across chapters. |
-| `book.locations.percentageFromCfi()` | `book.locations().percentage_from_cfi(cfi)` / `percentage_from_location(loc)` | Converts CFIs or location indices to decimal progress (`0.0..=1.0`). |
+| `book.locations.percentageFromCfi()` | `book.locations().percentage_from_cfi(cfi)` / `progression_from_cfi(cfi)` / `progression_from_char_offset(idx, off)` | Converts CFIs or character offsets to decimal progress (`0.0..=1.0`), including smooth character-weighted progression. |
+| `book.locations.cfiFromPercentage()` | `book.position_from_progression(pct)` / `book.locator_from_progression(pct)` / `book.locations().location_from_percentage(pct)` / `book.book_progress(idx, off, wpm)` / `book.book_reading_time_minutes(wpm)` | Reverse-seeks from `0.0..=1.0` slider progress and builds unified e-reader progress snapshots (`BookProgress`) with reading-time estimates. |
 | `rendition.display(cfi)` | `book.get_section(idx)` / `book.get_section_by_href(href)` / `book.resolve_cfi(cfi, &html)` | Retrieves rendered section HTML (by index, href, or CFI), offset, and DOM CSS selector. |
 | `book.coverUrl()` | `book.cover_image()` | Returns `Option<(Vec<u8>, &'static str)>` cover image bytes and MIME type. |
 | `book.archive.getBlob(url)` | `book.get_resource_bytes(path)` | Returns `(Vec<u8>, &'static str)` raw resource bytes and MIME type. |
-| `rendition.annotations.add()` | `book.annotations_mut().create_highlight(...)` / `create_bookmark(...)` / `add(...)` | Creates, updates, and exports W3C JSON annotations. |
+| `rendition.annotations.add()` | `book.annotations_mut().create_highlight(...)` / `create_bookmark(...)` / `to_w3c_json()` / `to_w3c_json_with_source(iri)` | Creates, updates, and exports W3C JSON-LD annotations (with ISO-8601 UTC timestamps and optional `SpecificResource` `source`). |
 
 ---
 
@@ -56,6 +57,7 @@ let matches = book.search("Wonderland");
 let limited = book.search_limited("Wonderland", Some(25));
 let regex_matches = book.search_regex(r"Chapter\s+\d+")?;
 let limited_regex = book.search_regex_limited(r"Chapter\s+\d+", Some(25))?;
+let readium_search_json = book.to_readium_search_json(&matches, "Wonderland")?;
 ```
 
 ### 3. AI RAG Chunking & Okapi BM25 Ranking
@@ -95,7 +97,7 @@ Section HTML utilities in `ebook_rs::section`: `extract_plain_text`, `sanitize_h
 ### 6. Optimization, Caching, Overlays & Cross-Language Bindings
 - **Lossless EPUB 3 Optimizer**: `EpubOptimizer::optimize(&mut book, &EpubOptimizerOptions::default())` and `book.export_optimized_epub3_bytes(&options)`.
 - **Pure-Rust State Cache**: `book.export_cache()` / `Book::from_cache(&bytes)` (`flate2`/`zlib-rs`; legacy `export_zstd_cache` / `from_zstd_cache` are deprecated under the opt-in `zstd` feature).
-- **EPUB 3 Media Overlays & LCP DRM**: `book.media_overlays()`, `MediaOverlayPackage`, `LcpLicense`, `LcpDecryptor`, and `Book::from_bytes_with_passphrase`.
+- **EPUB 3 Media Overlays & LCP DRM**: `book.media_overlays()`, `MediaOverlayPackage`, `LcpLicense` (including `encryption.content_key`), `LcpDecryptor`, and `Book::from_bytes_with_passphrase`.
 - **Lazy Hydration & Async I/O**: `book.get_section_raw(idx)`, `book.load_section_lazy(idx)`, `book.hydrate_all_sections()`, `book.get_all_sections_hydrated()`, and `ebook_rs::book::async_api::{from_file_async, from_bytes_async, load_section_lazy_async}`.
-- **OPDS Feeds & Sample Builder**: `OpdsFeed::parse_atom_xml`, `OpdsFeed::parse_json`, and `sample_builder::generate_sample_epub()`.
-- **Cross-Language Bindings**: `UniBook` (Mozilla UniFFI), `PyBook` (`python` feature), `WasmBook` (`wasm` feature), and C FFI (`ebook_rs::ffi`).
+- **WebPub, OPDS Feeds & Sample Builder**: `book.to_webpub_manifest()` (recursive `toc`, non-spine `resources`, `identifier`/`description`), `OpdsFeed::parse_atom_xml`, `OpdsFeed::parse_json` (`modified`, `images`, `navigation`, `groups`), and `sample_builder::generate_sample_epub()`.
+- **Cross-Language Bindings**: `UniBook` (Mozilla UniFFI), `PyBook` (`python` feature), `WasmBook` (`wasm` feature), and C FFI (`ebook_rs::ffi`), all exposing Readium locator, `Locations`, reverse-seek, and `BookProgress` JSON helpers.

@@ -31,11 +31,31 @@ pub struct LocatorLocations {
     pub cfi: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fragment: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub fragments: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub position: Option<usize>,
     pub progression: f64,
     #[serde(rename = "totalProgression")]
     pub total_progression: f64,
+}
+
+/// Unified e-reader progress snapshot combining Readium locator fields, synthetic locations,
+/// optional print page label, and remaining reading time estimates.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BookProgress {
+    pub spine_index: usize,
+    pub char_offset: usize,
+    pub chapter_progression: f64,
+    pub book_progression: f64,
+    pub location: usize,
+    pub total_locations: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_label: Option<String>,
+    pub cfi: String,
+    pub chapter_time_left_minutes: f32,
+    pub book_time_left_minutes: f32,
+    pub words_per_minute: u32,
 }
 
 /// Readium Unified Locator Model conforming to W3C / Readium Specification.
@@ -162,5 +182,83 @@ impl Locations {
         } else {
             0.0
         }
+    }
+
+    /// Compute smooth character-weighted book progression (0.0 to 1.0) for a spine index and
+    /// character offset.
+    pub fn progression_from_char_offset(&self, spine_idx: usize, char_off: usize) -> f64 {
+        if self.total_characters == 0 {
+            return 0.0;
+        }
+        let mut chars_before = 0usize;
+        let mut section_len = 0usize;
+        for entry in &self.entries {
+            if entry.spine_index < spine_idx {
+                chars_before += entry.char_end.saturating_sub(entry.char_start);
+            } else if entry.spine_index == spine_idx {
+                section_len = section_len.max(entry.char_end);
+            }
+        }
+        let clamped_off = char_off.min(section_len);
+        ((chars_before + clamped_off) as f64 / self.total_characters as f64).clamp(0.0, 1.0)
+    }
+
+    /// Compute smooth character-weighted book progression (0.0 to 1.0) for a CFI string.
+    pub fn progression_from_cfi(&self, cfi_str: &str) -> f64 {
+        let Ok(cfi) = crate::cfi::Cfi::parse(cfi_str) else {
+            return 0.0;
+        };
+        self.progression_from_char_offset(cfi.spine_index(), cfi.char_offset())
+    }
+
+    /// Reverse-lookup a `LocationEntry` from a book progress percentage (0.0 to 1.0).
+    pub fn location_from_percentage(&self, percentage: f64) -> Option<LocationEntry> {
+        if self.entries.is_empty() {
+            return None;
+        }
+        let pct = if percentage.is_nan() {
+            0.0
+        } else {
+            percentage.clamp(0.0, 1.0)
+        };
+        if self.total_characters == 0 {
+            let idx = (pct * (self.entries.len() - 1) as f64).round() as usize;
+            return self.entries.get(idx).cloned();
+        }
+        let target = (pct * self.total_characters as f64).round() as usize;
+        let mut acc = 0usize;
+        for entry in &self.entries {
+            let len = entry.char_end.saturating_sub(entry.char_start);
+            if target <= acc + len {
+                return Some(entry.clone());
+            }
+            acc += len;
+        }
+        self.entries.last().cloned()
+    }
+
+    /// Reverse-lookup `(spine_index, char_offset)` from a book progression (0.0 to 1.0).
+    pub fn position_from_progression(&self, total_progression: f64) -> Option<(usize, usize)> {
+        if self.entries.is_empty() {
+            return None;
+        }
+        let pct = if total_progression.is_nan() {
+            0.0
+        } else {
+            total_progression.clamp(0.0, 1.0)
+        };
+        if self.total_characters == 0 {
+            return Some((self.entries[0].spine_index, 0));
+        }
+        let target = (pct * self.total_characters as f64).round() as usize;
+        let mut acc = 0usize;
+        for entry in &self.entries {
+            let len = entry.char_end.saturating_sub(entry.char_start);
+            if target <= acc + len {
+                return Some((entry.spine_index, entry.char_start + (target - acc)));
+            }
+            acc += len;
+        }
+        self.entries.last().map(|e| (e.spine_index, e.char_end))
     }
 }

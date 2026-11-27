@@ -201,4 +201,50 @@ impl UniBook {
         EpubOptimizer::optimize(&mut cloned, &options);
         Ok(cloned.export_epub3_bytes()?)
     }
+
+    /// Get character-chunk Locations index formatted as a JSON string.
+    pub fn get_locations_json(&self) -> Result<String, String> {
+        let book = self.inner.read();
+        serde_json::to_string(book.locations())
+            .map_err(|e| format!("Failed to serialize locations: {}", e))
+    }
+
+    /// Generate a Readium-compliant unified Locator formatted as a JSON string.
+    pub fn to_readium_locator_json(
+        &self,
+        spine_index: u32,
+        char_offset: u32,
+    ) -> Result<String, String> {
+        let book = self.inner.read();
+        let locator = book
+            .to_readium_locator(spine_index as usize, char_offset as usize)
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string(&locator)
+            .map_err(|e| format!("Failed to serialize Readium locator: {}", e))
+    }
+
+    /// Get unified e-reader progress snapshot formatted as a JSON string.
+    pub fn get_book_progress_json(
+        &self,
+        spine_index: u32,
+        char_offset: u32,
+        wpm: Option<u32>,
+    ) -> Result<String, String> {
+        let book = self.inner.read();
+        let progress = book
+            .book_progress(spine_index as usize, char_offset as usize, wpm)
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string(&progress)
+            .map_err(|e| format!("Failed to serialize book progress: {}", e))
+    }
+
+    /// Reverse-lookup a Readium Locator formatted as a JSON string from a whole-book progression (0.0..=1.0).
+    pub fn locator_from_progression_json(&self, total_progression: f64) -> Result<String, String> {
+        let book = self.inner.read();
+        let locator = book
+            .locator_from_progression(total_progression)
+            .map_err(|e| e.to_string())?;
+        serde_json::to_string(&locator)
+            .map_err(|e| format!("Failed to serialize Readium locator: {}", e))
+    }
 }

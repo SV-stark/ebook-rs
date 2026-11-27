@@ -1287,9 +1287,35 @@ impl Book {
             .locations
             .location_from_char_offset(spine_index, char_offset);
         let loc_idx = loc_entry.map(|e| e.location).unwrap_or(1);
-        let total_progression = self.locations.percentage_from_location(loc_idx);
+        let total_progression = if self.locations.total_characters > 0 {
+            self.locations
+                .progression_from_char_offset(spine_index, char_offset)
+        } else {
+            let needs_hydration =
+                !self.sections.is_empty() && self.sections.iter().all(|s| s.char_count == 0);
+            let sections_owned;
+            let sections_slice: &[Section] = if needs_hydration {
+                sections_owned = self.get_all_sections_hydrated();
+                &sections_owned
+            } else {
+                &self.sections
+            };
+            let total_chars: usize = sections_slice.iter().map(|s| s.char_count).sum();
+            if total_chars == 0 {
+                0.0
+            } else {
+                let chars_before: usize = sections_slice
+                    .iter()
+                    .filter(|s| s.index < spine_index)
+                    .map(|s| s.char_count)
+                    .sum();
+                let clamped_off = char_offset.min(section.char_count);
+                ((chars_before + clamped_off) as f64 / total_chars as f64).clamp(0.0, 1.0)
+            }
+        };
 
         let fragment = find_nearest_element_id_anchor(&section.raw_html, char_offset);
+        let fragments = fragment.iter().cloned().collect();
 
         Ok(crate::locations::ReadiumLocator {
             href: section.href.clone(),
@@ -1298,6 +1324,7 @@ impl Book {
             locations: crate::locations::LocatorLocations {
                 cfi: Some(cfi),
                 fragment,
+                fragments,
                 position: Some(loc_idx),
                 progression,
                 total_progression,
@@ -1305,6 +1332,144 @@ impl Book {
             text: Some(serde_json::json!({
                 "highlight": section.plain_text.chars().skip(char_offset).take(100).collect::<String>()
             })),
+        })
+    }
+
+    /// Resolve a whole-book progression (`0.0..=1.0`) back to `(spine_index, char_offset)`.
+    pub fn position_from_progression(
+        &self,
+        total_progression: f64,
+    ) -> Result<(usize, usize), EbookError> {
+        if self.sections.is_empty() {
+            return Err(EbookError::NotFound("Book has no sections".to_string()));
+        }
+        if self.locations.total_characters > 0 {
+            Ok(self
+                .locations
+                .position_from_progression(total_progression)
+                .unwrap_or((0, 0)))
+        } else {
+            let temp_locations = self.locations_from_sections(1000);
+            Ok(temp_locations
+                .position_from_progression(total_progression)
+                .unwrap_or((0, 0)))
+        }
+    }
+
+    /// Resolve a whole-book progression (`0.0..=1.0`) to a [`crate::locations::ReadiumLocator`].
+    pub fn locator_from_progression(
+        &self,
+        total_progression: f64,
+    ) -> Result<crate::locations::ReadiumLocator, EbookError> {
+        let (spine_index, char_offset) = self.position_from_progression(total_progression)?;
+        self.to_readium_locator(spine_index, char_offset)
+    }
+
+    /// Estimate total reading time in minutes across the entire book at the given WPM (default 200).
+    pub fn book_reading_time_minutes(&self, wpm: Option<u32>) -> f32 {
+        let speed = wpm.unwrap_or(200).max(1) as f32;
+        let total_words: usize = self
+            .get_all_sections_hydrated()
+            .iter()
+            .map(|s| count_words(&s.plain_text))
+            .sum();
+        round_tenths(total_words as f32 / speed)
+    }
+
+    /// Compute a unified e-reader progress snapshot for a spine index and character offset.
+    pub fn book_progress(
+        &self,
+        spine_index: usize,
+        char_offset: usize,
+        wpm: Option<u32>,
+    ) -> Result<crate::locations::BookProgress, EbookError> {
+        let section = self.get_section(spine_index)?;
+        let words_per_minute = wpm.unwrap_or(200).max(1);
+
+        let temp_locations;
+        let effective_locations = if self.locations.total_characters > 0 {
+            &self.locations
+        } else {
+            temp_locations = self.locations_from_sections(1000);
+            &temp_locations
+        };
+
+        let clamped_offset = char_offset.min(section.char_count);
+        let chapter_progression = if section.char_count == 0 {
+            0.0
+        } else {
+            (clamped_offset as f64 / section.char_count as f64).clamp(0.0, 1.0)
+        };
+        let book_progression =
+            effective_locations.progression_from_char_offset(spine_index, clamped_offset);
+        let location = effective_locations
+            .location_from_char_offset(spine_index, clamped_offset)
+            .map(|e| e.location)
+            .unwrap_or(1);
+        let total_locations = effective_locations.total_locations.max(1);
+        let cfi = Cfi::from_spine_index(spine_index, None, clamped_offset).to_string();
+
+        let nearest_fragment = find_nearest_element_id_anchor(&section.raw_html, clamped_offset);
+        let mut fallback_label: Option<String> = None;
+        let mut matched_label: Option<String> = None;
+        for item in &self.page_list {
+            let (item_path, item_frag) = match item.href.split_once('#') {
+                Some((p, f)) => (p, Some(f)),
+                None => (item.href.as_str(), None),
+            };
+            if item_path == section.href {
+                let label = if item.label.trim().is_empty() {
+                    item.page.clone()
+                } else {
+                    item.label.clone()
+                };
+                if fallback_label.is_none() {
+                    fallback_label = Some(label.clone());
+                }
+                if let (Some(nf), Some(itf)) = (nearest_fragment.as_deref(), item_frag)
+                    && nf == itf
+                {
+                    matched_label = Some(label);
+                    break;
+                }
+            }
+        }
+        let page_label = matched_label.or(fallback_label);
+
+        let remaining_byte_offset = section
+            .plain_text
+            .char_indices()
+            .nth(clamped_offset)
+            .map(|(b, _)| b)
+            .unwrap_or(section.plain_text.len());
+        let remaining_slice = &section.plain_text[remaining_byte_offset..];
+        let chapter_remaining_words = count_words(remaining_slice);
+
+        let subsequent_words: usize = self
+            .get_all_sections_hydrated()
+            .iter()
+            .filter(|s| s.index > spine_index)
+            .map(|s| count_words(&s.plain_text))
+            .sum();
+
+        let chapter_time_left_minutes =
+            round_tenths(chapter_remaining_words as f32 / words_per_minute as f32);
+        let book_time_left_minutes = round_tenths(
+            (chapter_remaining_words + subsequent_words) as f32 / words_per_minute as f32,
+        );
+
+        Ok(crate::locations::BookProgress {
+            spine_index,
+            char_offset: clamped_offset,
+            chapter_progression,
+            book_progression,
+            location,
+            total_locations,
+            page_label,
+            cfi,
+            chapter_time_left_minutes,
+            book_time_left_minutes,
+            words_per_minute,
         })
     }
 
@@ -1328,6 +1493,66 @@ impl Book {
     ) -> Result<Vec<crate::search::SearchResult>, EbookError> {
         let sections = self.get_all_sections_hydrated();
         crate::search::SearchEngine::search_regex_limited(&sections, pattern, max_results)
+    }
+
+    /// Format search results into a Readium-compliant Search Collection JSON
+    /// (`application/vnd.readium.search+json`) with grouped spine `href`s and plain-text
+    /// `text.before` / `text.highlight` / `text.after` context.
+    pub fn to_readium_search_json(
+        &self,
+        results: &[crate::search::SearchResult],
+        query: &str,
+    ) -> Result<String, EbookError> {
+        let query_char_len = query.chars().count();
+        let mut grouped: std::collections::BTreeMap<usize, Vec<serde_json::Value>> =
+            std::collections::BTreeMap::new();
+
+        for r in results {
+            let locator = self.to_readium_locator(r.spine_index, r.char_offset)?;
+            let section = self.get_section(r.spine_index)?;
+
+            let (before, highlight, after) =
+                extract_plain_text_context(&section.plain_text, r.char_offset, query_char_len, 50);
+
+            let loc_json = serde_json::json!({
+                "href": locator.href,
+                "type": locator.type_,
+                "title": locator.title,
+                "locations": locator.locations,
+                "text": {
+                    "before": before,
+                    "highlight": highlight,
+                    "after": after
+                }
+            });
+            grouped.entry(r.spine_index).or_default().push(loc_json);
+        }
+
+        let groups: Vec<serde_json::Value> = grouped
+            .into_iter()
+            .map(|(spine_idx, locators)| {
+                serde_json::json!({
+                    "metadata": {
+                        "title": format!("Section {}", spine_idx + 1),
+                        "numberOfItems": locators.len()
+                    },
+                    "locators": locators
+                })
+            })
+            .collect();
+
+        let collection = serde_json::json!({
+            "@context": "https://readium.org/webpub-manifest/context.jsonld",
+            "metadata": {
+                "numberOfItems": results.len(),
+                "query": query
+            },
+            "groups": groups
+        });
+
+        serde_json::to_string_pretty(&collection).map_err(|e| {
+            EbookError::Custom(format!("Failed to serialize Readium Search JSON: {}", e))
+        })
     }
 
     /// Perform structural validation on this Book instance (EpubValidator).
@@ -2039,6 +2264,53 @@ fn find_nearest_element_id_anchor(html: &str, char_offset: usize) -> Option<Stri
     }
 
     last_id
+}
+
+fn count_words(text: &str) -> usize {
+    text.split_whitespace()
+        .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()))
+        .filter(|w| !w.is_empty())
+        .count()
+}
+
+fn round_tenths(val: f32) -> f32 {
+    (val * 10.0).round() / 10.0
+}
+
+fn extract_plain_text_context(
+    plain_text: &str,
+    char_offset: usize,
+    highlight_chars: usize,
+    window: usize,
+) -> (String, String, String) {
+    let total_chars = plain_text.chars().count();
+    let start_char = char_offset.min(total_chars);
+    let end_char = start_char.saturating_add(highlight_chars).min(total_chars);
+    let before_start_char = start_char.saturating_sub(window);
+    let after_end_char = end_char.saturating_add(window).min(total_chars);
+
+    let byte_at = |c_idx: usize| -> usize {
+        if c_idx >= total_chars {
+            plain_text.len()
+        } else {
+            plain_text
+                .char_indices()
+                .nth(c_idx)
+                .map(|(b, _)| b)
+                .unwrap_or(plain_text.len())
+        }
+    };
+
+    let b0 = byte_at(before_start_char);
+    let b1 = byte_at(start_char);
+    let b2 = byte_at(end_char);
+    let b3 = byte_at(after_end_char);
+
+    (
+        plain_text[b0..b1].to_string(),
+        plain_text[b1..b2].to_string(),
+        plain_text[b2..b3].to_string(),
+    )
 }
 
 /// Serializable cache representation of a `Book` state for `zstd` compressed state caching.
